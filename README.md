@@ -25,6 +25,8 @@ This is my first Rust project, with no prior experience or knowledge of the lang
 
 I was dissastisfied with any existing solution because they were either relying on `nircmd.exe`, which is not open source, and also didn't allow to lock the volume of specific devices, only the current default one.
 
+In fact, I used [wolfinabox/Windows-Mic-Volume-Locker](https://github.com/wolfinabox/Windows-Mic-Volume-Locker) for years before deciding to write my own solution.
+
 I was inspired by [AntoineGS/teams-status-rs](https://github.com/AntoineGS/teams-status-rs) being so amazing in such a lightweight package. I wanted to do something similar, but for volume locking.
 
 Thanks [Kingloo/volume](https://github.com/Kingloo/volume) for the Windows volume control code. I copied pretty much everything from there.
