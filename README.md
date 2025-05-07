@@ -1,8 +1,12 @@
 # Volume Locker
 
+<img align="right" width="200" alt="Volume Locker" src="https://github.com/user-attachments/assets/7c05bef9-737b-4630-86c1-82a58055a0a4" />
+
 Tired of certain apps changing your microphone volume level when you don't want them to?
 
 Volume Locker is a tray icon app that keeps the volume of your audio devices locked. It is a portable, less than 1MB binary written in Rust for Windows.
+
+## Demo
 
 https://github.com/user-attachments/assets/0117fd87-63a6-49f8-9ae5-93ddbe7259a6
 
