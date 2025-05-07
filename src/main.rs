@@ -30,7 +30,7 @@ use auto_launch::{AutoLaunch, AutoLaunchBuilder};
 
 const APP_NAME: &str = "Volume Locker";
 const APP_UID: &str = "25fc6555-723f-414b-9fa0-b4b658d85b43";
-const STATE_FILE: &str = "state.json";
+const STATE_FILE: &str = "VolumeLockerState.json";
 const OUTPUT_DEVICES_LABEL: &str = "Output Devices";
 const INPUT_DEVICES_LABEL: &str = "Input Devices";
 
