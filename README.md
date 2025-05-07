@@ -1,8 +1,10 @@
 # Volume Locker
 
-A tray icon app that allows to lock the volume of your audio output or input devices. Windows only.
+Tired of certain apps changing your microphone volume level when you don't want them to?
 
-https://github.com/user-attachments/assets/72bd6d50-42ab-4337-b7a7-d55b9327a601
+Volume Locker is a tray icon app that keeps the volume of your audio devices locked. It is a portable, less than 1MB binary written in Rust for Windows.
+
+https://github.com/user-attachments/assets/0117fd87-63a6-49f8-9ae5-93ddbe7259a6
 
 ## Getting Started
 
@@ -16,3 +18,15 @@ When you want to lock the volume of your audio output or input devices:
 2. Click on the Volume Locker tray icon
 3. Select the device you want to lock the volume for
 4. Try messing with the volume of the device. It should return to the locked level shortly after.
+
+## Credits
+
+This is my first Rust project, with no prior experience or knowledge of the language. Don't expect the code to be pretty.
+
+I was inspired by [AntoineGS/teams-status-rs](https://github.com/AntoineGS/teams-status-rs) being so amazing in such a lightweight package. I wanted to do something similar, but for volume locking.
+
+Thanks [Kingloo/volume](https://github.com/Kingloo/volume) for the Windows volume control code. I copied pretty much everything from there.
+
+The barebones of the tray icon code were taken from [tauri-apps/tray-icon](https://github.com/tauri-apps/tray-icon)'s [tao example](https://github.com/tauri-apps/tray-icon/blob/97723fd207add9c3bb0511cb0e4d04d8652a0027/examples/tao.rs)
+
+[GitHub Copilot](https://github.com/copilot/) helped me a lot to glue everything together, and to get the syntax going.
