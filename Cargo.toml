@@ -23,6 +23,8 @@ tao = "0.33.0"
 tray-icon = "0.20.1"
 widestring = "1.0"
 single-instance = "0.3.3"
+log = "0.4.27"
+simplelog = "0.12.2"
 
 [dependencies.windows]
 version = "0.61"

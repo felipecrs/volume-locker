@@ -5,9 +5,11 @@
 #![allow(unused)]
 
 use serde::{Deserialize, Serialize};
+use simplelog::*;
 use single_instance::SingleInstance;
 use std::collections::HashMap;
 use std::fs;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::{thread, time::Duration};
 use tao::{
@@ -36,6 +38,7 @@ use windows::core::Result;
 const APP_NAME: &str = "Volume Locker";
 const APP_UID: &str = "25fc6555-723f-414b-9fa0-b4b658d85b43";
 const STATE_FILE_NAME: &str = "VolumeLockerState.json";
+const LOG_FILE_NAME: &str = "VolumeLocker.log";
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 enum DeviceType {
@@ -78,10 +81,26 @@ enum UserEvent {
 }
 
 fn main() {
+    let log_path = get_executable_directory().join(LOG_FILE_NAME);
+    let mut loggers: Vec<Box<dyn SharedLogger>> = Vec::new();
+    loggers.push(WriteLogger::new(
+        LevelFilter::Info,
+        Config::default(),
+        File::create(&log_path).unwrap(),
+    ));
+    #[cfg(debug_assertions)]
+    loggers.push(TermLogger::new(
+        LevelFilter::Info,
+        Config::default(),
+        TerminalMode::Stderr,
+        ColorChoice::Auto,
+    ));
+    CombinedLogger::init(loggers).unwrap();
+
     // Only allow one instance of the application to run at a time
     let instance = SingleInstance::new(APP_UID).expect("Failed to create single instance");
     if !instance.is_single() {
-        println!("Another instance is already running.");
+        log::error!("Another instance is already running.");
         std::process::exit(1);
     }
 
@@ -137,7 +156,7 @@ fn main() {
     let mut tray_icon = None;
 
     let mut persistent_state = load_state();
-    println!("Loaded: {:?}", persistent_state);
+    log::info!("Loaded: {:?}", persistent_state);
 
     // Map menu item ids to device information
     let mut menu_id_to_device: HashMap<MenuId, MenuItemDeviceInfo> = HashMap::new();
@@ -194,7 +213,7 @@ fn main() {
                                     .remove(&device_info.device_id);
                             }
                             save_state(&persistent_state);
-                            println!("Saved: {:?}", persistent_state);
+                            log::info!("Saved: {:?}", persistent_state);
                         }
                     }
                 }
@@ -354,7 +373,9 @@ fn set_volume(device: &IMMDevice, new_volume_percent: f32) -> Result<()> {
             let new_volume = new_volume_percent / 100f32;
             audio_endpoint.SetMasterVolumeLevelScalar(new_volume, std::ptr::null());
             let name: String = get_device_name(device)?;
-            println!("Adjusted volume of {name} from {current_percent}% to {new_volume_percent}%");
+            log::info!(
+                "Adjusted volume of {name} from {current_percent}% to {new_volume_percent}%"
+            );
         }
         Ok(())
     }
