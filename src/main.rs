@@ -1,38 +1,37 @@
 #![cfg_attr(
-    all(
-      target_os = "windows",
-      not(debug_assertions),
-    ),
+    all(target_os = "windows", not(debug_assertions),),
     windows_subsystem = "windows"
-  )]
-
+)]
 #![allow(unused)]
 
+use serde::{Deserialize, Serialize};
+use single_instance::SingleInstance;
+use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
+use std::{thread, time::Duration};
 use tao::{
     event::Event,
     event_loop::{ControlFlow, EventLoopBuilder},
 };
 use tray_icon::{
+    MouseButton, TrayIconBuilder, TrayIconEvent,
     menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem},
-    TrayIconBuilder, TrayIconEvent, MouseButton,
 };
-use single_instance::SingleInstance;
-use std::{thread, time::Duration};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::fs;
-use std::path::Path;
 
-use windows::core::Result;
+use auto_launch::AutoLaunchBuilder;
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_ContainerId;
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
 use windows::Win32::Media::Audio::{
-	eCapture, eConsole, eRender, IMMDevice, IMMDeviceCollection, IMMDeviceEnumerator, MMDeviceEnumerator, DEVICE_STATE_ACTIVE,
+    DEVICE_STATE_ACTIVE, IMMDevice, IMMDeviceCollection, IMMDeviceEnumerator, MMDeviceEnumerator,
+    eCapture, eConsole, eRender,
 };
 use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
-use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, STGM_READ};
-use auto_launch::AutoLaunchBuilder;
+use windows::Win32::System::Com::{
+    CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, STGM_READ,
+};
+use windows::core::Result;
 
 const APP_NAME: &str = "Volume Locker";
 const APP_UID: &str = "25fc6555-723f-414b-9fa0-b4b658d85b43";
@@ -73,9 +72,11 @@ fn main() {
     }));
 
     let proxy = event_loop.create_proxy();
-    thread::spawn(move || loop {
-        thread::sleep(Duration::from_secs(5));
-        proxy.send_event(UserEvent::Heartbeat);
+    thread::spawn(move || {
+        loop {
+            thread::sleep(Duration::from_secs(5));
+            proxy.send_event(UserEvent::Heartbeat);
+        }
     });
 
     let device_enumerator: IMMDeviceEnumerator = unsafe {
@@ -84,7 +85,11 @@ fn main() {
             .expect("CoCreateInstance failed")
     };
 
-    let app_path = std::env::current_exe().unwrap().to_str().unwrap().to_string();
+    let app_path = std::env::current_exe()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
     let auto = AutoLaunchBuilder::new()
         .set_app_name(APP_NAME)
         .set_app_path(&app_path)
@@ -92,7 +97,8 @@ fn main() {
         .unwrap();
 
     let auto_launch_enabled: bool = auto.is_enabled().unwrap_or(false);
-    let auto_launch_i: CheckMenuItem = CheckMenuItem::new("Auto launch on startup", true, auto_launch_enabled, None);
+    let auto_launch_i: CheckMenuItem =
+        CheckMenuItem::new("Auto launch on startup", true, auto_launch_enabled, None);
 
     let quit_i = MenuItem::new("Quit", true, None);
 
@@ -114,7 +120,8 @@ fn main() {
 
         match event {
             Event::NewEvents(tao::event::StartCause::Init) => {
-                let icon: tray_icon::Icon = tray_icon::Icon::from_resource_name("app-icon", None).unwrap();
+                let icon: tray_icon::Icon =
+                    tray_icon::Icon::from_resource_name("app-icon", None).unwrap();
                 let tooltip = format!("Volume Locker v{}", env!("CARGO_PKG_VERSION"));
                 tray_icon = Some(
                     TrayIconBuilder::new()
@@ -146,14 +153,24 @@ fn main() {
                             for menu_item in tray_menu.items() {
                                 if let Some(mi) = menu_item.as_menuitem() {
                                     match mi.text().as_str() {
-                                        OUTPUT_DEVICES_LABEL => { is_output = true; is_input = false; }
-                                        INPUT_DEVICES_LABEL => { is_output = false; is_input = true; }
+                                        OUTPUT_DEVICES_LABEL => {
+                                            is_output = true;
+                                            is_input = false;
+                                        }
+                                        INPUT_DEVICES_LABEL => {
+                                            is_output = false;
+                                            is_input = true;
+                                        }
                                         _ => {}
                                     }
                                 }
                                 if let Some(check) = menu_item.as_check_menuitem() {
                                     if check.text() == check_item.text() {
-                                        device_id = find_device_id_by_name(&device_enumerator, is_output, &name);
+                                        device_id = find_device_id_by_name(
+                                            &device_enumerator,
+                                            is_output,
+                                            &name,
+                                        );
                                         break;
                                     }
                                 }
@@ -199,7 +216,11 @@ fn main() {
                                 }
 
                                 tray_menu.append(&MenuItem::new(OUTPUT_DEVICES_LABEL, false, None));
-                                let output_devices: IMMDeviceCollection = unsafe { device_enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE).unwrap() };
+                                let output_devices: IMMDeviceCollection = unsafe {
+                                    device_enumerator
+                                        .EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)
+                                        .unwrap()
+                                };
                                 let output_count = unsafe { output_devices.GetCount().unwrap() };
                                 for i in 0..output_count {
                                     let device = unsafe { output_devices.Item(i).unwrap() };
@@ -207,15 +228,22 @@ fn main() {
                                     let device_id = get_device_id(&device).unwrap();
                                     let audio_endpoint = get_audio_endpoint(&device).unwrap();
                                     let volume = get_volume(&audio_endpoint).unwrap();
-                                    let is_default = is_default_output_device(&device_enumerator, &device);
+                                    let is_default =
+                                        is_default_output_device(&device_enumerator, &device);
                                     let label = to_label(&name, volume, is_default);
-                                    let checked = state.locked_output_devices.get(&device_id).is_some();
-                                    tray_menu.append(&CheckMenuItem::new(&label, true, checked, None));
+                                    let checked =
+                                        state.locked_output_devices.get(&device_id).is_some();
+                                    tray_menu
+                                        .append(&CheckMenuItem::new(&label, true, checked, None));
                                 }
                                 tray_menu.append(&PredefinedMenuItem::separator());
 
-                                tray_menu.append(&MenuItem::new(INPUT_DEVICES_LABEL, false,None));
-                                let input_devices: IMMDeviceCollection = unsafe { device_enumerator.EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE).unwrap() };
+                                tray_menu.append(&MenuItem::new(INPUT_DEVICES_LABEL, false, None));
+                                let input_devices: IMMDeviceCollection = unsafe {
+                                    device_enumerator
+                                        .EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE)
+                                        .unwrap()
+                                };
                                 let input_count = unsafe { input_devices.GetCount().unwrap() };
                                 for i in 0..input_count {
                                     let device = unsafe { input_devices.Item(i).unwrap() };
@@ -223,10 +251,13 @@ fn main() {
                                     let device_id = get_device_id(&device).unwrap();
                                     let audio_endpoint = get_audio_endpoint(&device).unwrap();
                                     let volume = get_volume(&audio_endpoint).unwrap();
-                                    let is_default = is_default_input_device(&device_enumerator, &device);
+                                    let is_default =
+                                        is_default_input_device(&device_enumerator, &device);
                                     let label = to_label(&name, volume, is_default);
-                                    let checked: bool = state.locked_input_devices.get(&device_id).is_some();
-                                    tray_menu.append(&CheckMenuItem::new(&label, true, checked, None));
+                                    let checked: bool =
+                                        state.locked_input_devices.get(&device_id).is_some();
+                                    tray_menu
+                                        .append(&CheckMenuItem::new(&label, true, checked, None));
                                 }
                                 tray_menu.append(&PredefinedMenuItem::separator());
 
@@ -248,7 +279,11 @@ fn main() {
                 // Adjust volume of locked devices
                 for (device_id, volume) in &state.locked_output_devices {
                     // Search for the device id in the output devices
-                    let output_devices: IMMDeviceCollection = unsafe { device_enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE).unwrap() };
+                    let output_devices: IMMDeviceCollection = unsafe {
+                        device_enumerator
+                            .EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)
+                            .unwrap()
+                    };
                     let output_count = unsafe { output_devices.GetCount().unwrap() };
                     for i in 0..output_count {
                         let device = unsafe { output_devices.Item(i).unwrap() };
@@ -262,7 +297,11 @@ fn main() {
 
                 for (device_id, volume) in &state.locked_input_devices {
                     // Search for the device id in the input devices
-                    let input_devices: IMMDeviceCollection = unsafe { device_enumerator.EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE).unwrap() };
+                    let input_devices: IMMDeviceCollection = unsafe {
+                        device_enumerator
+                            .EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE)
+                            .unwrap()
+                    };
                     let input_count = unsafe { input_devices.GetCount().unwrap() };
                     for i in 0..input_count {
                         let device = unsafe { input_devices.Item(i).unwrap() };
@@ -322,28 +361,30 @@ fn parse_label(label: &str) -> Option<(String, f32)> {
 
 fn get_default_output_device(device_enumerator: &IMMDeviceEnumerator) -> Result<IMMDevice> {
     unsafe {
-	    let default_device: IMMDevice = device_enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?;
+        let default_device: IMMDevice =
+            device_enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?;
         Ok(default_device)
     }
 }
 
 fn get_default_input_device(device_enumerator: &IMMDeviceEnumerator) -> Result<IMMDevice> {
-	unsafe {
-        let input_devices: IMMDeviceCollection = device_enumerator.EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE)?;
+    unsafe {
+        let input_devices: IMMDeviceCollection =
+            device_enumerator.EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE)?;
         let default_input_device = input_devices.Item(0)?;
         Ok(default_input_device)
     }
 }
 
 fn get_audio_endpoint(device: &IMMDevice) -> Result<IAudioEndpointVolume> {
-	unsafe {
+    unsafe {
         let audio_endpoint: IAudioEndpointVolume = device.Activate(CLSCTX_INPROC_SERVER, None)?;
         Ok(audio_endpoint)
     }
 }
 
 fn get_device_friendly_name(device: &IMMDevice) -> Result<String> {
-	unsafe {
+    unsafe {
         let prop_store = device.OpenPropertyStore(STGM_READ)?;
         let friendly_name_prop = prop_store.GetValue(&PKEY_Device_FriendlyName)?;
         let friendly_name = PropVariantToStringAlloc(&friendly_name_prop)?;
@@ -361,9 +402,7 @@ fn get_device_id(device: &IMMDevice) -> Result<String> {
 }
 
 fn get_volume(audio_endpoint: &IAudioEndpointVolume) -> Result<f32> {
-	unsafe {
-        audio_endpoint.GetMasterVolumeLevelScalar()
-    }
+    unsafe { audio_endpoint.GetMasterVolumeLevelScalar() }
 }
 
 fn convert_float_to_percent(volume: f32) -> f32 {
@@ -371,7 +410,7 @@ fn convert_float_to_percent(volume: f32) -> f32 {
 }
 
 fn adjust_volume(device: &IMMDevice, new_volume_percent: f32) -> Result<()> {
-	unsafe {
+    unsafe {
         let audio_endpoint: IAudioEndpointVolume = get_audio_endpoint(&device)?;
         let current_volume = get_volume(&audio_endpoint)?;
         let current_percent = convert_float_to_percent(current_volume);
@@ -391,11 +430,12 @@ fn find_device_id_by_name(
     name: &str,
 ) -> Option<String> {
     let endpoints = unsafe {
-        device_enumerator.EnumAudioEndpoints(
-            if is_output { eRender } else { eCapture },
-            DEVICE_STATE_ACTIVE,
-        )
-        .ok()?
+        device_enumerator
+            .EnumAudioEndpoints(
+                if is_output { eRender } else { eCapture },
+                DEVICE_STATE_ACTIVE,
+            )
+            .ok()?
     };
     let count = unsafe { endpoints.GetCount().ok()? };
     for i in 0..count {
@@ -409,7 +449,9 @@ fn find_device_id_by_name(
 
 fn is_default_output_device(device_enumerator: &IMMDeviceEnumerator, device: &IMMDevice) -> bool {
     if let Ok(default_device) = get_default_output_device(device_enumerator) {
-        if let (Ok(default_id), Ok(device_id)) = (get_device_id(&default_device), get_device_id(device)) {
+        if let (Ok(default_id), Ok(device_id)) =
+            (get_device_id(&default_device), get_device_id(device))
+        {
             return default_id == device_id;
         }
     }
@@ -418,7 +460,9 @@ fn is_default_output_device(device_enumerator: &IMMDeviceEnumerator, device: &IM
 
 fn is_default_input_device(device_enumerator: &IMMDeviceEnumerator, device: &IMMDevice) -> bool {
     if let Ok(default_device) = get_default_input_device(device_enumerator) {
-        if let (Ok(default_id), Ok(device_id)) = (get_device_id(&default_device), get_device_id(device)) {
+        if let (Ok(default_id), Ok(device_id)) =
+            (get_device_id(&default_device), get_device_id(device))
+        {
             return default_id == device_id;
         }
     }
