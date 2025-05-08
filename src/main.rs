@@ -1,4 +1,11 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(
+    all(
+      target_os = "windows",
+      not(debug_assertions),
+    ),
+    windows_subsystem = "windows"
+  )]
+
 #![allow(unused)]
 
 use tao::{
@@ -200,7 +207,8 @@ fn main() {
                                     let device_id = get_device_id(&device).unwrap();
                                     let audio_endpoint = get_audio_endpoint(&device).unwrap();
                                     let volume = get_volume(&audio_endpoint).unwrap();
-                                    let label = to_label(&name, volume);
+                                    let is_default = is_default_output_device(&device_enumerator, &device);
+                                    let label = to_label(&name, volume, is_default);
                                     let checked = state.locked_output_devices.get(&device_id).is_some();
                                     tray_menu.append(&CheckMenuItem::new(&label, true, checked, None));
                                 }
@@ -215,7 +223,8 @@ fn main() {
                                     let device_id = get_device_id(&device).unwrap();
                                     let audio_endpoint = get_audio_endpoint(&device).unwrap();
                                     let volume = get_volume(&audio_endpoint).unwrap();
-                                    let label = to_label(&name, volume);
+                                    let is_default = is_default_input_device(&device_enumerator, &device);
+                                    let label = to_label(&name, volume, is_default);
                                     let checked: bool = state.locked_input_devices.get(&device_id).is_some();
                                     tray_menu.append(&CheckMenuItem::new(&label, true, checked, None));
                                 }
@@ -288,17 +297,22 @@ fn load_state() -> State {
     State::default()
 }
 
-fn to_label(name: &str, volume: f32) -> String {
+fn to_label(name: &str, volume: f32, is_default: bool) -> String {
     let percent = convert_float_to_percent(volume);
-    format!("{name} · {percent}%")
+    let default_indicator = if is_default { " · ☆" } else { "" };
+    format!("{}{} · {}%", name, default_indicator, percent)
 }
 
 fn parse_label(label: &str) -> Option<(String, f32)> {
-    // Expects label in format: "Device Name · 50%"
-    let parts: Vec<&str> = label.rsplitn(2, '·').collect();
-    if parts.len() == 2 {
-        let volume_str = parts[0].trim().trim_end_matches('%');
-        let name = parts[1].trim().to_string();
+    // Split by the dot separator
+    let parts: Vec<&str> = label.split(" · ").collect();
+    if parts.len() >= 2 {
+        // First element is always the device name
+        let name = parts[0].trim().to_string();
+
+        // Last element is always the volume percentage
+        let last_part = parts[parts.len() - 1];
+        let volume_str = last_part.trim().trim_end_matches('%');
         if let Ok(volume) = volume_str.parse::<f32>() {
             return Some((name, volume));
         }
@@ -371,7 +385,6 @@ fn adjust_volume(device: &IMMDevice, new_volume_percent: f32) -> Result<()> {
     }
 }
 
-// Helper to find a device ID by name
 fn find_device_id_by_name(
     device_enumerator: &IMMDeviceEnumerator,
     is_output: bool,
@@ -392,4 +405,22 @@ fn find_device_id_by_name(
         }
     }
     None
+}
+
+fn is_default_output_device(device_enumerator: &IMMDeviceEnumerator, device: &IMMDevice) -> bool {
+    if let Ok(default_device) = get_default_output_device(device_enumerator) {
+        if let (Ok(default_id), Ok(device_id)) = (get_device_id(&default_device), get_device_id(device)) {
+            return default_id == device_id;
+        }
+    }
+    false
+}
+
+fn is_default_input_device(device_enumerator: &IMMDeviceEnumerator, device: &IMMDevice) -> bool {
+    if let Ok(default_device) = get_default_input_device(device_enumerator) {
+        if let (Ok(default_id), Ok(device_id)) = (get_device_id(&default_device), get_device_id(device)) {
+            return default_id == device_id;
+        }
+    }
+    false
 }
