@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use single_instance::SingleInstance;
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::{thread, time::Duration};
 use tao::{
     event::Event,
@@ -35,7 +35,7 @@ use windows::core::Result;
 
 const APP_NAME: &str = "Volume Locker";
 const APP_UID: &str = "25fc6555-723f-414b-9fa0-b4b658d85b43";
-const STATE_FILE: &str = "VolumeLockerState.json";
+const STATE_FILE_NAME: &str = "VolumeLockerState.json";
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct State {
@@ -90,11 +90,7 @@ fn main() {
             .expect("CoCreateInstance failed")
     };
 
-    let app_path = std::env::current_exe()
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .to_string();
+    let app_path = get_executable_path().to_str().unwrap().to_string();
     let auto = AutoLaunchBuilder::new()
         .set_app_name(APP_NAME)
         .set_app_path(&app_path)
@@ -209,7 +205,7 @@ fn main() {
                                 let output_count = unsafe { output_devices.GetCount().unwrap() };
                                 for i in 0..output_count {
                                     let device = unsafe { output_devices.Item(i).unwrap() };
-                                    let name = get_device_friendly_name(&device).unwrap();
+                                    let name = get_device_name(&device).unwrap();
                                     let device_id = get_device_id(&device).unwrap();
                                     let audio_endpoint = get_audio_endpoint(&device).unwrap();
                                     let volume = get_volume(&audio_endpoint).unwrap();
@@ -246,7 +242,7 @@ fn main() {
                                 let input_count = unsafe { input_devices.GetCount().unwrap() };
                                 for i in 0..input_count {
                                     let device = unsafe { input_devices.Item(i).unwrap() };
-                                    let name = get_device_friendly_name(&device).unwrap();
+                                    let name = get_device_name(&device).unwrap();
                                     let device_id = get_device_id(&device).unwrap();
                                     let audio_endpoint = get_audio_endpoint(&device).unwrap();
                                     let volume = get_volume(&audio_endpoint).unwrap();
@@ -301,7 +297,7 @@ fn main() {
                         let device = unsafe { output_devices.Item(i).unwrap() };
                         let id = get_device_id(&device).unwrap();
                         if id == *device_id {
-                            adjust_volume(&device, *volume).unwrap();
+                            set_volume(&device, *volume).unwrap();
                             break;
                         }
                     }
@@ -319,7 +315,7 @@ fn main() {
                         let device = unsafe { input_devices.Item(i).unwrap() };
                         let id = get_device_id(&device).unwrap();
                         if id == *device_id {
-                            adjust_volume(&device, *volume).unwrap();
+                            set_volume(&device, *volume).unwrap();
                             break;
                         }
                     }
@@ -331,15 +327,32 @@ fn main() {
     })
 }
 
+fn get_executable_directory() -> PathBuf {
+    std::env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf()
+}
+
+fn get_executable_path() -> PathBuf {
+    std::env::current_exe().unwrap()
+}
+
+fn get_state_file_path() -> PathBuf {
+    get_executable_directory().join(STATE_FILE_NAME)
+}
+
 fn save_state(state: &State) {
     if let Ok(json) = serde_json::to_string_pretty(state) {
-        let _ = fs::write(STATE_FILE, json);
+        let _ = fs::write(get_state_file_path(), json);
     }
 }
 
 fn load_state() -> State {
-    if Path::new(STATE_FILE).exists() {
-        if let Ok(data) = fs::read_to_string(STATE_FILE) {
+    let state_path = get_state_file_path();
+    if state_path.exists() {
+        if let Ok(data) = fs::read_to_string(state_path) {
             if let Ok(state) = serde_json::from_str(&data) {
                 return state;
             }
@@ -353,23 +366,6 @@ fn to_label(name: &str, volume_percent: f32, is_default: bool) -> String {
     format!("{}{} · {}%", name, default_indicator, volume_percent)
 }
 
-fn get_default_output_device(device_enumerator: &IMMDeviceEnumerator) -> Result<IMMDevice> {
-    unsafe {
-        let default_device: IMMDevice =
-            device_enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?;
-        Ok(default_device)
-    }
-}
-
-fn get_default_input_device(device_enumerator: &IMMDeviceEnumerator) -> Result<IMMDevice> {
-    unsafe {
-        let input_devices: IMMDeviceCollection =
-            device_enumerator.EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE)?;
-        let default_input_device = input_devices.Item(0)?;
-        Ok(default_input_device)
-    }
-}
-
 fn get_audio_endpoint(device: &IMMDevice) -> Result<IAudioEndpointVolume> {
     unsafe {
         let audio_endpoint: IAudioEndpointVolume = device.Activate(CLSCTX_INPROC_SERVER, None)?;
@@ -377,7 +373,7 @@ fn get_audio_endpoint(device: &IMMDevice) -> Result<IAudioEndpointVolume> {
     }
 }
 
-fn get_device_friendly_name(device: &IMMDevice) -> Result<String> {
+fn get_device_name(device: &IMMDevice) -> Result<String> {
     unsafe {
         let prop_store = device.OpenPropertyStore(STGM_READ)?;
         let friendly_name_prop = prop_store.GetValue(&PKEY_Device_FriendlyName)?;
@@ -403,7 +399,7 @@ fn convert_float_to_percent(volume: f32) -> f32 {
     (volume * 100f32).round()
 }
 
-fn adjust_volume(device: &IMMDevice, new_volume_percent: f32) -> Result<()> {
+fn set_volume(device: &IMMDevice, new_volume_percent: f32) -> Result<()> {
     unsafe {
         let audio_endpoint: IAudioEndpointVolume = get_audio_endpoint(&device)?;
         let current_volume = get_volume(&audio_endpoint)?;
@@ -411,10 +407,27 @@ fn adjust_volume(device: &IMMDevice, new_volume_percent: f32) -> Result<()> {
         if current_percent != new_volume_percent {
             let new_volume = new_volume_percent / 100f32;
             audio_endpoint.SetMasterVolumeLevelScalar(new_volume, std::ptr::null());
-            let name: String = get_device_friendly_name(device)?;
+            let name: String = get_device_name(device)?;
             println!("Adjusted volume of {name} from {current_percent}% to {new_volume_percent}%");
         }
         Ok(())
+    }
+}
+
+fn get_default_output_device(device_enumerator: &IMMDeviceEnumerator) -> Result<IMMDevice> {
+    unsafe {
+        let default_device: IMMDevice =
+            device_enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?;
+        Ok(default_device)
+    }
+}
+
+fn get_default_input_device(device_enumerator: &IMMDeviceEnumerator) -> Result<IMMDevice> {
+    unsafe {
+        let input_devices: IMMDeviceCollection =
+            device_enumerator.EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE)?;
+        let default_input_device = input_devices.Item(0)?;
+        Ok(default_input_device)
     }
 }
 
