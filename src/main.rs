@@ -47,6 +47,7 @@ enum DeviceType {
 struct DeviceLockedInfo {
     volume_percent: f32,
     device_type: DeviceType,
+    name: String, // Store device name
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -67,6 +68,7 @@ struct MenuItemDeviceInfo {
     device_id: String,
     volume_percent: f32,
     device_type: DeviceType,
+    name: String,
 }
 
 enum UserEvent {
@@ -183,6 +185,7 @@ fn main() {
                                     DeviceLockedInfo {
                                         volume_percent: device_info.volume_percent,
                                         device_type: device_info.device_type,
+                                        name: device_info.name.clone(),
                                     },
                                 );
                             } else {
@@ -430,6 +433,7 @@ fn populate_device_menu_items(
             menu_item.id().clone(),
             MenuItemDeviceInfo {
                 device_id,
+                name,
                 volume_percent,
                 device_type,
             },
