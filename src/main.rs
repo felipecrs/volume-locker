@@ -38,14 +38,19 @@ const APP_UID: &str = "25fc6555-723f-414b-9fa0-b4b658d85b43";
 const STATE_FILE_NAME: &str = "VolumeLockerState.json";
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-struct State {
-    locked_output_devices: HashMap<String, f32>,
-    locked_input_devices: HashMap<String, f32>,
+struct DeviceLockedInfo {
+    volume_percent: f32,
+    is_output: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct PersistentState {
+    locked_devices: HashMap<String, DeviceLockedInfo>,
 }
 
 #[derive(Debug)]
-struct DeviceInfo {
-    id: String,
+struct MenuItemDeviceInfo {
+    device_id: String,
     volume_percent: f32,
     is_output: bool,
 }
@@ -115,11 +120,11 @@ fn main() {
 
     let mut tray_icon = None;
 
-    let mut state = load_state();
-    println!("Loaded: {:?}", state);
+    let mut persistent_state = load_state();
+    println!("Loaded: {:?}", persistent_state);
 
     // Map menu item ids to device information
-    let mut menu_id_to_device: HashMap<MenuId, DeviceInfo> = HashMap::new();
+    let mut menu_id_to_device: HashMap<MenuId, MenuItemDeviceInfo> = HashMap::new();
 
     MenuEvent::receiver();
     TrayIconEvent::receiver();
@@ -158,25 +163,21 @@ fn main() {
                     // Check if the menu item is checked
                     if let Some(item) = tray_menu.items().iter().find(|i| i.id() == &event.id) {
                         if let Some(check_item) = item.as_check_menuitem() {
-                            if device_info.is_output {
-                                if check_item.is_checked() {
-                                    state
-                                        .locked_output_devices
-                                        .insert(device_info.id.clone(), device_info.volume_percent);
-                                } else {
-                                    state.locked_output_devices.remove(&device_info.id);
-                                }
+                            if check_item.is_checked() {
+                                persistent_state.locked_devices.insert(
+                                    device_info.device_id.clone(),
+                                    DeviceLockedInfo {
+                                        volume_percent: device_info.volume_percent,
+                                        is_output: device_info.is_output,
+                                    },
+                                );
                             } else {
-                                if check_item.is_checked() {
-                                    state
-                                        .locked_input_devices
-                                        .insert(device_info.id.clone(), device_info.volume_percent);
-                                } else {
-                                    state.locked_input_devices.remove(&device_info.id);
-                                }
+                                persistent_state
+                                    .locked_devices
+                                    .remove(&device_info.device_id);
                             }
-                            save_state(&state);
-                            println!("Saved: {:?}", state);
+                            save_state(&persistent_state);
+                            println!("Saved: {:?}", persistent_state);
                         }
                     }
                 }
@@ -189,85 +190,28 @@ fn main() {
                         if button == MouseButton::Right || button == MouseButton::Left {
                             if let Some(tray_icon) = &tray_icon {
                                 // Clear the menu
-                                for i in 0..tray_menu.items().len() {
+                                for _ in 0..tray_menu.items().len() {
                                     tray_menu.remove_at(0);
                                 }
-
-                                // Clear the device mapping when rebuilding the menu
                                 menu_id_to_device.clear();
 
-                                tray_menu.append(&output_devices_heading_item);
-                                let output_devices: IMMDeviceCollection = unsafe {
-                                    device_enumerator
-                                        .EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)
-                                        .unwrap()
-                                };
-                                let output_count = unsafe { output_devices.GetCount().unwrap() };
-                                for i in 0..output_count {
-                                    let device = unsafe { output_devices.Item(i).unwrap() };
-                                    let name = get_device_name(&device).unwrap();
-                                    let device_id = get_device_id(&device).unwrap();
-                                    let audio_endpoint = get_audio_endpoint(&device).unwrap();
-                                    let volume = get_volume(&audio_endpoint).unwrap();
-                                    let volume_percent = convert_float_to_percent(volume);
-                                    let is_default =
-                                        is_default_output_device(&device_enumerator, &device);
-                                    let label = to_label(&name, volume_percent, is_default);
-                                    let checked =
-                                        state.locked_output_devices.get(&device_id).is_some();
+                                populate_device_menu_items(
+                                    &tray_menu,
+                                    &output_devices_heading_item,
+                                    &device_enumerator,
+                                    &persistent_state,
+                                    &mut menu_id_to_device,
+                                    true,
+                                );
 
-                                    let menu_item: CheckMenuItem =
-                                        CheckMenuItem::new(&label, true, checked, None);
-
-                                    // Store the device info in the mapping
-                                    menu_id_to_device.insert(
-                                        menu_item.id().clone(),
-                                        DeviceInfo {
-                                            id: device_id,
-                                            volume_percent,
-                                            is_output: true,
-                                        },
-                                    );
-
-                                    tray_menu.append(&menu_item);
-                                }
-                                tray_menu.append(&PredefinedMenuItem::separator());
-
-                                tray_menu.append(&input_devices_heading_item);
-                                let input_devices: IMMDeviceCollection = unsafe {
-                                    device_enumerator
-                                        .EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE)
-                                        .unwrap()
-                                };
-                                let input_count = unsafe { input_devices.GetCount().unwrap() };
-                                for i in 0..input_count {
-                                    let device = unsafe { input_devices.Item(i).unwrap() };
-                                    let name = get_device_name(&device).unwrap();
-                                    let device_id = get_device_id(&device).unwrap();
-                                    let audio_endpoint = get_audio_endpoint(&device).unwrap();
-                                    let volume = get_volume(&audio_endpoint).unwrap();
-                                    let volume_percent = convert_float_to_percent(volume);
-                                    let is_default =
-                                        is_default_input_device(&device_enumerator, &device);
-                                    let label = to_label(&name, volume_percent, is_default);
-                                    let checked =
-                                        state.locked_input_devices.get(&device_id).is_some();
-
-                                    let menu_item = CheckMenuItem::new(&label, true, checked, None);
-
-                                    // Store the device info in the mapping
-                                    menu_id_to_device.insert(
-                                        menu_item.id().clone(),
-                                        DeviceInfo {
-                                            id: device_id,
-                                            volume_percent,
-                                            is_output: false,
-                                        },
-                                    );
-
-                                    tray_menu.append(&menu_item);
-                                }
-                                tray_menu.append(&PredefinedMenuItem::separator());
+                                populate_device_menu_items(
+                                    &tray_menu,
+                                    &input_devices_heading_item,
+                                    &device_enumerator,
+                                    &persistent_state,
+                                    &mut menu_id_to_device,
+                                    false,
+                                );
 
                                 // Refresh the auto launch state
                                 let auto_launch_enabled: bool = auto.is_enabled().unwrap();
@@ -285,37 +229,23 @@ fn main() {
 
             Event::UserEvent(UserEvent::Heartbeat) => {
                 // Adjust volume of locked devices
-                for (device_id, volume) in &state.locked_output_devices {
-                    // Search for the device id in the output devices
-                    let output_devices: IMMDeviceCollection = unsafe {
+                for (device_id, info) in &persistent_state.locked_devices {
+                    let (endpoint_type, is_output) = if info.is_output {
+                        (eRender, true)
+                    } else {
+                        (eCapture, false)
+                    };
+                    let devices: IMMDeviceCollection = unsafe {
                         device_enumerator
-                            .EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)
+                            .EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE)
                             .unwrap()
                     };
-                    let output_count = unsafe { output_devices.GetCount().unwrap() };
-                    for i in 0..output_count {
-                        let device = unsafe { output_devices.Item(i).unwrap() };
+                    let count = unsafe { devices.GetCount().unwrap() };
+                    for i in 0..count {
+                        let device = unsafe { devices.Item(i).unwrap() };
                         let id = get_device_id(&device).unwrap();
                         if id == *device_id {
-                            set_volume(&device, *volume).unwrap();
-                            break;
-                        }
-                    }
-                }
-
-                for (device_id, volume) in &state.locked_input_devices {
-                    // Search for the device id in the input devices
-                    let input_devices: IMMDeviceCollection = unsafe {
-                        device_enumerator
-                            .EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE)
-                            .unwrap()
-                    };
-                    let input_count = unsafe { input_devices.GetCount().unwrap() };
-                    for i in 0..input_count {
-                        let device = unsafe { input_devices.Item(i).unwrap() };
-                        let id = get_device_id(&device).unwrap();
-                        if id == *device_id {
-                            set_volume(&device, *volume).unwrap();
+                            set_volume(&device, info.volume_percent).unwrap();
                             break;
                         }
                     }
@@ -343,13 +273,13 @@ fn get_state_file_path() -> PathBuf {
     get_executable_directory().join(STATE_FILE_NAME)
 }
 
-fn save_state(state: &State) {
+fn save_state(state: &PersistentState) {
     if let Ok(json) = serde_json::to_string_pretty(state) {
         let _ = fs::write(get_state_file_path(), json);
     }
 }
 
-fn load_state() -> State {
+fn load_state() -> PersistentState {
     let state_path = get_state_file_path();
     if state_path.exists() {
         if let Ok(data) = fs::read_to_string(state_path) {
@@ -358,7 +288,7 @@ fn load_state() -> State {
             }
         }
     }
-    State::default()
+    PersistentState::default()
 }
 
 fn to_label(name: &str, volume_percent: f32, is_default: bool) -> String {
@@ -431,8 +361,17 @@ fn get_default_input_device(device_enumerator: &IMMDeviceEnumerator) -> Result<I
     }
 }
 
-fn is_default_output_device(device_enumerator: &IMMDeviceEnumerator, device: &IMMDevice) -> bool {
-    if let Ok(default_device) = get_default_output_device(device_enumerator) {
+fn is_default_device(
+    device_enumerator: &IMMDeviceEnumerator,
+    device: &IMMDevice,
+    is_output: bool,
+) -> bool {
+    let default_device = if is_output {
+        get_default_output_device(device_enumerator)
+    } else {
+        get_default_input_device(device_enumerator)
+    };
+    if let Ok(default_device) = default_device {
         if let (Ok(default_id), Ok(device_id)) =
             (get_device_id(&default_device), get_device_id(device))
         {
@@ -442,13 +381,45 @@ fn is_default_output_device(device_enumerator: &IMMDeviceEnumerator, device: &IM
     false
 }
 
-fn is_default_input_device(device_enumerator: &IMMDeviceEnumerator, device: &IMMDevice) -> bool {
-    if let Ok(default_device) = get_default_input_device(device_enumerator) {
-        if let (Ok(default_id), Ok(device_id)) =
-            (get_device_id(&default_device), get_device_id(device))
-        {
-            return default_id == device_id;
-        }
+fn populate_device_menu_items(
+    tray_menu: &Menu,
+    heading_item: &MenuItem,
+    device_enumerator: &IMMDeviceEnumerator,
+    persistent_state: &PersistentState,
+    menu_id_to_device: &mut HashMap<MenuId, MenuItemDeviceInfo>,
+    is_output: bool,
+) {
+    tray_menu.append(heading_item);
+    let endpoint_type = if is_output { eRender } else { eCapture };
+    let devices: IMMDeviceCollection = unsafe {
+        device_enumerator
+            .EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE)
+            .unwrap()
+    };
+    let count = unsafe { devices.GetCount().unwrap() };
+    for i in 0..count {
+        let device = unsafe { devices.Item(i).unwrap() };
+        let name = get_device_name(&device).unwrap();
+        let device_id = get_device_id(&device).unwrap();
+        let audio_endpoint = get_audio_endpoint(&device).unwrap();
+        let volume = get_volume(&audio_endpoint).unwrap();
+        let volume_percent = convert_float_to_percent(volume);
+        let is_default = is_default_device(device_enumerator, &device, is_output);
+        let label = to_label(&name, volume_percent, is_default);
+        let checked = persistent_state
+            .locked_devices
+            .get(&device_id)
+            .map_or(false, |info| info.is_output == is_output);
+        let menu_item = CheckMenuItem::new(&label, true, checked, None);
+        menu_id_to_device.insert(
+            menu_item.id().clone(),
+            MenuItemDeviceInfo {
+                device_id,
+                volume_percent,
+                is_output,
+            },
+        );
+        tray_menu.append(&menu_item);
     }
-    false
+    tray_menu.append(&PredefinedMenuItem::separator());
 }
