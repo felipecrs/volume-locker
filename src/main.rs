@@ -9,13 +9,15 @@ use tray_icon::{
     menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem},
     TrayIconBuilder, TrayIconEvent, MouseButton,
 };
+use single_instance::SingleInstance;
 use std::{thread, time::Duration};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use windows::{core::Result, Win32::{Devices::FunctionDiscovery::PKEY_Device_ContainerId, Foundation::ERROR_ALREADY_EXISTS}};
+use windows::core::Result;
+use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_ContainerId;
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
 use windows::Win32::Media::Audio::{
@@ -23,10 +25,7 @@ use windows::Win32::Media::Audio::{
 };
 use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
 use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, STGM_READ};
-use windows::Win32::Foundation::{CloseHandle, HANDLE};
-use windows::Win32::System::Threading::{CreateMutexW};
-use windows::core::PCWSTR;
-use auto_launch::{AutoLaunch, AutoLaunchBuilder};
+use auto_launch::AutoLaunchBuilder;
 
 const APP_NAME: &str = "Volume Locker";
 const APP_UID: &str = "25fc6555-723f-414b-9fa0-b4b658d85b43";
@@ -47,13 +46,9 @@ enum UserEvent {
 }
 
 fn main() {
-    // Single instance check
-    let mutex_name = widestring::U16CString::from_str_truncate(APP_UID);
-    let handle = unsafe {
-        CreateMutexW(None, false.into(), PCWSTR(mutex_name.as_ptr()))
-            .expect("Failed to create mutex")
-    };
-    if handle.is_invalid() || unsafe { windows::Win32::Foundation::GetLastError() } == ERROR_ALREADY_EXISTS {
+    // Only allow one instance of the application to run at a time
+    let instance = SingleInstance::new(APP_UID).expect("Failed to create single instance");
+    if !instance.is_single() {
         println!("Another instance is already running.");
         std::process::exit(1);
     }
