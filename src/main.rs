@@ -36,8 +36,6 @@ use windows::core::Result;
 const APP_NAME: &str = "Volume Locker";
 const APP_UID: &str = "25fc6555-723f-414b-9fa0-b4b658d85b43";
 const STATE_FILE: &str = "VolumeLockerState.json";
-const OUTPUT_DEVICES_LABEL: &str = "Output Devices";
-const INPUT_DEVICES_LABEL: &str = "Input Devices";
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct State {
@@ -103,16 +101,21 @@ fn main() {
         .build()
         .unwrap();
 
+    let output_devices_heading_item = MenuItem::new("Output devices", false, None);
+    let input_devices_heading_item = MenuItem::new("Input devices", false, None);
+
     let auto_launch_enabled: bool = auto.is_enabled().unwrap_or(false);
-    let auto_launch_i: CheckMenuItem =
+    let auto_launch_check_item: CheckMenuItem =
         CheckMenuItem::new("Auto launch on startup", true, auto_launch_enabled, None);
 
-    let quit_i = MenuItem::new("Quit", true, None);
+    let quit_item = MenuItem::new("Quit", true, None);
 
     let tray_menu = Menu::new();
     tray_menu.append(&MenuItem::new("Loading...", false, None));
-    tray_menu.append(&auto_launch_i);
-    tray_menu.append(&quit_i);
+    tray_menu.append(&PredefinedMenuItem::separator());
+    tray_menu.append(&auto_launch_check_item);
+    tray_menu.append(&PredefinedMenuItem::separator());
+    tray_menu.append(&quit_item);
 
     let mut tray_icon = None;
 
@@ -145,14 +148,14 @@ fn main() {
             }
 
             Event::UserEvent(UserEvent::MenuEvent(event)) => {
-                if event.id == auto_launch_i.id() {
-                    let checked = auto_launch_i.is_checked();
+                if event.id == auto_launch_check_item.id() {
+                    let checked = auto_launch_check_item.is_checked();
                     if checked {
                         let _ = auto.enable();
                     } else {
                         let _ = auto.disable();
                     }
-                } else if event.id == quit_i.id() {
+                } else if event.id == quit_item.id() {
                     tray_icon.take();
                     *control_flow = ControlFlow::Exit;
                 } else if let Some(device_info) = menu_id_to_device.get(&event.id) {
@@ -197,7 +200,7 @@ fn main() {
                                 // Clear the device mapping when rebuilding the menu
                                 menu_id_to_device.clear();
 
-                                tray_menu.append(&MenuItem::new(OUTPUT_DEVICES_LABEL, false, None));
+                                tray_menu.append(&output_devices_heading_item);
                                 let output_devices: IMMDeviceCollection = unsafe {
                                     device_enumerator
                                         .EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)
@@ -234,7 +237,7 @@ fn main() {
                                 }
                                 tray_menu.append(&PredefinedMenuItem::separator());
 
-                                tray_menu.append(&MenuItem::new(INPUT_DEVICES_LABEL, false, None));
+                                tray_menu.append(&input_devices_heading_item);
                                 let input_devices: IMMDeviceCollection = unsafe {
                                     device_enumerator
                                         .EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE)
@@ -272,11 +275,11 @@ fn main() {
 
                                 // Refresh the auto launch state
                                 let auto_launch_enabled: bool = auto.is_enabled().unwrap();
-                                auto_launch_i.set_checked(auto_launch_enabled);
-                                tray_menu.append(&auto_launch_i);
+                                auto_launch_check_item.set_checked(auto_launch_enabled);
+                                tray_menu.append(&auto_launch_check_item);
                                 tray_menu.append(&PredefinedMenuItem::separator());
 
-                                tray_menu.append(&quit_i);
+                                tray_menu.append(&quit_item);
                             }
                         }
                     }
