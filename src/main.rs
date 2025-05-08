@@ -37,22 +37,36 @@ const APP_NAME: &str = "Volume Locker";
 const APP_UID: &str = "25fc6555-723f-414b-9fa0-b4b658d85b43";
 const STATE_FILE_NAME: &str = "VolumeLockerState.json";
 
-#[derive(Debug, Serialize, Deserialize, Default)]
-struct DeviceLockedInfo {
-    volume_percent: f32,
-    is_output: bool,
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+enum DeviceType {
+    Input,
+    Output,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize)]
+struct DeviceLockedInfo {
+    volume_percent: f32,
+    device_type: DeviceType,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct PersistentState {
     locked_devices: HashMap<String, DeviceLockedInfo>,
+}
+
+impl Default for PersistentState {
+    fn default() -> Self {
+        PersistentState {
+            locked_devices: HashMap::new(),
+        }
+    }
 }
 
 #[derive(Debug)]
 struct MenuItemDeviceInfo {
     device_id: String,
     volume_percent: f32,
-    is_output: bool,
+    device_type: DeviceType,
 }
 
 enum UserEvent {
@@ -168,7 +182,7 @@ fn main() {
                                     device_info.device_id.clone(),
                                     DeviceLockedInfo {
                                         volume_percent: device_info.volume_percent,
-                                        is_output: device_info.is_output,
+                                        device_type: device_info.device_type,
                                     },
                                 );
                             } else {
@@ -201,7 +215,7 @@ fn main() {
                                     &device_enumerator,
                                     &persistent_state,
                                     &mut menu_id_to_device,
-                                    true,
+                                    DeviceType::Output,
                                 );
 
                                 populate_device_menu_items(
@@ -210,7 +224,7 @@ fn main() {
                                     &device_enumerator,
                                     &persistent_state,
                                     &mut menu_id_to_device,
-                                    false,
+                                    DeviceType::Input,
                                 );
 
                                 // Refresh the auto launch state
@@ -230,10 +244,9 @@ fn main() {
             Event::UserEvent(UserEvent::Heartbeat) => {
                 // Adjust volume of locked devices
                 for (device_id, info) in &persistent_state.locked_devices {
-                    let (endpoint_type, is_output) = if info.is_output {
-                        (eRender, true)
-                    } else {
-                        (eCapture, false)
+                    let (endpoint_type, is_output) = match info.device_type {
+                        DeviceType::Output => (eRender, true),
+                        DeviceType::Input => (eCapture, false),
                     };
                     let devices: IMMDeviceCollection = unsafe {
                         device_enumerator
@@ -364,12 +377,11 @@ fn get_default_input_device(device_enumerator: &IMMDeviceEnumerator) -> Result<I
 fn is_default_device(
     device_enumerator: &IMMDeviceEnumerator,
     device: &IMMDevice,
-    is_output: bool,
+    device_type: DeviceType,
 ) -> bool {
-    let default_device = if is_output {
-        get_default_output_device(device_enumerator)
-    } else {
-        get_default_input_device(device_enumerator)
+    let default_device = match device_type {
+        DeviceType::Output => get_default_output_device(device_enumerator),
+        DeviceType::Input => get_default_input_device(device_enumerator),
     };
     if let Ok(default_device) = default_device {
         if let (Ok(default_id), Ok(device_id)) =
@@ -387,10 +399,13 @@ fn populate_device_menu_items(
     device_enumerator: &IMMDeviceEnumerator,
     persistent_state: &PersistentState,
     menu_id_to_device: &mut HashMap<MenuId, MenuItemDeviceInfo>,
-    is_output: bool,
+    device_type: DeviceType,
 ) {
     tray_menu.append(heading_item);
-    let endpoint_type = if is_output { eRender } else { eCapture };
+    let endpoint_type = match device_type {
+        DeviceType::Output => eRender,
+        DeviceType::Input => eCapture,
+    };
     let devices: IMMDeviceCollection = unsafe {
         device_enumerator
             .EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE)
@@ -404,19 +419,19 @@ fn populate_device_menu_items(
         let audio_endpoint = get_audio_endpoint(&device).unwrap();
         let volume = get_volume(&audio_endpoint).unwrap();
         let volume_percent = convert_float_to_percent(volume);
-        let is_default = is_default_device(device_enumerator, &device, is_output);
+        let is_default = is_default_device(device_enumerator, &device, device_type);
         let label = to_label(&name, volume_percent, is_default);
         let checked = persistent_state
             .locked_devices
             .get(&device_id)
-            .map_or(false, |info| info.is_output == is_output);
+            .map_or(false, |info| info.device_type == device_type);
         let menu_item = CheckMenuItem::new(&label, true, checked, None);
         menu_id_to_device.insert(
             menu_item.id().clone(),
             MenuItemDeviceInfo {
                 device_id,
                 volume_percent,
-                is_output,
+                device_type,
             },
         );
         tray_menu.append(&menu_item);
