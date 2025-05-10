@@ -9,7 +9,7 @@ ProductName = "Volume Locker"
 ProductVersion = "0.2.0"
 CompanyName = "Felipe Santos"
 OriginalFilename = "VolumeLocker.exe"
-FileDescription = "A tray icon app that keeps the volume of your audio devices locked"
+FileDescription = "Volume Locker"
 
 [[bin]]
 name = "VolumeLocker"
