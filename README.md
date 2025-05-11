@@ -1,18 +1,20 @@
 # Volume Locker
 
-<img align="right" width="200" alt="Volume Locker" src="https://github.com/user-attachments/assets/7c05bef9-737b-4630-86c1-82a58055a0a4" />
+<img align="right" width="200" alt="Volume Locker" src="https://github.com/user-attachments/assets/20dbba8d-f86f-4f88-b72c-088180ecbe30" />
 
 Tired of apps changing your microphone volume without your consent?
 
 Volume Locker is a tray icon app that keeps the volume of your audio devices locked. It is a portable, less than 1MB binary written in Rust for Windows.
 
+Never worry about your microphone volume again!
+
 ## Demo
 
-https://github.com/user-attachments/assets/0117fd87-63a6-49f8-9ae5-93ddbe7259a6
+https://github.com/user-attachments/assets/d1e87dd3-8511-4c5f-824b-8b6f305abb33
 
 ## Getting Started
 
-Simply download the binary from the [releases page](https://github.com/felipecrs/volume-locker/releases), place it in some folder and run it.
+Simply download the executable from the [releases page](https://github.com/felipecrs/volume-locker/releases), place it somewhere like `C:\Apps\Volume Locker\Volume Locker.exe` and run it.
 
 ## Usage
 
@@ -38,3 +40,5 @@ Thanks [Kingloo/volume](https://github.com/Kingloo/volume) for the Windows volum
 The barebones of the tray icon code were taken from [tauri-apps/tray-icon](https://github.com/tauri-apps/tray-icon)'s [tao example](https://github.com/tauri-apps/tray-icon/blob/97723fd207add9c3bb0511cb0e4d04d8652a0027/examples/tao.rs)
 
 [GitHub Copilot](https://github.com/copilot/) helped me a lot to glue everything together, and to get the syntax going.
+
+Finally, thanks to [@jmb](https://github.com/jmb) for the [great icon design](https://github.com/Templarian/MaterialDesign/issues/7714).

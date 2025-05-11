@@ -161,6 +161,9 @@ fn main() {
     // Map menu item ids to device information
     let mut menu_id_to_device: HashMap<MenuId, MenuItemDeviceInfo> = HashMap::new();
 
+    let unlocked_icon = tray_icon::Icon::from_resource_name("volume-unlocked-icon", None).unwrap();
+    let locked_icon = tray_icon::Icon::from_resource_name("volume-locked-icon", None).unwrap();
+
     MenuEvent::receiver();
     TrayIconEvent::receiver();
 
@@ -169,14 +172,12 @@ fn main() {
 
         match event {
             Event::NewEvents(tao::event::StartCause::Init) => {
-                let icon: tray_icon::Icon =
-                    tray_icon::Icon::from_resource_name("app-icon", None).unwrap();
                 let tooltip = format!("Volume Locker v{}", env!("CARGO_PKG_VERSION"));
                 tray_icon = Some(
                     TrayIconBuilder::new()
                         .with_menu(Box::new(tray_menu.clone()))
                         .with_tooltip(&tooltip)
-                        .with_icon(icon)
+                        .with_icon(unlocked_icon.clone())
                         .with_id(APP_UID)
                         .build()
                         .unwrap(),
@@ -264,6 +265,7 @@ fn main() {
             }
 
             Event::UserEvent(UserEvent::Heartbeat) => {
+                let mut some_locked = false;
                 // Adjust volume of locked devices
                 for (device_id, info) in &persistent_state.locked_devices {
                     let (endpoint_type, is_output) = match info.device_type {
@@ -281,8 +283,19 @@ fn main() {
                         let id = get_device_id(&device).unwrap();
                         if id == *device_id {
                             set_volume(&device, info.volume_percent).unwrap();
+                            some_locked = true;
                             break;
                         }
+                    }
+                }
+                // Update tray icon if some device is locked
+                if some_locked {
+                    if let Some(tray_icon) = &tray_icon {
+                        tray_icon.set_icon(Some(locked_icon.clone())).unwrap();
+                    }
+                } else {
+                    if let Some(tray_icon) = &tray_icon {
+                        tray_icon.set_icon(Some(unlocked_icon.clone())).unwrap();
                     }
                 }
             }
