@@ -10,7 +10,7 @@ Never worry about your microphone volume again!
 
 ## Demo
 
-https://github.com/user-attachments/assets/d1e87dd3-8511-4c5f-824b-8b6f305abb33
+https://github.com/user-attachments/assets/772af810-0353-4db0-99ec-ab39c6cd6aab
 
 ## Getting Started
 
