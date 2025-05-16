@@ -17,23 +17,23 @@ use tao::{
     event_loop::{ControlFlow, EventLoopBuilder},
 };
 use tray_icon::{
-    MouseButton, TrayIconBuilder, TrayIconEvent,
     menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
+    MouseButton, TrayIconBuilder, TrayIconEvent,
 };
 
 use auto_launch::AutoLaunchBuilder;
+use windows::core::Result;
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_ContainerId;
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
 use windows::Win32::Media::Audio::{
-    DEVICE_STATE_ACTIVE, IMMDevice, IMMDeviceCollection, IMMDeviceEnumerator, MMDeviceEnumerator,
-    eCapture, eConsole, eRender,
+    eCapture, eConsole, eRender, IMMDevice, IMMDeviceCollection, IMMDeviceEnumerator,
+    MMDeviceEnumerator, DEVICE_STATE_ACTIVE,
 };
 use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
 use windows::Win32::System::Com::{
-    CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, STGM_READ,
+    CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, STGM_READ,
 };
-use windows::core::Result;
 
 const APP_NAME: &str = "Volume Locker";
 const APP_UID: &str = "25fc6555-723f-414b-9fa0-b4b658d85b43";
@@ -117,11 +117,9 @@ fn main() {
     }));
 
     let proxy = event_loop.create_proxy();
-    thread::spawn(move || {
-        loop {
-            thread::sleep(Duration::from_secs(5));
-            proxy.send_event(UserEvent::Heartbeat);
-        }
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(5));
+        proxy.send_event(UserEvent::Heartbeat);
     });
 
     let device_enumerator: IMMDeviceEnumerator = unsafe {
@@ -360,7 +358,7 @@ fn get_device_name(device: &IMMDevice) -> Result<String> {
     }
 }
 
-fn get_device_id(device: &IMMDevice) -> windows::core::Result<String> {
+fn get_device_id(device: &IMMDevice) -> Result<String> {
     unsafe {
         let dev_id = device.GetId()?.to_string()?;
         Ok(dev_id)
