@@ -34,6 +34,8 @@ use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, STGM_READ,
 };
 use windows::core::Result;
+use windows::core::PCWSTR;
+use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 
 const APP_NAME: &str = "Volume Locker";
 const APP_UID: &str = "25fc6555-723f-414b-9fa0-b4b658d85b43";
@@ -56,12 +58,14 @@ struct DeviceLockedInfo {
 #[derive(Debug, Serialize, Deserialize)]
 struct PersistentState {
     locked_devices: HashMap<String, DeviceLockedInfo>,
+    notify_on_volume_change: bool,
 }
 
 impl Default for PersistentState {
     fn default() -> Self {
         PersistentState {
             locked_devices: HashMap::new(),
+            notify_on_volume_change: false,
         }
     }
 }
@@ -96,6 +100,12 @@ fn main() {
         ColorChoice::Auto,
     ));
     CombinedLogger::init(loggers).unwrap();
+    // Register our own AppUserModelID for notifications
+    let mut wide: Vec<u16> = APP_UID.encode_utf16().collect();
+    wide.push(0);
+    unsafe {
+        SetCurrentProcessExplicitAppUserModelID(PCWSTR(wide.as_ptr()));
+    }
 
     // Only allow one instance of the application to run at a time
     let instance = SingleInstance::new(APP_UID).expect("Failed to create single instance");
@@ -144,12 +154,29 @@ fn main() {
     let auto_launch_check_item: CheckMenuItem =
         CheckMenuItem::new("Auto launch on startup", true, auto_launch_enabled, None);
 
+    let mut persistent_state = load_state();
+    log::info!("Loaded: {:?}", persistent_state);
+
+    // Map menu item ids to device information
+    let mut menu_id_to_device: HashMap<MenuId, MenuItemDeviceInfo> = HashMap::new();
+
+    let unlocked_icon = tray_icon::Icon::from_resource_name("volume-unlocked-icon", None).unwrap();
+    let locked_icon = tray_icon::Icon::from_resource_name("volume-locked-icon", None).unwrap();
+
+    MenuEvent::receiver();
+    TrayIconEvent::receiver();
+
+    let notify_check_item: CheckMenuItem = CheckMenuItem::new(
+        "Notify", true, persistent_state.notify_on_volume_change, None,
+    );
+
     let quit_item = MenuItem::new("Quit", true, None);
 
     let tray_menu = Menu::new();
     tray_menu.append(&MenuItem::new("Loading...", false, None));
     tray_menu.append(&PredefinedMenuItem::separator());
     tray_menu.append(&auto_launch_check_item);
+    tray_menu.append(&notify_check_item);
     tray_menu.append(&PredefinedMenuItem::separator());
     tray_menu.append(&quit_item);
 
@@ -192,6 +219,9 @@ fn main() {
                     } else {
                         let _ = auto.disable();
                     }
+                } else if event.id == notify_check_item.id() {
+                    persistent_state.notify_on_volume_change = notify_check_item.is_checked();
+                    save_state(&persistent_state);
                 } else if event.id == quit_item.id() {
                     tray_icon.take();
                     *control_flow = ControlFlow::Exit;
@@ -254,6 +284,7 @@ fn main() {
                                 let auto_launch_enabled: bool = auto.is_enabled().unwrap();
                                 auto_launch_check_item.set_checked(auto_launch_enabled);
                                 tray_menu.append(&auto_launch_check_item);
+                                tray_menu.append(&notify_check_item);
                                 tray_menu.append(&PredefinedMenuItem::separator());
 
                                 tray_menu.append(&quit_item);
@@ -282,7 +313,7 @@ fn main() {
                         let device = unsafe { devices.Item(i).unwrap() };
                         let id = get_device_id(&device).unwrap();
                         if id == *device_id {
-                            set_volume(&device, info.volume_percent).unwrap();
+                            set_volume(&device, info.volume_percent, persistent_state.notify_on_volume_change).unwrap();
                             some_locked = true;
                             break;
                         }
@@ -377,7 +408,7 @@ fn convert_float_to_percent(volume: f32) -> f32 {
     (volume * 100f32).round()
 }
 
-fn set_volume(device: &IMMDevice, new_volume_percent: f32) -> Result<()> {
+fn set_volume(device: &IMMDevice, new_volume_percent: f32, notify: bool) -> Result<()> {
     unsafe {
         let audio_endpoint: IAudioEndpointVolume = get_audio_endpoint(&device)?;
         let current_volume = get_volume(&audio_endpoint)?;
@@ -389,9 +420,21 @@ fn set_volume(device: &IMMDevice, new_volume_percent: f32) -> Result<()> {
             log::info!(
                 "Adjusted volume of {name} from {current_percent}% to {new_volume_percent}%"
             );
+            if notify {
+                send_volume_notification(&name, current_percent, new_volume_percent);
+            }
         }
         Ok(())
     }
+}
+
+// Add notification function
+fn send_volume_notification(name: &str, old_percent: f32, new_percent: f32) {
+    use tauri_winrt_notification::Toast;
+    let _ = Toast::new(APP_UID)
+        .title("Volume Restored")
+        .text1(&format!("The volume of {} has been restored from {}% to {}%.", name, old_percent, new_percent))
+        .show();
 }
 
 fn get_default_output_device(device_enumerator: &IMMDeviceEnumerator) -> Result<IMMDevice> {
