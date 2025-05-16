@@ -360,12 +360,10 @@ fn get_device_name(device: &IMMDevice) -> Result<String> {
     }
 }
 
-fn get_device_id(device: &IMMDevice) -> Result<String> {
+fn get_device_id(device: &IMMDevice) -> windows::core::Result<String> {
     unsafe {
-        let prop_store = device.OpenPropertyStore(STGM_READ)?;
-        let device_id_prop = prop_store.GetValue(&PKEY_Device_ContainerId)?;
-        let device_id = PropVariantToStringAlloc(&device_id_prop)?;
-        Ok(device_id.to_string()?)
+        let dev_id = device.GetId()?.to_string()?;
+        Ok(dev_id)
     }
 }
 
