@@ -2,7 +2,6 @@
     all(target_os = "windows", not(debug_assertions),),
     windows_subsystem = "windows"
 )]
-#![allow(unused)]
 
 use serde::{Deserialize, Serialize};
 use simplelog::*;
@@ -10,7 +9,7 @@ use single_instance::SingleInstance;
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::{thread, time::Duration};
 use tao::{
     event::Event,
@@ -23,7 +22,6 @@ use tray_icon::{
 
 use auto_launch::AutoLaunchBuilder;
 use windows::core::Result;
-use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_ContainerId;
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
 use windows::Win32::Media::Audio::{
@@ -108,24 +106,23 @@ fn main() {
 
     let proxy = event_loop.create_proxy();
     TrayIconEvent::set_event_handler(Some(move |event| {
-        proxy.send_event(UserEvent::TrayIconEvent(event));
+        let _ = proxy.send_event(UserEvent::TrayIconEvent(event));
     }));
 
     let proxy = event_loop.create_proxy();
     MenuEvent::set_event_handler(Some(move |event| {
-        proxy.send_event(UserEvent::MenuEvent(event));
+        let _ = proxy.send_event(UserEvent::MenuEvent(event));
     }));
 
     let proxy = event_loop.create_proxy();
     thread::spawn(move || loop {
         thread::sleep(Duration::from_secs(5));
-        proxy.send_event(UserEvent::Heartbeat);
+        let _ = proxy.send_event(UserEvent::Heartbeat);
     });
 
     let device_enumerator: IMMDeviceEnumerator = unsafe {
-        CoInitializeEx(None, COINIT_MULTITHREADED);
-        CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_INPROC_SERVER)
-            .expect("CoCreateInstance failed")
+        CoInitializeEx(None, COINIT_MULTITHREADED).unwrap();
+        CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_INPROC_SERVER).unwrap()
     };
 
     let app_path = get_executable_path().to_str().unwrap().to_string();
@@ -145,11 +142,13 @@ fn main() {
     let quit_item = MenuItem::new("Quit", true, None);
 
     let tray_menu = Menu::new();
-    tray_menu.append(&MenuItem::new("Loading...", false, None));
-    tray_menu.append(&PredefinedMenuItem::separator());
-    tray_menu.append(&auto_launch_check_item);
-    tray_menu.append(&PredefinedMenuItem::separator());
-    tray_menu.append(&quit_item);
+    tray_menu
+        .append(&MenuItem::new("Loading...", false, None))
+        .unwrap();
+    tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
+    tray_menu.append(&auto_launch_check_item).unwrap();
+    tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
+    tray_menu.append(&quit_item).unwrap();
 
     let mut tray_icon = None;
 
@@ -186,9 +185,9 @@ fn main() {
                 if event.id == auto_launch_check_item.id() {
                     let checked = auto_launch_check_item.is_checked();
                     if checked {
-                        let _ = auto.enable();
+                        auto.enable().unwrap();
                     } else {
-                        let _ = auto.disable();
+                        auto.disable().unwrap();
                     }
                 } else if event.id == quit_item.id() {
                     tray_icon.take();
@@ -223,39 +222,36 @@ fn main() {
                 match event {
                     TrayIconEvent::Click { button, .. } => {
                         if button == MouseButton::Right || button == MouseButton::Left {
-                            if let Some(tray_icon) = &tray_icon {
-                                // Clear the menu
-                                for _ in 0..tray_menu.items().len() {
-                                    tray_menu.remove_at(0);
-                                }
-                                menu_id_to_device.clear();
-
-                                populate_device_menu_items(
-                                    &tray_menu,
-                                    &output_devices_heading_item,
-                                    &device_enumerator,
-                                    &persistent_state,
-                                    &mut menu_id_to_device,
-                                    DeviceType::Output,
-                                );
-
-                                populate_device_menu_items(
-                                    &tray_menu,
-                                    &input_devices_heading_item,
-                                    &device_enumerator,
-                                    &persistent_state,
-                                    &mut menu_id_to_device,
-                                    DeviceType::Input,
-                                );
-
-                                // Refresh the auto launch state
-                                let auto_launch_enabled: bool = auto.is_enabled().unwrap();
-                                auto_launch_check_item.set_checked(auto_launch_enabled);
-                                tray_menu.append(&auto_launch_check_item);
-                                tray_menu.append(&PredefinedMenuItem::separator());
-
-                                tray_menu.append(&quit_item);
+                            // Clear the menu
+                            for _ in 0..tray_menu.items().len() {
+                                tray_menu.remove_at(0);
                             }
+                            menu_id_to_device.clear();
+
+                            populate_device_menu_items(
+                                &tray_menu,
+                                &output_devices_heading_item,
+                                &device_enumerator,
+                                &persistent_state,
+                                &mut menu_id_to_device,
+                                DeviceType::Output,
+                            );
+
+                            populate_device_menu_items(
+                                &tray_menu,
+                                &input_devices_heading_item,
+                                &device_enumerator,
+                                &persistent_state,
+                                &mut menu_id_to_device,
+                                DeviceType::Input,
+                            );
+
+                            // Refresh the auto launch state
+                            let auto_launch_enabled: bool = auto.is_enabled().unwrap();
+                            auto_launch_check_item.set_checked(auto_launch_enabled);
+                            tray_menu.append(&auto_launch_check_item).unwrap();
+                            tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
+                            tray_menu.append(&quit_item).unwrap();
                         }
                     }
                     _ => {}
@@ -266,9 +262,9 @@ fn main() {
                 let mut some_locked = false;
                 // Adjust volume of locked devices
                 for (device_id, info) in &persistent_state.locked_devices {
-                    let (endpoint_type, is_output) = match info.device_type {
-                        DeviceType::Output => (eRender, true),
-                        DeviceType::Input => (eCapture, false),
+                    let endpoint_type = match info.device_type {
+                        DeviceType::Output => eRender,
+                        DeviceType::Input => eCapture,
                     };
                     let devices: IMMDeviceCollection = unsafe {
                         device_enumerator
@@ -353,8 +349,8 @@ fn get_device_name(device: &IMMDevice) -> Result<String> {
     unsafe {
         let prop_store = device.OpenPropertyStore(STGM_READ)?;
         let friendly_name_prop = prop_store.GetValue(&PKEY_Device_FriendlyName)?;
-        let friendly_name = PropVariantToStringAlloc(&friendly_name_prop)?;
-        Ok(friendly_name.to_string()?)
+        let friendly_name = PropVariantToStringAlloc(&friendly_name_prop)?.to_string()?;
+        Ok(friendly_name)
     }
 }
 
@@ -380,7 +376,7 @@ fn set_volume(device: &IMMDevice, new_volume_percent: f32) -> Result<()> {
         let current_percent = convert_float_to_percent(current_volume);
         if current_percent != new_volume_percent {
             let new_volume = new_volume_percent / 100f32;
-            audio_endpoint.SetMasterVolumeLevelScalar(new_volume, std::ptr::null());
+            audio_endpoint.SetMasterVolumeLevelScalar(new_volume, std::ptr::null())?;
             let name: String = get_device_name(device)?;
             log::info!(
                 "Adjusted volume of {name} from {current_percent}% to {new_volume_percent}%"
@@ -427,14 +423,14 @@ fn is_default_device(
 }
 
 fn populate_device_menu_items(
-    tray_menu: &Menu,
+    menu: &Menu,
     heading_item: &MenuItem,
     device_enumerator: &IMMDeviceEnumerator,
     persistent_state: &PersistentState,
     menu_id_to_device: &mut HashMap<MenuId, MenuItemDeviceInfo>,
     device_type: DeviceType,
 ) {
-    tray_menu.append(heading_item);
+    menu.append(heading_item).unwrap();
     let endpoint_type = match device_type {
         DeviceType::Output => eRender,
         DeviceType::Input => eCapture,
@@ -468,7 +464,7 @@ fn populate_device_menu_items(
                 device_type,
             },
         );
-        tray_menu.append(&menu_item);
+        menu.append(&menu_item).unwrap();
     }
-    tray_menu.append(&PredefinedMenuItem::separator());
+    menu.append(&PredefinedMenuItem::separator()).unwrap();
 }
