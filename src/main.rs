@@ -261,8 +261,8 @@ fn main() {
             Event::UserEvent(UserEvent::Heartbeat) => {
                 let mut some_locked = false;
                 // Adjust volume of locked devices
-                for (device_id, info) in &persistent_state.locked_devices {
-                    let endpoint_type = match info.device_type {
+                for (device_id, device_info) in &persistent_state.locked_devices {
+                    let endpoint_type = match device_info.device_type {
                         DeviceType::Output => eRender,
                         DeviceType::Input => eCapture,
                     };
@@ -276,7 +276,18 @@ fn main() {
                         let device = unsafe { devices.Item(i).unwrap() };
                         let id = get_device_id(&device).unwrap();
                         if id == *device_id {
-                            set_volume(&device, info.volume_percent).unwrap();
+                            let audio_endpoint = get_audio_endpoint(&device).unwrap();
+                            let current_volume = get_volume(&audio_endpoint).unwrap();
+                            let current_volume_percent = convert_float_to_percent(current_volume);
+                            let target_volume_percent = device_info.volume_percent;
+                            let target_volume = convert_percent_to_float(target_volume_percent);
+                            if current_volume_percent != target_volume_percent {
+                                set_volume(&audio_endpoint, target_volume).unwrap();
+                                log::info!(
+                                    "Restored volume of {} from {}% to {}%",
+                                    device_info.name, current_volume_percent, target_volume_percent
+                                );
+                            }
                             some_locked = true;
                             break;
                         }
@@ -369,19 +380,13 @@ fn convert_float_to_percent(volume: f32) -> f32 {
     (volume * 100f32).round()
 }
 
-fn set_volume(device: &IMMDevice, new_volume_percent: f32) -> Result<()> {
+fn convert_percent_to_float(volume: f32) -> f32 {
+    volume / 100f32
+}
+
+fn set_volume(audio_endpoint: &IAudioEndpointVolume, new_volume: f32) -> Result<()> {
     unsafe {
-        let audio_endpoint: IAudioEndpointVolume = get_audio_endpoint(&device)?;
-        let current_volume = get_volume(&audio_endpoint)?;
-        let current_percent = convert_float_to_percent(current_volume);
-        if current_percent != new_volume_percent {
-            let new_volume = new_volume_percent / 100f32;
-            audio_endpoint.SetMasterVolumeLevelScalar(new_volume, std::ptr::null())?;
-            let name: String = get_device_name(device)?;
-            log::info!(
-                "Adjusted volume of {name} from {current_percent}% to {new_volume_percent}%"
-            );
-        }
+        audio_endpoint.SetMasterVolumeLevelScalar(new_volume, std::ptr::null())?;
         Ok(())
     }
 }
