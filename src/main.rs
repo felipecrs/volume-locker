@@ -15,6 +15,7 @@ use tao::{
     event::Event,
     event_loop::{ControlFlow, EventLoopBuilder},
 };
+use tauri_winrt_notification::Toast;
 use tray_icon::{
     menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
     MouseButton, TrayIconBuilder, TrayIconEvent,
@@ -54,12 +55,15 @@ struct DeviceLockedInfo {
 #[derive(Debug, Serialize, Deserialize)]
 struct PersistentState {
     locked_devices: HashMap<String, DeviceLockedInfo>,
+    #[serde(default)]
+    notify_on_volume_restored: bool,
 }
 
 impl Default for PersistentState {
     fn default() -> Self {
         PersistentState {
             locked_devices: HashMap::new(),
+            notify_on_volume_restored: false,
         }
     }
 }
@@ -132,8 +136,18 @@ fn main() {
         .build()
         .unwrap();
 
+    let mut persistent_state = load_state();
+    log::info!("Loaded: {:?}", persistent_state);
+
     let output_devices_heading_item = MenuItem::new("Output devices", false, None);
     let input_devices_heading_item = MenuItem::new("Input devices", false, None);
+
+    let notify_check_item: CheckMenuItem = CheckMenuItem::new(
+        "Notify on volume restored",
+        true,
+        persistent_state.notify_on_volume_restored,
+        None,
+    );
 
     let auto_launch_enabled: bool = auto.is_enabled().unwrap_or(false);
     let auto_launch_check_item: CheckMenuItem =
@@ -146,14 +160,12 @@ fn main() {
         .append(&MenuItem::new("Loading...", false, None))
         .unwrap();
     tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
+    tray_menu.append(&notify_check_item).unwrap();
     tray_menu.append(&auto_launch_check_item).unwrap();
     tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
     tray_menu.append(&quit_item).unwrap();
 
     let mut tray_icon = None;
-
-    let mut persistent_state = load_state();
-    log::info!("Loaded: {:?}", persistent_state);
 
     // Map menu item ids to device information
     let mut menu_id_to_device: HashMap<MenuId, MenuItemDeviceInfo> = HashMap::new();
@@ -182,7 +194,10 @@ fn main() {
             }
 
             Event::UserEvent(UserEvent::MenuEvent(event)) => {
-                if event.id == auto_launch_check_item.id() {
+                if event.id == notify_check_item.id() {
+                    persistent_state.notify_on_volume_restored = notify_check_item.is_checked();
+                    save_state(&persistent_state);
+                } else if event.id == auto_launch_check_item.id() {
                     let checked = auto_launch_check_item.is_checked();
                     if checked {
                         auto.enable().unwrap();
@@ -246,7 +261,10 @@ fn main() {
                                 DeviceType::Input,
                             );
 
-                            // Refresh the auto launch state
+                            // Refresh check items
+                            notify_check_item
+                                .set_checked(persistent_state.notify_on_volume_restored);
+                            tray_menu.append(&notify_check_item).unwrap();
                             let auto_launch_enabled: bool = auto.is_enabled().unwrap();
                             auto_launch_check_item.set_checked(auto_launch_enabled);
                             tray_menu.append(&auto_launch_check_item).unwrap();
@@ -285,8 +303,22 @@ fn main() {
                                 set_volume(&audio_endpoint, target_volume).unwrap();
                                 log::info!(
                                     "Restored volume of {} from {}% to {}%",
-                                    device_info.name, current_volume_percent, target_volume_percent
+                                    device_info.name,
+                                    current_volume_percent,
+                                    target_volume_percent
                                 );
+                                if persistent_state.notify_on_volume_restored {
+                                    Toast::new(Toast::POWERSHELL_APP_ID)
+                                        .title("Volume Restored")
+                                        .text1(&format!(
+                                            "The volume of {} has been restored from {}% to {}%.",
+                                            device_info.name,
+                                            current_volume_percent,
+                                            target_volume_percent
+                                        ))
+                                        .show()
+                                        .unwrap();
+                                }
                             }
                             some_locked = true;
                             break;
