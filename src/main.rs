@@ -301,9 +301,11 @@ fn main() {
                             let target_volume = convert_percent_to_float(target_volume_percent);
                             if current_volume_percent != target_volume_percent {
                                 set_volume(&audio_endpoint, target_volume).unwrap();
+                                // Resolve device name again, because the persistent state may be outdated.
+                                let device_name = get_device_name(&device).unwrap();
                                 log::info!(
                                     "Restored volume of {} from {}% to {}%",
-                                    device_info.name,
+                                    device_name,
                                     current_volume_percent,
                                     target_volume_percent
                                 );
@@ -312,7 +314,7 @@ fn main() {
                                         .title("Volume Restored")
                                         .text1(&format!(
                                             "The volume of {} has been restored from {}% to {}%.",
-                                            device_info.name,
+                                            device_name,
                                             current_volume_percent,
                                             target_volume_percent
                                         ))
