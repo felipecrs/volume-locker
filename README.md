@@ -10,6 +10,9 @@ Never worry about your microphone volume again!
 
 ## Demo
 
+> [!IMPORTANT]
+> This demo is outdated, since v0.6.0, Volume Locker no longer takes some seconds to restore the volume. It is now instantaneous.
+
 https://github.com/user-attachments/assets/772af810-0353-4db0-99ec-ab39c6cd6aab
 
 ## Getting Started
@@ -27,7 +30,7 @@ When you want to lock the volume of your audio output or input devices:
 
 ## Credits
 
-This is my first Rust project, with no prior experience or knowledge of the language. Don't expect the code to be pretty.
+This is my first Rust project, with no prior experience or knowledge of the language. Don't expect the code to be examplary, but I think it's overall optimised.
 
 I was dissastisfied with any existing solution because they were either relying on `nircmd.exe`, which is not open source, and also didn't allow to lock the volume of specific devices, only the current default one.
 
