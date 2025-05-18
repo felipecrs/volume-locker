@@ -6,33 +6,38 @@
 use serde::{Deserialize, Serialize};
 use simplelog::*;
 use single_instance::SingleInstance;
-use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
+use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
-use std::{thread, time::Duration};
+use std::{collections::HashMap, ffi::OsStr};
 use tao::{
     event::Event,
     event_loop::{ControlFlow, EventLoopBuilder},
 };
 use tauri_winrt_notification::Toast;
 use tray_icon::{
-    menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
     MouseButton, TrayIconBuilder, TrayIconEvent,
+    menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
 };
+use windows::Win32::Foundation::PROPERTYKEY;
+use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
+use windows_core::PCWSTR;
 
 use auto_launch::AutoLaunchBuilder;
-use windows::core::Result;
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
-use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
+use windows::Win32::Media::Audio::Endpoints::{
+    IAudioEndpointVolume, IAudioEndpointVolumeCallback, IAudioEndpointVolumeCallback_Impl,
+};
 use windows::Win32::Media::Audio::{
-    eCapture, eConsole, eRender, IMMDevice, IMMDeviceCollection, IMMDeviceEnumerator,
-    MMDeviceEnumerator, DEVICE_STATE_ACTIVE,
+    AUDIO_VOLUME_NOTIFICATION_DATA, DEVICE_STATE, DEVICE_STATE_ACTIVE, EDataFlow, ERole, IMMDevice,
+    IMMDeviceCollection, IMMDeviceEnumerator, IMMNotificationClient, IMMNotificationClient_Impl,
+    MMDeviceEnumerator, eCapture, eConsole, eRender,
 };
-use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, STGM_READ,
+    CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, STGM_READ,
 };
+use windows::core::{Result, implement};
 
 const APP_NAME: &str = "Volume Locker";
 const APP_UID: &str = "25fc6555-723f-414b-9fa0-b4b658d85b43";
@@ -79,7 +84,92 @@ struct MenuItemDeviceInfo {
 enum UserEvent {
     TrayIconEvent(tray_icon::TrayIconEvent),
     MenuEvent(tray_icon::menu::MenuEvent),
-    Heartbeat,
+    ConfigurationChangedEvent,
+    WatchedDevicesShouldReloadEvent,
+}
+
+#[implement(IAudioEndpointVolumeCallback)]
+struct VolumeChangeCallback {
+    device: IMMDevice,
+    target_volume_percent: f32,
+    notify_on_volume_restored: bool,
+}
+
+impl IAudioEndpointVolumeCallback_Impl for VolumeChangeCallback_Impl {
+    fn OnNotify(
+        &self,
+        pnotify: *mut AUDIO_VOLUME_NOTIFICATION_DATA,
+    ) -> ::windows::core::Result<()> {
+        let new_volume = unsafe { (*pnotify).fMasterVolume };
+        let new_volume_percent = convert_float_to_percent(new_volume);
+        if new_volume_percent != self.target_volume_percent {
+            let target_volume = convert_percent_to_float(self.target_volume_percent);
+            let endpoint = get_audio_endpoint(&self.device)?;
+            set_volume(&endpoint, target_volume)?;
+            let device_name = get_device_name(&self.device)?;
+            log::info!(
+                "Restored volume of {} from {}% to {}%",
+                device_name,
+                new_volume_percent,
+                self.target_volume_percent
+            );
+            if self.notify_on_volume_restored {
+                Toast::new(Toast::POWERSHELL_APP_ID)
+                    .title("Volume Restored")
+                    .text1(&format!(
+                        "The volume of {} has been restored from {}% to {}%.",
+                        device_name, new_volume_percent, self.target_volume_percent
+                    ))
+                    .show()
+                    .unwrap();
+            }
+        }
+        Ok(())
+    }
+}
+
+#[implement(IMMNotificationClient)]
+struct AudioDevicesChangedCallback {
+    proxy: tao::event_loop::EventLoopProxy<UserEvent>,
+}
+
+impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
+    fn OnDeviceStateChanged(&self, _: &PCWSTR, _: DEVICE_STATE) -> windows::core::Result<()> {
+        log::info!("Some device state changed");
+        let _ = self
+            .proxy
+            .send_event(UserEvent::WatchedDevicesShouldReloadEvent);
+        Ok(())
+    }
+
+    fn OnDeviceAdded(&self, _: &PCWSTR) -> windows::core::Result<()> {
+        log::info!("Some device was added");
+        let _ = self
+            .proxy
+            .send_event(UserEvent::WatchedDevicesShouldReloadEvent);
+        Ok(())
+    }
+
+    fn OnDeviceRemoved(&self, _: &PCWSTR) -> windows::core::Result<()> {
+        log::info!("Some device was removed");
+        let _ = self
+            .proxy
+            .send_event(UserEvent::WatchedDevicesShouldReloadEvent);
+        Ok(())
+    }
+
+    fn OnDefaultDeviceChanged(
+        &self,
+        _: EDataFlow,
+        _: ERole,
+        _: &PCWSTR,
+    ) -> windows::core::Result<()> {
+        Ok(())
+    }
+
+    fn OnPropertyValueChanged(&self, _: &PCWSTR, _: &PROPERTYKEY) -> windows::core::Result<()> {
+        Ok(())
+    }
 }
 
 fn main() {
@@ -112,69 +202,61 @@ fn main() {
     TrayIconEvent::set_event_handler(Some(move |event| {
         let _ = proxy.send_event(UserEvent::TrayIconEvent(event));
     }));
+    TrayIconEvent::receiver();
 
     let proxy = event_loop.create_proxy();
     MenuEvent::set_event_handler(Some(move |event| {
         let _ = proxy.send_event(UserEvent::MenuEvent(event));
     }));
-
-    let proxy = event_loop.create_proxy();
-    thread::spawn(move || loop {
-        thread::sleep(Duration::from_secs(5));
-        let _ = proxy.send_event(UserEvent::Heartbeat);
-    });
-
-    let device_enumerator: IMMDeviceEnumerator = unsafe {
-        CoInitializeEx(None, COINIT_MULTITHREADED).unwrap();
-        CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_INPROC_SERVER).unwrap()
-    };
+    MenuEvent::receiver();
 
     let app_path = get_executable_path().to_str().unwrap().to_string();
-    let auto = AutoLaunchBuilder::new()
+    let auto_launch = AutoLaunchBuilder::new()
         .set_app_name(APP_NAME)
         .set_app_path(&app_path)
         .build()
         .unwrap();
 
-    let mut persistent_state = load_state();
-    log::info!("Loaded: {:?}", persistent_state);
-
     let output_devices_heading_item = MenuItem::new("Output devices", false, None);
     let input_devices_heading_item = MenuItem::new("Input devices", false, None);
-
-    let notify_check_item: CheckMenuItem = CheckMenuItem::new(
-        "Notify on volume restored",
-        true,
-        persistent_state.notify_on_volume_restored,
-        None,
-    );
-
-    let auto_launch_enabled: bool = auto.is_enabled().unwrap_or(false);
+    let notify_check_item: CheckMenuItem =
+        CheckMenuItem::new("Notify on volume restored", true, false, None);
     let auto_launch_check_item: CheckMenuItem =
-        CheckMenuItem::new("Auto launch on startup", true, auto_launch_enabled, None);
-
+        CheckMenuItem::new("Auto launch on startup", true, false, None);
     let quit_item = MenuItem::new("Quit", true, None);
 
     let tray_menu = Menu::new();
-    tray_menu
-        .append(&MenuItem::new("Loading...", false, None))
-        .unwrap();
-    tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
-    tray_menu.append(&notify_check_item).unwrap();
-    tray_menu.append(&auto_launch_check_item).unwrap();
-    tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
+    // At least one item must be added to the menu on initialization, otherwise
+    // the menu will not be shown on first click
     tray_menu.append(&quit_item).unwrap();
 
     let mut tray_icon = None;
 
-    // Map menu item ids to device information
-    let mut menu_id_to_device: HashMap<MenuId, MenuItemDeviceInfo> = HashMap::new();
-
     let unlocked_icon = tray_icon::Icon::from_resource_name("volume-unlocked-icon", None).unwrap();
     let locked_icon = tray_icon::Icon::from_resource_name("volume-locked-icon", None).unwrap();
 
-    MenuEvent::receiver();
-    TrayIconEvent::receiver();
+    let mut menu_id_to_device: HashMap<MenuId, MenuItemDeviceInfo> = HashMap::new();
+
+    unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).unwrap() };
+    let device_enumerator: IMMDeviceEnumerator =
+        unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_INPROC_SERVER).unwrap() };
+
+    let devices_changed_callback: IMMNotificationClient = AudioDevicesChangedCallback {
+        proxy: event_loop.create_proxy(),
+    }
+    .into();
+    unsafe {
+        device_enumerator
+            .RegisterEndpointNotificationCallback(&devices_changed_callback)
+            .unwrap();
+    }
+
+    let mut watched_endpoints: Vec<IAudioEndpointVolume> = Vec::new();
+
+    let main_proxy = event_loop.create_proxy();
+
+    let mut persistent_state = load_state();
+    log::info!("Loaded: {:?}", persistent_state);
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -191,18 +273,19 @@ fn main() {
                         .build()
                         .unwrap(),
                 );
+                let _ = main_proxy.send_event(UserEvent::WatchedDevicesShouldReloadEvent);
             }
 
             Event::UserEvent(UserEvent::MenuEvent(event)) => {
                 if event.id == notify_check_item.id() {
                     persistent_state.notify_on_volume_restored = notify_check_item.is_checked();
-                    save_state(&persistent_state);
+                    let _ = main_proxy.send_event(UserEvent::ConfigurationChangedEvent);
                 } else if event.id == auto_launch_check_item.id() {
                     let checked = auto_launch_check_item.is_checked();
                     if checked {
-                        auto.enable().unwrap();
+                        auto_launch.enable().unwrap();
                     } else {
-                        auto.disable().unwrap();
+                        auto_launch.disable().unwrap();
                     }
                 } else if event.id == quit_item.id() {
                     tray_icon.take();
@@ -225,8 +308,7 @@ fn main() {
                                     .locked_devices
                                     .remove(&device_info.device_id);
                             }
-                            save_state(&persistent_state);
-                            log::info!("Saved: {:?}", persistent_state);
+                            let _ = main_proxy.send_event(UserEvent::ConfigurationChangedEvent);
                         }
                     }
                 }
@@ -243,29 +325,55 @@ fn main() {
                             }
                             menu_id_to_device.clear();
 
-                            populate_device_menu_items(
-                                &tray_menu,
-                                &output_devices_heading_item,
-                                &device_enumerator,
-                                &persistent_state,
-                                &mut menu_id_to_device,
-                                DeviceType::Output,
-                            );
-
-                            populate_device_menu_items(
-                                &tray_menu,
-                                &input_devices_heading_item,
-                                &device_enumerator,
-                                &persistent_state,
-                                &mut menu_id_to_device,
-                                DeviceType::Input,
-                            );
+                            for (heading_item, device_type) in [
+                                (&output_devices_heading_item, DeviceType::Output),
+                                (&input_devices_heading_item, DeviceType::Input),
+                            ] {
+                                tray_menu.append(heading_item).unwrap();
+                                let endpoint_type = match device_type {
+                                    DeviceType::Output => eRender,
+                                    DeviceType::Input => eCapture,
+                                };
+                                let devices: IMMDeviceCollection = unsafe {
+                                    device_enumerator
+                                        .EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE)
+                                        .unwrap()
+                                };
+                                let count = unsafe { devices.GetCount().unwrap() };
+                                for i in 0..count {
+                                    let device = unsafe { devices.Item(i).unwrap() };
+                                    let name = get_device_name(&device).unwrap();
+                                    let device_id = get_device_id(&device).unwrap();
+                                    let endpoint = get_audio_endpoint(&device).unwrap();
+                                    let volume = get_volume(&endpoint).unwrap();
+                                    let volume_percent = convert_float_to_percent(volume);
+                                    let is_default =
+                                        is_default_device(&device_enumerator, &device, device_type);
+                                    let label = to_label(&name, volume_percent, is_default);
+                                    let checked = persistent_state
+                                        .locked_devices
+                                        .get(&device_id)
+                                        .map_or(false, |info| info.device_type == device_type);
+                                    let menu_item = CheckMenuItem::new(&label, true, checked, None);
+                                    menu_id_to_device.insert(
+                                        menu_item.id().clone(),
+                                        MenuItemDeviceInfo {
+                                            device_id,
+                                            name,
+                                            volume_percent,
+                                            device_type,
+                                        },
+                                    );
+                                    tray_menu.append(&menu_item).unwrap();
+                                }
+                                tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
+                            }
 
                             // Refresh check items
                             notify_check_item
                                 .set_checked(persistent_state.notify_on_volume_restored);
                             tray_menu.append(&notify_check_item).unwrap();
-                            let auto_launch_enabled: bool = auto.is_enabled().unwrap();
+                            let auto_launch_enabled = auto_launch.is_enabled().unwrap();
                             auto_launch_check_item.set_checked(auto_launch_enabled);
                             tray_menu.append(&auto_launch_check_item).unwrap();
                             tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
@@ -276,67 +384,67 @@ fn main() {
                 }
             }
 
-            Event::UserEvent(UserEvent::Heartbeat) => {
+            Event::UserEvent(UserEvent::WatchedDevicesShouldReloadEvent) => {
+                log::info!("Reloading list of watched devices...");
+
+                watched_endpoints.clear();
                 let mut some_locked = false;
-                // Adjust volume of locked devices
-                for (device_id, device_info) in &persistent_state.locked_devices {
-                    let endpoint_type = match device_info.device_type {
-                        DeviceType::Output => eRender,
-                        DeviceType::Input => eCapture,
+                for (device_id, device_info) in persistent_state.locked_devices.iter() {
+                    let device = match get_device_by_id(&device_enumerator, device_id) {
+                        Ok(device) => device,
+                        Err(e) => {
+                            log::warn!(
+                                "Not watching volume of {} because of error: {}",
+                                device_info.name,
+                                e
+                            );
+                            continue;
+                        }
                     };
-                    let devices: IMMDeviceCollection = unsafe {
-                        device_enumerator
-                            .EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE)
+
+                    let device_state = unsafe { device.GetState().unwrap() };
+                    if device_state != DEVICE_STATE_ACTIVE {
+                        log::info!(
+                            "Not watching volume of {} because it is not enabled",
+                            device_info.name
+                        );
+                        continue;
+                    }
+
+                    let endpoint = get_audio_endpoint(&device).unwrap();
+                    let volume_callback: IAudioEndpointVolumeCallback = VolumeChangeCallback {
+                        device,
+                        target_volume_percent: device_info.volume_percent,
+                        notify_on_volume_restored: persistent_state.notify_on_volume_restored,
+                    }
+                    .into();
+                    unsafe {
+                        endpoint
+                            .RegisterControlChangeNotify(&volume_callback)
                             .unwrap()
                     };
-                    let count = unsafe { devices.GetCount().unwrap() };
-                    for i in 0..count {
-                        let device = unsafe { devices.Item(i).unwrap() };
-                        let id = get_device_id(&device).unwrap();
-                        if id == *device_id {
-                            let audio_endpoint = get_audio_endpoint(&device).unwrap();
-                            let current_volume = get_volume(&audio_endpoint).unwrap();
-                            let current_volume_percent = convert_float_to_percent(current_volume);
-                            let target_volume_percent = device_info.volume_percent;
-                            let target_volume = convert_percent_to_float(target_volume_percent);
-                            if current_volume_percent != target_volume_percent {
-                                set_volume(&audio_endpoint, target_volume).unwrap();
-                                // Resolve device name again, because the persistent state may be outdated.
-                                let device_name = get_device_name(&device).unwrap();
-                                log::info!(
-                                    "Restored volume of {} from {}% to {}%",
-                                    device_name,
-                                    current_volume_percent,
-                                    target_volume_percent
-                                );
-                                if persistent_state.notify_on_volume_restored {
-                                    Toast::new(Toast::POWERSHELL_APP_ID)
-                                        .title("Volume Restored")
-                                        .text1(&format!(
-                                            "The volume of {} has been restored from {}% to {}%.",
-                                            device_name,
-                                            current_volume_percent,
-                                            target_volume_percent
-                                        ))
-                                        .show()
-                                        .unwrap();
-                                }
-                            }
-                            some_locked = true;
-                            break;
-                        }
-                    }
+                    watched_endpoints.push(endpoint);
+                    log::info!(
+                        "Watching volume of {} for when it changes from {}%",
+                        device_info.name,
+                        device_info.volume_percent
+                    );
+                    some_locked = true;
                 }
-                // Update tray icon if some device is locked
-                if some_locked {
-                    if let Some(tray_icon) = &tray_icon {
+
+                if let Some(tray_icon) = &tray_icon {
+                    if some_locked {
                         tray_icon.set_icon(Some(locked_icon.clone())).unwrap();
-                    }
-                } else {
-                    if let Some(tray_icon) = &tray_icon {
+                    } else {
                         tray_icon.set_icon(Some(unlocked_icon.clone())).unwrap();
                     }
                 }
+            }
+
+            Event::UserEvent(UserEvent::ConfigurationChangedEvent) => {
+                save_state(&persistent_state);
+                log::info!("Saved: {:?}", persistent_state);
+                let _ = main_proxy.send_event(UserEvent::WatchedDevicesShouldReloadEvent);
             }
 
             _ => {}
@@ -385,8 +493,8 @@ fn to_label(name: &str, volume_percent: f32, is_default: bool) -> String {
 
 fn get_audio_endpoint(device: &IMMDevice) -> Result<IAudioEndpointVolume> {
     unsafe {
-        let audio_endpoint: IAudioEndpointVolume = device.Activate(CLSCTX_INPROC_SERVER, None)?;
-        Ok(audio_endpoint)
+        let endpoint: IAudioEndpointVolume = device.Activate(CLSCTX_INPROC_SERVER, None)?;
+        Ok(endpoint)
     }
 }
 
@@ -406,8 +514,19 @@ fn get_device_id(device: &IMMDevice) -> Result<String> {
     }
 }
 
-fn get_volume(audio_endpoint: &IAudioEndpointVolume) -> Result<f32> {
-    unsafe { audio_endpoint.GetMasterVolumeLevelScalar() }
+fn get_device_by_id(device_enumerator: &IMMDeviceEnumerator, device_id: &str) -> Result<IMMDevice> {
+    let wide: Vec<u16> = OsStr::new(device_id)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    unsafe {
+        let device = device_enumerator.GetDevice(PCWSTR(wide.as_ptr()))?;
+        Ok(device)
+    }
+}
+
+fn get_volume(endpoint: &IAudioEndpointVolume) -> Result<f32> {
+    unsafe { endpoint.GetMasterVolumeLevelScalar() }
 }
 
 fn convert_float_to_percent(volume: f32) -> f32 {
@@ -418,9 +537,9 @@ fn convert_percent_to_float(volume: f32) -> f32 {
     volume / 100f32
 }
 
-fn set_volume(audio_endpoint: &IAudioEndpointVolume, new_volume: f32) -> Result<()> {
+fn set_volume(endpoint: &IAudioEndpointVolume, new_volume: f32) -> Result<()> {
     unsafe {
-        audio_endpoint.SetMasterVolumeLevelScalar(new_volume, std::ptr::null())?;
+        endpoint.SetMasterVolumeLevelScalar(new_volume, std::ptr::null())?;
         Ok(())
     }
 }
@@ -459,51 +578,4 @@ fn is_default_device(
         }
     }
     false
-}
-
-fn populate_device_menu_items(
-    menu: &Menu,
-    heading_item: &MenuItem,
-    device_enumerator: &IMMDeviceEnumerator,
-    persistent_state: &PersistentState,
-    menu_id_to_device: &mut HashMap<MenuId, MenuItemDeviceInfo>,
-    device_type: DeviceType,
-) {
-    menu.append(heading_item).unwrap();
-    let endpoint_type = match device_type {
-        DeviceType::Output => eRender,
-        DeviceType::Input => eCapture,
-    };
-    let devices: IMMDeviceCollection = unsafe {
-        device_enumerator
-            .EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE)
-            .unwrap()
-    };
-    let count = unsafe { devices.GetCount().unwrap() };
-    for i in 0..count {
-        let device = unsafe { devices.Item(i).unwrap() };
-        let name = get_device_name(&device).unwrap();
-        let device_id = get_device_id(&device).unwrap();
-        let audio_endpoint = get_audio_endpoint(&device).unwrap();
-        let volume = get_volume(&audio_endpoint).unwrap();
-        let volume_percent = convert_float_to_percent(volume);
-        let is_default = is_default_device(device_enumerator, &device, device_type);
-        let label = to_label(&name, volume_percent, is_default);
-        let checked = persistent_state
-            .locked_devices
-            .get(&device_id)
-            .map_or(false, |info| info.device_type == device_type);
-        let menu_item = CheckMenuItem::new(&label, true, checked, None);
-        menu_id_to_device.insert(
-            menu_item.id().clone(),
-            MenuItemDeviceInfo {
-                device_id,
-                name,
-                volume_percent,
-                device_type,
-            },
-        );
-        menu.append(&menu_item).unwrap();
-    }
-    menu.append(&PredefinedMenuItem::separator()).unwrap();
 }
