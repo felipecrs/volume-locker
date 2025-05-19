@@ -25,7 +25,7 @@ Or you can copy and paste this into _Windows PowerShell_, and execute:
 New-Item -ItemType Directory -Path 'C:\Apps\Volume Locker' -Force >$null; `
   Get-Process | Where-Object { $_.Path -eq 'C:\Apps\Volume Locker\VolumeLocker.exe' } | Stop-Process; `
   curl.exe --progress-bar --location --output 'C:\Apps\Volume Locker\VolumeLocker.exe' `
-  https://github.com/felipecrs/volume-locker/releases/latest/download/VolumeLocker.exe; `
+  'https://github.com/felipecrs/volume-locker/releases/latest/download/VolumeLocker.exe'; `
   Start-Process 'C:\Apps\Volume Locker\VolumeLocker.exe'
 ```
 
