@@ -75,7 +75,7 @@ struct MenuItemDeviceInfo {
 
 struct VolumeChangedEvent {
     device_id: String,
-    new_volume_percent: f32,
+    new_volume: f32,
 }
 
 enum UserEvent {
@@ -136,12 +136,11 @@ impl IAudioEndpointVolumeCallback_Impl for VolumeChangeCallback_Impl {
         pnotify: *mut AUDIO_VOLUME_NOTIFICATION_DATA,
     ) -> ::windows::core::Result<()> {
         let new_volume = unsafe { (*pnotify).fMasterVolume };
-        let new_volume_percent = convert_float_to_percent(new_volume);
         let _ = self
             .proxy
             .send_event(UserEvent::VolumeChanged(VolumeChangedEvent {
                 device_id: self.device_id.clone(),
-                new_volume_percent,
+                new_volume,
             }));
         Ok(())
     }
@@ -360,8 +359,9 @@ fn main() {
             Event::UserEvent(UserEvent::VolumeChanged(event)) => {
                 let VolumeChangedEvent {
                     device_id,
-                    new_volume_percent,
+                    new_volume,
                 } = event;
+                let new_volume_percent = convert_float_to_percent(new_volume);
                 let target_volume_percent = persistent_state
                     .locked_devices
                     .get(&device_id)
@@ -447,10 +447,9 @@ fn main() {
                         device_info.volume_percent
                     );
                     let current_volume = get_volume(watched_endpoints.last().unwrap()).unwrap();
-                    let current_volume_percent = convert_float_to_percent(current_volume);
                     let _ = main_proxy.send_event(UserEvent::VolumeChanged(VolumeChangedEvent {
                         device_id: device_id.clone(),
-                        new_volume_percent: current_volume_percent,
+                        new_volume: current_volume,
                     }));
                     some_locked = true;
                 }
