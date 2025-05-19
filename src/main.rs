@@ -72,51 +72,17 @@ struct MenuItemDeviceInfo {
     name: String,
 }
 
+struct VolumeChangedEvent {
+    device_id: String,
+    new_volume_percent: f32,
+}
+
 enum UserEvent {
     TrayIcon(tray_icon::TrayIconEvent),
     Menu(tray_icon::menu::MenuEvent),
+    VolumeChanged(VolumeChangedEvent),
+    DevicesChanged,
     ConfigurationChanged,
-    WatchedDevicesShouldReload,
-}
-
-#[implement(IAudioEndpointVolumeCallback)]
-struct VolumeChangeCallback {
-    device: IMMDevice,
-    target_volume_percent: f32,
-    notify_on_volume_restored: bool,
-}
-
-impl IAudioEndpointVolumeCallback_Impl for VolumeChangeCallback_Impl {
-    fn OnNotify(
-        &self,
-        pnotify: *mut AUDIO_VOLUME_NOTIFICATION_DATA,
-    ) -> ::windows::core::Result<()> {
-        let new_volume = unsafe { (*pnotify).fMasterVolume };
-        let new_volume_percent = convert_float_to_percent(new_volume);
-        if new_volume_percent != self.target_volume_percent {
-            let target_volume = convert_percent_to_float(self.target_volume_percent);
-            let endpoint = get_audio_endpoint(&self.device)?;
-            set_volume(&endpoint, target_volume)?;
-            let device_name = get_device_name(&self.device)?;
-            log::info!(
-                "Restored volume of {} from {}% to {}%",
-                device_name,
-                new_volume_percent,
-                self.target_volume_percent
-            );
-            if self.notify_on_volume_restored {
-                Toast::new(Toast::POWERSHELL_APP_ID)
-                    .title("Volume Restored")
-                    .text1(&format!(
-                        "The volume of {} has been restored from {}% to {}%.",
-                        device_name, new_volume_percent, self.target_volume_percent
-                    ))
-                    .show()
-                    .unwrap();
-            }
-        }
-        Ok(())
-    }
 }
 
 #[implement(IMMNotificationClient)]
@@ -127,19 +93,19 @@ struct AudioDevicesChangedCallback {
 impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
     fn OnDeviceStateChanged(&self, _: &PCWSTR, _: DEVICE_STATE) -> windows::core::Result<()> {
         log::info!("Some device state changed");
-        let _ = self.proxy.send_event(UserEvent::WatchedDevicesShouldReload);
+        let _ = self.proxy.send_event(UserEvent::DevicesChanged);
         Ok(())
     }
 
     fn OnDeviceAdded(&self, _: &PCWSTR) -> windows::core::Result<()> {
         log::info!("Some device was added");
-        let _ = self.proxy.send_event(UserEvent::WatchedDevicesShouldReload);
+        let _ = self.proxy.send_event(UserEvent::DevicesChanged);
         Ok(())
     }
 
     fn OnDeviceRemoved(&self, _: &PCWSTR) -> windows::core::Result<()> {
         log::info!("Some device was removed");
-        let _ = self.proxy.send_event(UserEvent::WatchedDevicesShouldReload);
+        let _ = self.proxy.send_event(UserEvent::DevicesChanged);
         Ok(())
     }
 
@@ -153,6 +119,29 @@ impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
     }
 
     fn OnPropertyValueChanged(&self, _: &PCWSTR, _: &PROPERTYKEY) -> windows::core::Result<()> {
+        Ok(())
+    }
+}
+
+#[implement(IAudioEndpointVolumeCallback)]
+struct VolumeChangeCallback {
+    proxy: tao::event_loop::EventLoopProxy<UserEvent>,
+    device_id: String,
+}
+
+impl IAudioEndpointVolumeCallback_Impl for VolumeChangeCallback_Impl {
+    fn OnNotify(
+        &self,
+        pnotify: *mut AUDIO_VOLUME_NOTIFICATION_DATA,
+    ) -> ::windows::core::Result<()> {
+        let new_volume = unsafe { (*pnotify).fMasterVolume };
+        let new_volume_percent = convert_float_to_percent(new_volume);
+        let _ = self
+            .proxy
+            .send_event(UserEvent::VolumeChanged(VolumeChangedEvent {
+                device_id: self.device_id.clone(),
+                new_volume_percent,
+            }));
         Ok(())
     }
 }
@@ -260,7 +249,7 @@ fn main() {
                         .build()
                         .unwrap(),
                 );
-                let _ = main_proxy.send_event(UserEvent::WatchedDevicesShouldReload);
+                let _ = main_proxy.send_event(UserEvent::DevicesChanged);
             }
 
             Event::UserEvent(UserEvent::Menu(event)) => {
@@ -365,7 +354,42 @@ fn main() {
                 tray_menu.append(&quit_item).unwrap();
             }
 
-            Event::UserEvent(UserEvent::WatchedDevicesShouldReload) => {
+            Event::UserEvent(UserEvent::VolumeChanged(event)) => {
+                let VolumeChangedEvent {
+                    device_id,
+                    new_volume_percent,
+                } = event;
+                let target_volume_percent = persistent_state
+                    .locked_devices
+                    .get(&device_id)
+                    .map(|info| info.volume_percent)
+                    .unwrap();
+                if new_volume_percent != target_volume_percent {
+                    let target_volume = convert_percent_to_float(target_volume_percent);
+                    let device = get_device_by_id(&device_enumerator, &device_id).unwrap();
+                    let endpoint = get_audio_endpoint(&device).unwrap();
+                    set_volume(&endpoint, target_volume).unwrap();
+                    let device_name = get_device_name(&device).unwrap();
+                    log::info!(
+                        "Restored volume of {} from {}% to {}%",
+                        device_name,
+                        new_volume_percent,
+                        target_volume_percent
+                    );
+                    if persistent_state.notify_on_volume_restored {
+                        Toast::new(Toast::POWERSHELL_APP_ID)
+                            .title("Volume Restored")
+                            .text1(&format!(
+                                "The volume of {} has been restored from {}% to {}%.",
+                                device_name, new_volume_percent, target_volume_percent
+                            ))
+                            .show()
+                            .unwrap();
+                    }
+                }
+            }
+
+            Event::UserEvent(UserEvent::DevicesChanged) => {
                 log::info!("Reloading list of watched devices...");
 
                 watched_endpoints.clear();
@@ -394,9 +418,8 @@ fn main() {
 
                     let endpoint = get_audio_endpoint(&device).unwrap();
                     let volume_callback: IAudioEndpointVolumeCallback = VolumeChangeCallback {
-                        device,
-                        target_volume_percent: device_info.volume_percent,
-                        notify_on_volume_restored: persistent_state.notify_on_volume_restored,
+                        proxy: main_proxy.clone(),
+                        device_id: device_id.clone(),
                     }
                     .into();
                     unsafe {
@@ -410,6 +433,12 @@ fn main() {
                         device_info.name,
                         device_info.volume_percent
                     );
+                    let current_volume = get_volume(watched_endpoints.last().unwrap()).unwrap();
+                    let current_volume_percent = convert_float_to_percent(current_volume);
+                    let _ = main_proxy.send_event(UserEvent::VolumeChanged(VolumeChangedEvent {
+                        device_id: device_id.clone(),
+                        new_volume_percent: current_volume_percent,
+                    }));
                     some_locked = true;
                 }
 
@@ -425,7 +454,7 @@ fn main() {
             Event::UserEvent(UserEvent::ConfigurationChanged) => {
                 save_state(&persistent_state);
                 log::info!("Saved: {:?}", persistent_state);
-                let _ = main_proxy.send_event(UserEvent::WatchedDevicesShouldReload);
+                let _ = main_proxy.send_event(UserEvent::DevicesChanged);
             }
 
             _ => {}
