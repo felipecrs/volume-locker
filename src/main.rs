@@ -57,20 +57,11 @@ struct DeviceLockedInfo {
     name: String, // Store device name
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 struct PersistentState {
     locked_devices: HashMap<String, DeviceLockedInfo>,
     #[serde(default)]
     notify_on_volume_restored: bool,
-}
-
-impl Default for PersistentState {
-    fn default() -> Self {
-        PersistentState {
-            locked_devices: HashMap::new(),
-            notify_on_volume_restored: false,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -82,10 +73,10 @@ struct MenuItemDeviceInfo {
 }
 
 enum UserEvent {
-    TrayIconEvent(tray_icon::TrayIconEvent),
-    MenuEvent(tray_icon::menu::MenuEvent),
-    ConfigurationChangedEvent,
-    WatchedDevicesShouldReloadEvent,
+    TrayIcon(tray_icon::TrayIconEvent),
+    Menu(tray_icon::menu::MenuEvent),
+    ConfigurationChanged,
+    WatchedDevicesShouldReload,
 }
 
 #[implement(IAudioEndpointVolumeCallback)]
@@ -136,25 +127,19 @@ struct AudioDevicesChangedCallback {
 impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
     fn OnDeviceStateChanged(&self, _: &PCWSTR, _: DEVICE_STATE) -> windows::core::Result<()> {
         log::info!("Some device state changed");
-        let _ = self
-            .proxy
-            .send_event(UserEvent::WatchedDevicesShouldReloadEvent);
+        let _ = self.proxy.send_event(UserEvent::WatchedDevicesShouldReload);
         Ok(())
     }
 
     fn OnDeviceAdded(&self, _: &PCWSTR) -> windows::core::Result<()> {
         log::info!("Some device was added");
-        let _ = self
-            .proxy
-            .send_event(UserEvent::WatchedDevicesShouldReloadEvent);
+        let _ = self.proxy.send_event(UserEvent::WatchedDevicesShouldReload);
         Ok(())
     }
 
     fn OnDeviceRemoved(&self, _: &PCWSTR) -> windows::core::Result<()> {
         log::info!("Some device was removed");
-        let _ = self
-            .proxy
-            .send_event(UserEvent::WatchedDevicesShouldReloadEvent);
+        let _ = self.proxy.send_event(UserEvent::WatchedDevicesShouldReload);
         Ok(())
     }
 
@@ -174,19 +159,21 @@ impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
 
 fn main() {
     let log_path = get_executable_directory().join(LOG_FILE_NAME);
-    let mut loggers: Vec<Box<dyn SharedLogger>> = Vec::new();
-    loggers.push(WriteLogger::new(
-        LevelFilter::Info,
-        Config::default(),
-        File::create(&log_path).unwrap(),
-    ));
-    #[cfg(debug_assertions)]
-    loggers.push(TermLogger::new(
-        LevelFilter::Info,
-        Config::default(),
-        TerminalMode::Stderr,
-        ColorChoice::Auto,
-    ));
+    let loggers: Vec<Box<dyn SharedLogger>> = vec![
+        WriteLogger::new(
+            LevelFilter::Info,
+            Config::default(),
+            File::create(&log_path).unwrap(),
+        ),
+        #[cfg(debug_assertions)]
+        TermLogger::new(
+            LevelFilter::Info,
+            Config::default(),
+            TerminalMode::Stderr,
+            ColorChoice::Auto,
+        ),
+    ];
+
     CombinedLogger::init(loggers).unwrap();
 
     // Only allow one instance of the application to run at a time
@@ -200,13 +187,13 @@ fn main() {
 
     let proxy = event_loop.create_proxy();
     TrayIconEvent::set_event_handler(Some(move |event| {
-        let _ = proxy.send_event(UserEvent::TrayIconEvent(event));
+        let _ = proxy.send_event(UserEvent::TrayIcon(event));
     }));
     TrayIconEvent::receiver();
 
     let proxy = event_loop.create_proxy();
     MenuEvent::set_event_handler(Some(move |event| {
-        let _ = proxy.send_event(UserEvent::MenuEvent(event));
+        let _ = proxy.send_event(UserEvent::Menu(event));
     }));
     MenuEvent::receiver();
 
@@ -273,13 +260,13 @@ fn main() {
                         .build()
                         .unwrap(),
                 );
-                let _ = main_proxy.send_event(UserEvent::WatchedDevicesShouldReloadEvent);
+                let _ = main_proxy.send_event(UserEvent::WatchedDevicesShouldReload);
             }
 
-            Event::UserEvent(UserEvent::MenuEvent(event)) => {
+            Event::UserEvent(UserEvent::Menu(event)) => {
                 if event.id == notify_check_item.id() {
                     persistent_state.notify_on_volume_restored = notify_check_item.is_checked();
-                    let _ = main_proxy.send_event(UserEvent::ConfigurationChangedEvent);
+                    let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
                 } else if event.id == auto_launch_check_item.id() {
                     let checked = auto_launch_check_item.is_checked();
                     if checked {
@@ -308,83 +295,77 @@ fn main() {
                                     .locked_devices
                                     .remove(&device_info.device_id);
                             }
-                            let _ = main_proxy.send_event(UserEvent::ConfigurationChangedEvent);
+                            let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
                         }
                     }
                 }
             }
 
-            // On right click of tray icon: reload the menu
-            Event::UserEvent(UserEvent::TrayIconEvent(event)) => {
-                match event {
-                    TrayIconEvent::Click { button, .. } => {
-                        if button == MouseButton::Right || button == MouseButton::Left {
-                            // Clear the menu
-                            for _ in 0..tray_menu.items().len() {
-                                tray_menu.remove_at(0);
-                            }
-                            menu_id_to_device.clear();
-
-                            for (heading_item, device_type) in [
-                                (&output_devices_heading_item, DeviceType::Output),
-                                (&input_devices_heading_item, DeviceType::Input),
-                            ] {
-                                tray_menu.append(heading_item).unwrap();
-                                let endpoint_type = match device_type {
-                                    DeviceType::Output => eRender,
-                                    DeviceType::Input => eCapture,
-                                };
-                                let devices: IMMDeviceCollection = unsafe {
-                                    device_enumerator
-                                        .EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE)
-                                        .unwrap()
-                                };
-                                let count = unsafe { devices.GetCount().unwrap() };
-                                for i in 0..count {
-                                    let device = unsafe { devices.Item(i).unwrap() };
-                                    let name = get_device_name(&device).unwrap();
-                                    let device_id = get_device_id(&device).unwrap();
-                                    let endpoint = get_audio_endpoint(&device).unwrap();
-                                    let volume = get_volume(&endpoint).unwrap();
-                                    let volume_percent = convert_float_to_percent(volume);
-                                    let is_default =
-                                        is_default_device(&device_enumerator, &device, device_type);
-                                    let label = to_label(&name, volume_percent, is_default);
-                                    let checked = persistent_state
-                                        .locked_devices
-                                        .get(&device_id)
-                                        .map_or(false, |info| info.device_type == device_type);
-                                    let menu_item = CheckMenuItem::new(&label, true, checked, None);
-                                    menu_id_to_device.insert(
-                                        menu_item.id().clone(),
-                                        MenuItemDeviceInfo {
-                                            device_id,
-                                            name,
-                                            volume_percent,
-                                            device_type,
-                                        },
-                                    );
-                                    tray_menu.append(&menu_item).unwrap();
-                                }
-                                tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
-                            }
-
-                            // Refresh check items
-                            notify_check_item
-                                .set_checked(persistent_state.notify_on_volume_restored);
-                            tray_menu.append(&notify_check_item).unwrap();
-                            let auto_launch_enabled = auto_launch.is_enabled().unwrap();
-                            auto_launch_check_item.set_checked(auto_launch_enabled);
-                            tray_menu.append(&auto_launch_check_item).unwrap();
-                            tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
-                            tray_menu.append(&quit_item).unwrap();
-                        }
-                    }
-                    _ => {}
+            // On right or left click of tray icon: reload the menu
+            Event::UserEvent(UserEvent::TrayIcon(TrayIconEvent::Click { button, .. }))
+                if button == MouseButton::Right || button == MouseButton::Left =>
+            {
+                // Clear the menu
+                for _ in 0..tray_menu.items().len() {
+                    tray_menu.remove_at(0);
                 }
+                menu_id_to_device.clear();
+
+                for (heading_item, device_type) in [
+                    (&output_devices_heading_item, DeviceType::Output),
+                    (&input_devices_heading_item, DeviceType::Input),
+                ] {
+                    tray_menu.append(heading_item).unwrap();
+                    let endpoint_type = match device_type {
+                        DeviceType::Output => eRender,
+                        DeviceType::Input => eCapture,
+                    };
+                    let devices: IMMDeviceCollection = unsafe {
+                        device_enumerator
+                            .EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE)
+                            .unwrap()
+                    };
+                    let count = unsafe { devices.GetCount().unwrap() };
+                    for i in 0..count {
+                        let device = unsafe { devices.Item(i).unwrap() };
+                        let name = get_device_name(&device).unwrap();
+                        let device_id = get_device_id(&device).unwrap();
+                        let endpoint = get_audio_endpoint(&device).unwrap();
+                        let volume = get_volume(&endpoint).unwrap();
+                        let volume_percent = convert_float_to_percent(volume);
+                        let is_default =
+                            is_default_device(&device_enumerator, &device, device_type);
+                        let label = to_label(&name, volume_percent, is_default);
+                        let checked = persistent_state
+                            .locked_devices
+                            .get(&device_id)
+                            .is_some_and(|info| info.device_type == device_type);
+                        let menu_item = CheckMenuItem::new(&label, true, checked, None);
+                        menu_id_to_device.insert(
+                            menu_item.id().clone(),
+                            MenuItemDeviceInfo {
+                                device_id,
+                                name,
+                                volume_percent,
+                                device_type,
+                            },
+                        );
+                        tray_menu.append(&menu_item).unwrap();
+                    }
+                    tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
+                }
+
+                // Refresh check items
+                notify_check_item.set_checked(persistent_state.notify_on_volume_restored);
+                tray_menu.append(&notify_check_item).unwrap();
+                let auto_launch_enabled = auto_launch.is_enabled().unwrap();
+                auto_launch_check_item.set_checked(auto_launch_enabled);
+                tray_menu.append(&auto_launch_check_item).unwrap();
+                tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
+                tray_menu.append(&quit_item).unwrap();
             }
 
-            Event::UserEvent(UserEvent::WatchedDevicesShouldReloadEvent) => {
+            Event::UserEvent(UserEvent::WatchedDevicesShouldReload) => {
                 log::info!("Reloading list of watched devices...");
 
                 watched_endpoints.clear();
@@ -441,10 +422,10 @@ fn main() {
                 }
             }
 
-            Event::UserEvent(UserEvent::ConfigurationChangedEvent) => {
+            Event::UserEvent(UserEvent::ConfigurationChanged) => {
                 save_state(&persistent_state);
                 log::info!("Saved: {:?}", persistent_state);
-                let _ = main_proxy.send_event(UserEvent::WatchedDevicesShouldReloadEvent);
+                let _ = main_proxy.send_event(UserEvent::WatchedDevicesShouldReload);
             }
 
             _ => {}
