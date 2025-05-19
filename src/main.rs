@@ -75,7 +75,7 @@ struct MenuItemDeviceInfo {
 
 struct VolumeChangedEvent {
     device_id: String,
-    new_volume: f32,
+    new_volume: Option<f32>,
 }
 
 enum UserEvent {
@@ -135,7 +135,7 @@ impl IAudioEndpointVolumeCallback_Impl for VolumeChangeCallback_Impl {
         &self,
         pnotify: *mut AUDIO_VOLUME_NOTIFICATION_DATA,
     ) -> ::windows::core::Result<()> {
-        let new_volume = unsafe { (*pnotify).fMasterVolume };
+        let new_volume = unsafe { pnotify.as_ref().map(|p| p.fMasterVolume) };
         let _ = self
             .proxy
             .send_event(UserEvent::VolumeChanged(VolumeChangedEvent {
@@ -164,6 +164,11 @@ fn main() {
     ];
 
     CombinedLogger::init(loggers).unwrap();
+
+    // Set panic hook to log panic info before exiting
+    std::panic::set_hook(Box::new(|panic_info| {
+        log::error!("Panic occurred: {}", panic_info);
+    }));
 
     // Only allow one instance of the application to run at a time
     let instance = SingleInstance::new(APP_UID).expect("Failed to create single instance");
@@ -361,18 +366,70 @@ fn main() {
                     device_id,
                     new_volume,
                 } = event;
+                let new_volume = match new_volume {
+                    Some(v) => v,
+                    None => {
+                        let device = match get_device_by_id(&device_enumerator, &device_id) {
+                            Ok(d) => d,
+                            Err(e) => {
+                                log::error!(
+                                    "Failed to get device by id for {}: {}",
+                                    device_id,
+                                    e
+                                );
+                                return;
+                            }
+                        };
+                        let endpoint = match get_audio_endpoint(&device) {
+                            Ok(ep) => ep,
+                            Err(e) => {
+                                log::error!("Failed to get endpoint for {}: {}", device_id, e);
+                                return;
+                            }
+                        };
+                        match get_volume(&endpoint) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                log::error!("Failed to get volume for {}: {}", device_id, e);
+                                return;
+                            }
+                        }
+                    }
+                };
                 let new_volume_percent = convert_float_to_percent(new_volume);
-                let target_volume_percent = persistent_state
-                    .locked_devices
-                    .get(&device_id)
-                    .map(|info| info.volume_percent)
-                    .unwrap();
+                let device_info = persistent_state.locked_devices.get(&device_id).unwrap();
+                let target_volume_percent = device_info.volume_percent;
                 if new_volume_percent != target_volume_percent {
                     let target_volume = convert_percent_to_float(target_volume_percent);
-                    let device = get_device_by_id(&device_enumerator, &device_id).unwrap();
-                    let endpoint = get_audio_endpoint(&device).unwrap();
-                    set_volume(&endpoint, target_volume).unwrap();
-                    let device_name = get_device_name(&device).unwrap();
+                    let device = match get_device_by_id(&device_enumerator, &device_id) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            log::error!(
+                                "Failed to get device by id for {}: {}",
+                                device_info.name,
+                                e
+                            );
+                            return;
+                        }
+                    };
+                    let device_name =
+                        get_device_name(&device).unwrap_or_else(|_| device_info.name.clone());
+                    let endpoint = match get_audio_endpoint(&device) {
+                        Ok(ep) => ep,
+                        Err(e) => {
+                            log::error!("Failed to get endpoint for {}: {}", device_name, e);
+                            return;
+                        }
+                    };
+                    if let Err(e) = set_volume(&endpoint, target_volume) {
+                        log::error!(
+                            "Failed to set volume of {} to {}%: {}",
+                            device_name,
+                            target_volume_percent,
+                            e
+                        );
+                        return;
+                    }
                     log::info!(
                         "Restored volume of {} from {}% to {}%",
                         device_name,
@@ -388,14 +445,20 @@ fn main() {
                             None => true,
                         };
                         if should_notify {
-                            Toast::new(Toast::POWERSHELL_APP_ID)
+                            if let Err(e) = Toast::new(Toast::POWERSHELL_APP_ID)
                                 .title("Volume Restored")
                                 .text1(&format!(
                                     "The volume of {} has been restored from {}% to {}%.",
                                     device_name, new_volume_percent, target_volume_percent
                                 ))
                                 .show()
-                                .unwrap();
+                            {
+                                log::error!(
+                                    "Failed to send volume restored for {}: {}",
+                                    device_name,
+                                    e
+                                );
+                            }
                             last_notification_times.insert(device_id.clone(), now);
                         }
                     }
@@ -412,7 +475,7 @@ fn main() {
                         Ok(device) => device,
                         Err(e) => {
                             log::warn!(
-                                "Not watching volume of {} because of error: {}",
+                                "Not watching volume of {} as failed to get its device by id: {}",
                                 device_info.name,
                                 e
                             );
@@ -420,45 +483,75 @@ fn main() {
                         }
                     };
 
-                    let device_state = unsafe { device.GetState().unwrap() };
+                    let device_state = match unsafe { device.GetState() } {
+                        Ok(state) => state,
+                        Err(e) => {
+                            log::warn!(
+                                "Not watching volume of {} as failed to get its state: {}",
+                                device_info.name,
+                                e
+                            );
+                            continue;
+                        }
+                    };
                     if device_state != DEVICE_STATE_ACTIVE {
                         log::info!(
-                            "Not watching volume of {} because it is not enabled",
+                            "Not watching volume of {} as it is not active",
                             device_info.name
                         );
                         continue;
                     }
 
-                    let endpoint = get_audio_endpoint(&device).unwrap();
+                    let endpoint = match get_audio_endpoint(&device) {
+                        Ok(ep) => ep,
+                        Err(e) => {
+                            log::warn!(
+                                "Not watching volume of {} as failed to get its endpoint: {}",
+                                device_info.name,
+                                e
+                            );
+                            continue;
+                        }
+                    };
                     let volume_callback: IAudioEndpointVolumeCallback = VolumeChangeCallback {
                         proxy: main_proxy.clone(),
                         device_id: device_id.clone(),
                     }
                     .into();
-                    unsafe {
-                        endpoint
-                            .RegisterControlChangeNotify(&volume_callback)
-                            .unwrap()
-                    };
+                    if let Err(e) =
+                        unsafe { endpoint.RegisterControlChangeNotify(&volume_callback) }
+                    {
+                        log::warn!(
+                            "Not watching volume of {} as failed to register for volume changes: {}",
+                            device_info.name,
+                            e
+                        );
+                        continue;
+                    }
                     watched_endpoints.push(endpoint);
                     log::info!(
                         "Watching volume of {} for when it changes from {}%",
                         device_info.name,
                         device_info.volume_percent
                     );
-                    let current_volume = get_volume(watched_endpoints.last().unwrap()).unwrap();
-                    let _ = main_proxy.send_event(UserEvent::VolumeChanged(VolumeChangedEvent {
-                        device_id: device_id.clone(),
-                        new_volume: current_volume,
-                    }));
+
+                    let _ = main_proxy.send_event(UserEvent::VolumeChanged(
+                        VolumeChangedEvent {
+                            device_id: device_id.clone(),
+                            new_volume: None,
+                        },
+                    ));
+
                     some_locked = true;
                 }
 
                 if let Some(tray_icon) = &tray_icon {
                     if some_locked {
-                        tray_icon.set_icon(Some(locked_icon.clone())).unwrap();
-                    } else {
-                        tray_icon.set_icon(Some(unlocked_icon.clone())).unwrap();
+                        if let Err(e) = tray_icon.set_icon(Some(locked_icon.clone())) {
+                            log::error!("Failed to update tray icon to locked: {}", e);
+                        }
+                    } else if let Err(e) = tray_icon.set_icon(Some(unlocked_icon.clone())) {
+                        log::error!("Failed to update tray icon to unlocked: {}", e);
                     }
                 }
             }
