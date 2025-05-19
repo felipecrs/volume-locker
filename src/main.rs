@@ -10,6 +10,7 @@ use std::fs;
 use std::fs::File;
 use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 use std::{collections::HashMap, ffi::OsStr};
 use tao::{
     event::Event,
@@ -229,6 +230,8 @@ fn main() {
 
     let mut watched_endpoints: Vec<IAudioEndpointVolume> = Vec::new();
 
+    let mut last_notification_times: HashMap<String, Instant> = HashMap::new();
+
     let main_proxy = event_loop.create_proxy();
 
     let mut persistent_state = load_state();
@@ -377,14 +380,24 @@ fn main() {
                         target_volume_percent
                     );
                     if persistent_state.notify_on_volume_restored {
-                        Toast::new(Toast::POWERSHELL_APP_ID)
-                            .title("Volume Restored")
-                            .text1(&format!(
-                                "The volume of {} has been restored from {}% to {}%.",
-                                device_name, new_volume_percent, target_volume_percent
-                            ))
-                            .show()
-                            .unwrap();
+                        let now = Instant::now();
+                        let should_notify = match last_notification_times.get(&device_id) {
+                            Some(&last_time) => {
+                                now.duration_since(last_time) > Duration::from_secs(5)
+                            }
+                            None => true,
+                        };
+                        if should_notify {
+                            Toast::new(Toast::POWERSHELL_APP_ID)
+                                .title("Volume Restored")
+                                .text1(&format!(
+                                    "The volume of {} has been restored from {}% to {}%.",
+                                    device_name, new_volume_percent, target_volume_percent
+                                ))
+                                .show()
+                                .unwrap();
+                            last_notification_times.insert(device_id.clone(), now);
+                        }
                     }
                 }
             }
