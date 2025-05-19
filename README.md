@@ -17,7 +17,19 @@ https://github.com/user-attachments/assets/772af810-0353-4db0-99ec-ab39c6cd6aab
 
 ## Getting Started
 
-Simply download the executable from the [releases page](https://github.com/felipecrs/volume-locker/releases), place it somewhere like `C:\Apps\Volume Locker\Volume Locker.exe` and run it.
+Simply grab the executable from the [releases page](https://github.com/felipecrs/volume-locker/releases), place it somewhere like `C:\Apps\Volume Locker\Volume Locker.exe` and run it.
+
+Or you can copy and paste this into _Windows PowerShell_, and execute:
+
+```powershell
+New-Item -ItemType Directory -Path 'C:\Apps\Volume Locker' -Force >$null; `
+  Get-Process | Where-Object { $_.Path -eq 'C:\Apps\Volume Locker\VolumeLocker.exe' } | Stop-Process; `
+  curl.exe --progress-bar --location --output 'C:\Apps\Volume Locker\VolumeLocker.exe' `
+  https://github.com/felipecrs/volume-locker/releases/latest/download/VolumeLocker.exe; `
+  Start-Process 'C:\Apps\Volume Locker\VolumeLocker.exe'
+```
+
+You can also use the snippet above to update the app, just run it again.
 
 ## Usage
 
