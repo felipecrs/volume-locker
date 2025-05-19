@@ -10,24 +10,25 @@ on:
     branches:
       - master
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
   ci:
     runs-on: windows-latest
+    permissions:
+      contents: write # for release
+    env:
+      CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - run: cargo fmt --check
       - run: cargo clippy --locked
-      - run: cargo fmt --check --locked
       - if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           version="${GITHUB_REF#refs/tags/v}"
-          sed -i "s/^version = \"0.0.0-development\"$/version = \"${version}\"/" Cargo.toml
-          grep -q "^version = \"${version}\"$" Cargo.toml
-      - run: cargo build --release --locked
+          sed -i "s/^version = \"0.0.0-development\"$/version = \"${version}\"/" Cargo.toml Cargo.lock
+          grep -q "^version = \"${version}\"$" Cargo.toml Cargo.lock
+      - run: cargo build --release --frozen
       - if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
