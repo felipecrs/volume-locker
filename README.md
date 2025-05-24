@@ -1,3 +1,7 @@
+<p align="center">
+⭐<b>Please star this project in GitHub if it helps you!</b>⭐
+</p>
+
 # Volume Locker
 
 <img align="right" width="200" alt="Volume Locker" src="https://github.com/user-attachments/assets/20dbba8d-f86f-4f88-b72c-088180ecbe30" />
