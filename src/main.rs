@@ -3,6 +3,7 @@
     windows_subsystem = "windows"
 )]
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use simplelog::*;
 use single_instance::SingleInstance;
@@ -51,7 +52,7 @@ enum DeviceType {
     Output,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct DeviceLockedInfo {
     volume_percent: f32,
     device_type: DeviceType,
@@ -240,6 +241,12 @@ fn main() {
 
     let mut persistent_state = load_state();
     log::info!("Loaded: {:?}", persistent_state);
+
+    // Migrate device IDs if they have changed
+    migrate_device_ids(&device_enumerator, &mut persistent_state);
+
+    // Save the state if any migrations occurred
+    save_state(&persistent_state);
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -454,7 +461,7 @@ fn main() {
                                 .show()
                             {
                                 log::error!(
-                                    "Failed to send volume restored for {}: {}",
+                                    "Failed to send volume restored notification for {}: {}",
                                     device_name,
                                     e
                                 );
@@ -618,7 +625,35 @@ fn get_device_name(device: &IMMDevice) -> Result<String> {
         let prop_store = device.OpenPropertyStore(STGM_READ)?;
         let friendly_name_prop = prop_store.GetValue(&PKEY_Device_FriendlyName)?;
         let friendly_name = PropVariantToStringAlloc(&friendly_name_prop)?.to_string()?;
-        Ok(friendly_name)
+        let name_clean = clean_device_name(&friendly_name);
+        Ok(name_clean)
+    }
+}
+
+// Reimplemented from https://github.com/Belphemur/SoundSwitch/blob/50063dd35d3e648192cbcaa1f9a82a5856302562/SoundSwitch.Common/Framework/Audio/Device/DeviceInfo.cs#L33-L56
+fn clean_device_name(name: &str) -> String {
+    let name_splitter = match Regex::new(r"(?P<friendlyName>.+)\s\([\d\s\-|]*(?P<deviceName>.+)\)")
+    {
+        Ok(regex) => regex,
+        Err(_) => return name.to_string(),
+    };
+
+    let name_cleaner = match Regex::new(r"\s?\(\d\)|^\d+\s?-\s?") {
+        Ok(regex) => regex,
+        Err(_) => return name.to_string(),
+    };
+
+    if let Some(captures) = name_splitter.captures(name) {
+        let friendly_name = captures.name("friendlyName").map_or("", |m| m.as_str());
+        let device_name = captures.name("deviceName").map_or("", |m| m.as_str());
+
+        let cleaned_friendly = name_cleaner.replace_all(friendly_name, "");
+        let cleaned_friendly = cleaned_friendly.trim();
+
+        format!("{} ({})", cleaned_friendly, device_name)
+    } else {
+        // Old naming format, use as is
+        name.to_string()
     }
 }
 
@@ -693,4 +728,92 @@ fn is_default_device(
         }
     }
     false
+}
+
+fn migrate_device_ids(
+    device_enumerator: &IMMDeviceEnumerator,
+    persistent_state: &mut PersistentState,
+) {
+    let mut devices_to_migrate: Vec<(String, DeviceLockedInfo)> = Vec::new();
+
+    // Check which devices need migration
+    for (device_id, device_info) in persistent_state.locked_devices.iter() {
+        if get_device_by_id(device_enumerator, device_id).is_err() {
+            log::warn!(
+                "Device {} ({}) is no longer available, attempting to migrate its device ID...",
+                device_info.name,
+                device_id
+            );
+            devices_to_migrate.push((device_id.clone(), device_info.clone()));
+        }
+    }
+
+    // Attempt to migrate each device
+    for (old_device_id, device_info) in devices_to_migrate {
+        let device_name = device_info.name.clone();
+        if let Ok(new_device_id) =
+            find_device_by_name_and_type(device_enumerator, &device_name, device_info.device_type)
+        {
+            log::info!(
+                "Migrated device ID for {} from {} to {}",
+                device_name,
+                old_device_id,
+                new_device_id
+            );
+
+            // Remove old device ID entry and add the new one
+            persistent_state.locked_devices.remove(&old_device_id);
+            persistent_state
+                .locked_devices
+                .insert(new_device_id, device_info);
+        } else {
+            log::warn!(
+                "Failed to migrate device ID for {} ({}) because no device was found matching its name and type.",
+                device_name,
+                old_device_id
+            );
+            if let Err(e) = Toast::new(Toast::POWERSHELL_APP_ID)
+                .title("Locked Device Not Found")
+                .text1(&format!(
+                    "The locked device '{}' could not be found. Please lock it again.",
+                    device_name
+                ))
+                .show()
+            {
+                log::error!(
+                    "Failed to send device not found notification for {}: {}",
+                    device_name,
+                    e
+                );
+            }
+            // Remove the old device ID from the state
+            persistent_state.locked_devices.remove(&old_device_id);
+        }
+    }
+}
+
+fn find_device_by_name_and_type(
+    device_enumerator: &IMMDeviceEnumerator,
+    target_name: &str,
+    device_type: DeviceType,
+) -> Result<String> {
+    let endpoint_type = match device_type {
+        DeviceType::Output => eRender,
+        DeviceType::Input => eCapture,
+    };
+
+    let devices: IMMDeviceCollection =
+        unsafe { device_enumerator.EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE)? };
+
+    let count = unsafe { devices.GetCount()? };
+    for i in 0..count {
+        let device = unsafe { devices.Item(i)? };
+        let device_name = get_device_name(&device)?;
+
+        if device_name == target_name {
+            return get_device_id(&device);
+        }
+    }
+
+    Err(windows::core::Error::from_win32())
 }
