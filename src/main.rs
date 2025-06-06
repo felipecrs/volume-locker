@@ -19,27 +19,27 @@ use tao::{
 };
 use tauri_winrt_notification::Toast;
 use tray_icon::{
-    MouseButton, TrayIconBuilder, TrayIconEvent,
     menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
+    MouseButton, TrayIconBuilder, TrayIconEvent,
 };
 use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
 use windows_core::PCWSTR;
 
 use auto_launch::AutoLaunchBuilder;
+use windows::core::{implement, Result};
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Media::Audio::Endpoints::{
     IAudioEndpointVolume, IAudioEndpointVolumeCallback, IAudioEndpointVolumeCallback_Impl,
 };
 use windows::Win32::Media::Audio::{
-    AUDIO_VOLUME_NOTIFICATION_DATA, DEVICE_STATE, DEVICE_STATE_ACTIVE, EDataFlow, ERole, IMMDevice,
-    IMMDeviceCollection, IMMDeviceEnumerator, IMMNotificationClient, IMMNotificationClient_Impl,
-    MMDeviceEnumerator, eCapture, eConsole, eRender,
+    eCapture, eConsole, eRender, EDataFlow, ERole, IMMDevice, IMMDeviceCollection,
+    IMMDeviceEnumerator, IMMNotificationClient, IMMNotificationClient_Impl, MMDeviceEnumerator,
+    AUDIO_VOLUME_NOTIFICATION_DATA, DEVICE_STATE, DEVICE_STATE_ACTIVE,
 };
 use windows::Win32::System::Com::{
-    CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, STGM_READ,
+    CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, STGM_READ,
 };
-use windows::core::{Result, implement};
 
 const APP_NAME: &str = "Volume Locker";
 const APP_UID: &str = "25fc6555-723f-414b-9fa0-b4b658d85b43";
@@ -735,17 +735,38 @@ fn migrate_device_ids(
     persistent_state: &mut PersistentState,
 ) {
     let mut devices_to_migrate: Vec<(String, DeviceLockedInfo)> = Vec::new();
+    let mut devices_to_update: Vec<(String, DeviceLockedInfo)> = Vec::new();
 
     // Check which devices need migration
     for (device_id, device_info) in persistent_state.locked_devices.iter() {
-        if get_device_by_id(device_enumerator, device_id).is_err() {
-            log::warn!(
-                "Device {} ({}) is no longer available, attempting to migrate its device ID...",
-                device_info.name,
-                device_id
-            );
+        if let Ok(device) = get_device_by_id(device_enumerator, device_id) {
+            // Device exists, check if name has changed
+            if let Ok(current_name) = get_device_name(&device) {
+                if current_name != device_info.name {
+                    log::info!(
+                        "Device {} with ID {} had the name changed to {}",
+                        device_info.name,
+                        device_id,
+                        current_name,
+                    );
+                    let updated_info = DeviceLockedInfo {
+                        name: current_name,
+                        volume_percent: device_info.volume_percent,
+                        device_type: device_info.device_type,
+                    };
+                    devices_to_update.push((device_id.clone(), updated_info));
+                }
+            }
+        } else {
             devices_to_migrate.push((device_id.clone(), device_info.clone()));
         }
+    }
+
+    // Apply the name updates
+    for (device_id, updated_info) in devices_to_update {
+        persistent_state
+            .locked_devices
+            .insert(device_id, updated_info);
     }
 
     // Attempt to migrate each device
@@ -754,28 +775,29 @@ fn migrate_device_ids(
         if let Ok(new_device_id) =
             find_device_by_name_and_type(device_enumerator, &device_name, device_info.device_type)
         {
+            // Swap the old device with the new one
+            persistent_state.locked_devices.remove(&old_device_id);
+            persistent_state
+                .locked_devices
+                .insert(new_device_id.clone(), device_info);
             log::info!(
-                "Migrated device ID for {} from {} to {}",
+                "Migrated device {} from ID {} to {}",
                 device_name,
                 old_device_id,
                 new_device_id
             );
-
-            // Remove old device ID entry and add the new one
-            persistent_state.locked_devices.remove(&old_device_id);
-            persistent_state
-                .locked_devices
-                .insert(new_device_id, device_info);
         } else {
+            // Remove the old device ID from the state
+            persistent_state.locked_devices.remove(&old_device_id);
             log::warn!(
-                "Failed to migrate device ID for {} ({}) because no device was found matching its name and type.",
+                "Removed device {} with ID {} as it could not be found",
                 device_name,
                 old_device_id
             );
             if let Err(e) = Toast::new(Toast::POWERSHELL_APP_ID)
                 .title("Locked Device Not Found")
                 .text1(&format!(
-                    "The locked device '{}' could not be found. Please lock it again.",
+                    "The device {} was previously locked but it could not be found on the system. Please lock it again if still needed.",
                     device_name
                 ))
                 .show()
@@ -786,8 +808,6 @@ fn migrate_device_ids(
                     e
                 );
             }
-            // Remove the old device ID from the state
-            persistent_state.locked_devices.remove(&old_device_id);
         }
     }
 }
