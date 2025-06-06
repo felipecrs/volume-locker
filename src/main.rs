@@ -3,7 +3,7 @@
     windows_subsystem = "windows"
 )]
 
-use regex::Regex;
+use regex_lite::Regex;
 use serde::{Deserialize, Serialize};
 use simplelog::*;
 use single_instance::SingleInstance;
