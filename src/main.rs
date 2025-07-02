@@ -787,23 +787,22 @@ fn migrate_device_ids(
                 new_device_id
             );
         } else {
-            // Remove the old device ID from the state
-            persistent_state.locked_devices.remove(&old_device_id);
-            log::warn!(
-                "Removed device {} with ID {} as it could not be found",
+            // Keep the device in persistent state in case it returns later
+            log::info!(
+                "Keeping device {} with ID {} in persistent state as it could not be found (may return after reboot/reconnection)",
                 device_name,
                 old_device_id
             );
             if let Err(e) = Toast::new(Toast::POWERSHELL_APP_ID)
-                .title("Locked Device Not Found")
+                .title("Locked Device Temporarily Unavailable")
                 .text1(&format!(
-                    "The device {} was previously locked but it could not be found on the system. Please lock it again if still needed.",
+                    "The device {} was previously locked but is currently unavailable. It will be automatically restored when reconnected.",
                     device_name
                 ))
                 .show()
             {
                 log::error!(
-                    "Failed to send device not found notification for {}: {}",
+                    "Failed to send device unavailable notification for {}: {}",
                     device_name,
                     e
                 );
