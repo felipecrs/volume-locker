@@ -168,7 +168,7 @@ fn main() {
 
     // Set panic hook to log panic info before exiting
     std::panic::set_hook(Box::new(|panic_info| {
-        log::error!("Panic occurred: {}", panic_info);
+        log::error!("Panic occurred: {panic_info}");
     }));
 
     // Only allow one instance of the application to run at a time
@@ -240,7 +240,7 @@ fn main() {
     let main_proxy = event_loop.create_proxy();
 
     let mut persistent_state = load_state();
-    log::info!("Loaded: {:?}", persistent_state);
+    log::info!("Loaded: {persistent_state:?}");
 
     // Migrate device IDs if they have changed
     migrate_device_ids(&device_enumerator, &mut persistent_state);
@@ -380,9 +380,7 @@ fn main() {
                             Ok(d) => d,
                             Err(e) => {
                                 log::error!(
-                                    "Failed to get device by id for {}: {}",
-                                    device_id,
-                                    e
+                                    "Failed to get device by id for {device_id}: {e}"
                                 );
                                 return;
                             }
@@ -390,14 +388,14 @@ fn main() {
                         let endpoint = match get_audio_endpoint(&device) {
                             Ok(ep) => ep,
                             Err(e) => {
-                                log::error!("Failed to get endpoint for {}: {}", device_id, e);
+                                log::error!("Failed to get endpoint for {device_id}: {e}");
                                 return;
                             }
                         };
                         match get_volume(&endpoint) {
                             Ok(v) => v,
                             Err(e) => {
-                                log::error!("Failed to get volume for {}: {}", device_id, e);
+                                log::error!("Failed to get volume for {device_id}: {e}");
                                 return;
                             }
                         }
@@ -424,24 +422,18 @@ fn main() {
                     let endpoint = match get_audio_endpoint(&device) {
                         Ok(ep) => ep,
                         Err(e) => {
-                            log::error!("Failed to get endpoint for {}: {}", device_name, e);
+                            log::error!("Failed to get endpoint for {device_name}: {e}");
                             return;
                         }
                     };
                     if let Err(e) = set_volume(&endpoint, target_volume) {
                         log::error!(
-                            "Failed to set volume of {} to {}%: {}",
-                            device_name,
-                            target_volume_percent,
-                            e
+                            "Failed to set volume of {device_name} to {target_volume_percent}%: {e}"
                         );
                         return;
                     }
                     log::info!(
-                        "Restored volume of {} from {}% to {}%",
-                        device_name,
-                        new_volume_percent,
-                        target_volume_percent
+                        "Restored volume of {device_name} from {new_volume_percent}% to {target_volume_percent}%"
                     );
                     if persistent_state.notify_on_volume_restored {
                         let now = Instant::now();
@@ -455,15 +447,12 @@ fn main() {
                             if let Err(e) = Toast::new(Toast::POWERSHELL_APP_ID)
                                 .title("Volume Restored")
                                 .text1(&format!(
-                                    "The volume of {} has been restored from {}% to {}%.",
-                                    device_name, new_volume_percent, target_volume_percent
+                                    "The volume of {device_name} has been restored from {new_volume_percent}% to {target_volume_percent}%."
                                 ))
                                 .show()
                             {
                                 log::error!(
-                                    "Failed to send volume restored notification for {}: {}",
-                                    device_name,
-                                    e
+                                    "Failed to send volume restored notification for {device_name}: {e}"
                                 );
                             }
                             last_notification_times.insert(device_id.clone(), now);
@@ -555,17 +544,17 @@ fn main() {
                 if let Some(tray_icon) = &tray_icon {
                     if some_locked {
                         if let Err(e) = tray_icon.set_icon(Some(locked_icon.clone())) {
-                            log::error!("Failed to update tray icon to locked: {}", e);
+                            log::error!("Failed to update tray icon to locked: {e}");
                         }
                     } else if let Err(e) = tray_icon.set_icon(Some(unlocked_icon.clone())) {
-                        log::error!("Failed to update tray icon to unlocked: {}", e);
+                        log::error!("Failed to update tray icon to unlocked: {e}");
                     }
                 }
             }
 
             Event::UserEvent(UserEvent::ConfigurationChanged) => {
                 save_state(&persistent_state);
-                log::info!("Saved: {:?}", persistent_state);
+                log::info!("Saved: {persistent_state:?}");
                 let _ = main_proxy.send_event(UserEvent::DevicesChanged);
             }
 
@@ -610,7 +599,7 @@ fn load_state() -> PersistentState {
 
 fn to_label(name: &str, volume_percent: f32, is_default: bool) -> String {
     let default_indicator = if is_default { " · ☆" } else { "" };
-    format!("{}{} · {}%", name, default_indicator, volume_percent)
+    format!("{name}{default_indicator} · {volume_percent}%")
 }
 
 fn get_audio_endpoint(device: &IMMDevice) -> Result<IAudioEndpointVolume> {
@@ -650,7 +639,7 @@ fn clean_device_name(name: &str) -> String {
         let cleaned_friendly = name_cleaner.replace_all(friendly_name, "");
         let cleaned_friendly = cleaned_friendly.trim();
 
-        format!("{} ({})", cleaned_friendly, device_name)
+        format!("{cleaned_friendly} ({device_name})")
     } else {
         // Old naming format, use as is
         name.to_string()
@@ -780,17 +769,10 @@ fn migrate_device_ids(
             persistent_state
                 .locked_devices
                 .insert(new_device_id.clone(), device_info);
-            log::info!(
-                "Migrated device {} from ID {} to {}",
-                device_name,
-                old_device_id,
-                new_device_id
-            );
+            log::info!("Migrated device {device_name} from ID {old_device_id} to {new_device_id}");
         } else {
             log::warn!(
-                "Device {} with ID {} could not be found, keeping it in case it returns",
-                device_name,
-                old_device_id
+                "Device {device_name} with ID {old_device_id} could not be found, keeping it in case it returns"
             );
         }
     }
