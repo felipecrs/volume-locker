@@ -3,6 +3,7 @@
     windows_subsystem = "windows"
 )]
 
+use faccess::PathExt;
 use regex_lite::Regex;
 use serde::{Deserialize, Serialize};
 use simplelog::*;
@@ -148,7 +149,30 @@ impl IAudioEndpointVolumeCallback_Impl for VolumeChangeCallback_Impl {
 }
 
 fn main() {
-    let log_path = get_executable_directory().join(LOG_FILE_NAME);
+    let executable_directory = get_executable_directory();
+
+    if !executable_directory.writable() {
+        let error_title = "Volume Locker Directory Not Writable";
+        let error_message = format!(
+            "Please move Volume Locker to a directory that is writable or fix the permissions of '{}'.",
+            executable_directory.display(),
+        );
+
+        eprintln!("{error_title}: {error_message}");
+
+        if let Err(e) = Toast::new(Toast::POWERSHELL_APP_ID)
+            .title(error_title)
+            .text1(&error_message)
+            .duration(tauri_winrt_notification::Duration::Long)
+            .show()
+        {
+            eprintln!("Failed to show {error_title} notification: {e}");
+        }
+
+        std::process::exit(1);
+    }
+
+    let log_path = executable_directory.join(LOG_FILE_NAME);
     let loggers: Vec<Box<dyn SharedLogger>> = vec![
         WriteLogger::new(
             LevelFilter::Info,
@@ -452,7 +476,7 @@ fn main() {
                                 .show()
                             {
                                 log::error!(
-                                    "Failed to send volume restored notification for {device_name}: {e}"
+                                    "Failed to show volume restored notification for {device_name}: {e}"
                                 );
                             }
                             last_notification_times.insert(device_id.clone(), now);
