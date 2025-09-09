@@ -27,8 +27,8 @@ single-instance = "0.3.3"
 log = "0.4.27"
 simplelog = "0.12.2"
 tauri-winrt-notification = "0.7.2"
-windows-core = "0.61.1"
-windows = { version = "0.61.1", features = [
+windows-core = "0.62.0"
+windows = { version = "0.62.0", features = [
 	"Win32_Devices_FunctionDiscovery",
 	"Win32_Foundation",
 	"Win32_Media_Audio",
