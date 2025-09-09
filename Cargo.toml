@@ -27,6 +27,8 @@ single-instance = "0.3.3"
 log = "0.4.27"
 simplelog = "0.12.2"
 tauri-winrt-notification = "0.7.2"
+regex-lite = "0.1.6"
+windows-registry = "0.6.0"
 windows-core = "0.62.0"
 windows = { version = "0.62.0", features = [
 	"Win32_Devices_FunctionDiscovery",
@@ -38,7 +40,6 @@ windows = { version = "0.62.0", features = [
 	"Win32_System_Variant",
 	"Win32_UI_Shell_PropertiesSystem",
 ] }
-regex-lite = "0.1.6"
 
 [build-dependencies]
 winresource = "0.1.20"

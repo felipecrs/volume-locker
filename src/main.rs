@@ -11,7 +11,7 @@ use single_instance::SingleInstance;
 use std::fs;
 use std::fs::File;
 use std::os::windows::ffi::OsStrExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use std::{collections::HashMap, ffi::OsStr};
 use tao::{
@@ -25,7 +25,10 @@ use tray_icon::{
 };
 use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
+use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+use windows::core::HSTRING;
 use windows_core::PCWSTR;
+use windows_registry::CURRENT_USER;
 
 use auto_launch::AutoLaunchBuilder;
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
@@ -43,9 +46,12 @@ use windows::Win32::System::Com::{
 use windows::core::{Result, implement};
 
 const APP_NAME: &str = "Volume Locker";
+const APP_AUMID: &str = "FelipeSantos.VolumeLocker";
 const APP_UID: &str = "25fc6555-723f-414b-9fa0-b4b658d85b43";
 const STATE_FILE_NAME: &str = "VolumeLockerState.json";
 const LOG_FILE_NAME: &str = "VolumeLocker.log";
+const PNG_ICON_BYTES: &[u8] = include_bytes!("../icons/volume-locked.png");
+const PNG_ICON_FILE_NAME: &str = "VolumeLocker.png";
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 enum DeviceType {
@@ -160,7 +166,7 @@ fn main() {
 
         eprintln!("{error_title}: {error_message}");
 
-        if let Err(e) = Toast::new(Toast::POWERSHELL_APP_ID)
+        if let Err(e) = Toast::new(APP_AUMID)
             .title(error_title)
             .text1(&error_message)
             .duration(tauri_winrt_notification::Duration::Long)
@@ -201,6 +207,9 @@ fn main() {
         log::error!("Another instance is already running.");
         std::process::exit(1);
     }
+
+    // Set AppUserModelID so toast notifications show correct app name and icon
+    let _ = setup_app_aumid(&executable_directory);
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
@@ -468,7 +477,7 @@ fn main() {
                             None => true,
                         };
                         if should_notify {
-                            if let Err(e) = Toast::new(Toast::POWERSHELL_APP_ID)
+                            if let Err(e) = Toast::new(APP_AUMID)
                                 .title("Volume Restored")
                                 .text1(&format!(
                                     "The volume of {device_name} has been restored from {new_volume_percent}% to {target_volume_percent}%."
@@ -593,6 +602,29 @@ fn get_executable_directory() -> PathBuf {
         .parent()
         .unwrap()
         .to_path_buf()
+}
+
+fn setup_app_aumid(executable_directory: &Path) -> Result<()> {
+    // Create registry keys for the AppUserModelID
+    let registry_path = format!(r"SOFTWARE\Classes\AppUserModelId\{APP_AUMID}");
+    let _ = CURRENT_USER.remove_tree(registry_path.clone());
+    let key = CURRENT_USER.create(registry_path.clone()).unwrap();
+    let _ = key.set_string("DisplayName", APP_NAME);
+
+    // Write the icon file to the executable directory and use it as the icon
+    let png_path = executable_directory.join(PNG_ICON_FILE_NAME);
+    if let Err(e) = fs::write(&png_path, PNG_ICON_BYTES) {
+        log::warn!("Failed to write {PNG_ICON_FILE_NAME} icon: {e}");
+        let _ = key.remove_value("IconUri");
+    } else {
+        let _ = key.set_hstring("IconUri", &png_path.as_path().into());
+    }
+
+    unsafe {
+        let _ = SetCurrentProcessExplicitAppUserModelID(&HSTRING::from(APP_AUMID));
+    }
+
+    Ok(())
 }
 
 fn get_executable_path() -> PathBuf {
