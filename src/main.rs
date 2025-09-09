@@ -825,5 +825,5 @@ fn find_device_by_name_and_type(
         }
     }
 
-    Err(windows::core::Error::from_win32())
+    Err(windows::core::Error::empty())
 }
