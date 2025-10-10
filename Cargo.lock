@@ -1872,7 +1872,7 @@ dependencies = [
  "tao",
  "tauri-winrt-notification",
  "tray-icon",
- "widestring 1.2.0",
+ "widestring 1.2.1",
  "windows 0.62.0",
  "windows-core 0.62.0",
  "windows-registry",
@@ -1903,9 +1903,9 @@ checksum = "c168940144dd21fd8046987c16a46a33d5fc84eec29ef9dcddc2ac9e31526b7c"
 
 [[package]]
 name = "widestring"
-version = "1.2.0"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd7cf3379ca1aac9eea11fba24fd7e315d621f8dfe35c8d7d2be8b793726e07d"
+checksum = "72069c3113ab32ab29e5584db3c6ec55d416895e60715417b5b883a357c3e471"
 
 [[package]]
 name = "winapi"
