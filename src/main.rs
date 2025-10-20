@@ -619,8 +619,7 @@ fn main() {
                             log::error!("Failed to unmute {device_name}: {e}");
                         } else {
                             log::info!(
-                                "Unmuted {} due to keep-selected-mics-unmuted",
-                                device_name
+                                "Unmuted {device_name} due to keep-selected-mics-unmuted"
                             );
                             if persistent_state.notify_on_volume_restored {
                                 let now = Instant::now();
@@ -632,14 +631,12 @@ fn main() {
                                     if let Err(e) = Toast::new(APP_AUMID)
                                         .title("Microphone Unmuted")
                                         .text1(&format!(
-                                            "{} was unmuted due to Keep selected microphones unmuted.",
-                                            device_name
+                                            "{device_name} was unmuted due to Keep selected microphones unmuted."
                                         ))
                                         .show()
                                     {
                                         log::error!(
-                                            "Failed to show mic unmute restore notification for {}: {}",
-                                            device_name, e
+                                            "Failed to show mic unmute restore notification for {device_name}: {e}"
                                         );
                                     }
                                     last_notification_times.insert(device_id.clone(), now);
@@ -668,8 +665,7 @@ fn main() {
                             log::error!("Failed to unmute {device_name}: {e}");
                         } else {
                             log::info!(
-                                "Unmuted {} due to keep-selected-outputs-unmuted",
-                                device_name
+                                "Unmuted {device_name} due to keep-selected-outputs-unmuted"
                             );
                             if persistent_state.notify_on_volume_restored {
                                 let now = Instant::now();
@@ -681,14 +677,12 @@ fn main() {
                                     if let Err(e) = Toast::new(APP_AUMID)
                                         .title("Speaker Unmuted")
                                         .text1(&format!(
-                                            "{} was unmuted due to Keep selected outputs unmuted.",
-                                            device_name
+                                            "{device_name} was unmuted due to Keep selected outputs unmuted."
                                         ))
                                         .show()
                                     {
                                         log::error!(
-                                            "Failed to show output unmute restore notification for {}: {}",
-                                            device_name, e
+                                            "Failed to show output unmute restore notification for {device_name}: {e}"
                                         );
                                     }
                                     last_notification_times.insert(device_id.clone(), now);
@@ -1054,7 +1048,7 @@ fn get_mute(endpoint: &IAudioEndpointVolume) -> Result<bool> {
 }
 
 fn set_mute(endpoint: &IAudioEndpointVolume, muted: bool) -> Result<()> {
-    unsafe { endpoint.SetMute(muted.into(), std::ptr::null()).map(|_| ()) }
+    unsafe { endpoint.SetMute(muted, std::ptr::null()).map(|_| ()) }
 }
 
 fn convert_float_to_percent(volume: f32) -> f32 {
