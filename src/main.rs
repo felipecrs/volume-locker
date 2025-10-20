@@ -3,6 +3,7 @@
     windows_subsystem = "windows"
 )]
 
+use com_policy_config::{IPolicyConfig, PolicyConfigClient};
 use faccess::PathExt;
 use regex_lite::Regex;
 use serde::{Deserialize, Serialize};
@@ -23,7 +24,6 @@ use tray_icon::{
     MouseButton, TrayIconBuilder, TrayIconEvent,
     menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
 };
-use com_policy_config::{IPolicyConfig, PolicyConfigClient};
 use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
 use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
@@ -95,7 +95,9 @@ struct PersistentState {
     locked_default_input_id: Option<String>,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Debug)]
 struct MenuItemDeviceInfo {
@@ -1107,13 +1109,14 @@ fn is_device_present(device_enumerator: &IMMDeviceEnumerator, device_id: &str) -
 fn set_default_device_all_roles(device_id: &str) -> Result<()> {
     // SAFETY: COM call into undocumented interface; errors are bubbled up.
     unsafe {
-        let policy: IPolicyConfig = CoCreateInstance(&PolicyConfigClient as *const _, None, CLSCTX_INPROC_SERVER)?;
+        let policy: IPolicyConfig =
+            CoCreateInstance(&PolicyConfigClient as *const _, None, CLSCTX_INPROC_SERVER)?;
         let wide: Vec<u16> = OsStr::new(device_id)
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
         let id = PCWSTR(wide.as_ptr());
-        
+
         // Set for all roles; log individual failures but continue
         if let Err(e) = policy.SetDefaultEndpoint(id, ERole(0)) {
             log::warn!("Failed to set Console role for {device_id}: {e}");
