@@ -772,8 +772,7 @@ fn main() {
                     // Enforce unmute for locked input devices when enabled on refresh
                     if persistent_state.keep_selected_mics_unmuted
                         && device_info.device_type == DeviceType::Input
-                    {
-                        if let Ok(true) = get_mute(&endpoint) {
+                        && let Ok(true) = get_mute(&endpoint) {
                             if let Err(e) = set_mute(&endpoint, false) {
                                 log::warn!(
                                     "Failed to unmute {} on refresh: {}",
@@ -809,13 +808,11 @@ fn main() {
                                 }
                             }
                         }
-                    }
 
                     // Enforce unmute for locked output devices when enabled on refresh
                     if persistent_state.keep_selected_outputs_unmuted
                         && device_info.device_type == DeviceType::Output
-                    {
-                        if let Ok(true) = get_mute(&endpoint) {
+                        && let Ok(true) = get_mute(&endpoint) {
                             if let Err(e) = set_mute(&endpoint, false) {
                                 log::warn!(
                                     "Failed to unmute {} on refresh: {}",
@@ -851,7 +848,6 @@ fn main() {
                                 }
                             }
                         }
-                    }
 
                     some_locked = true;
                 }
@@ -868,39 +864,29 @@ fn main() {
 
                 // Enforce locked default devices (allow switch when device absent; resume when present)
                 // Output
-                if persistent_state.lock_default_output {
-                    if let Some(target_id) = persistent_state.locked_default_output_id.clone() {
-                        if is_device_present(&device_enumerator, &target_id) {
-                            if let Ok(current_id) = get_default_output_device_id(&device_enumerator)
-                            {
-                                if current_id != target_id {
+                if persistent_state.lock_default_output
+                    && let Some(target_id) = persistent_state.locked_default_output_id.clone()
+                        && is_device_present(&device_enumerator, &target_id)
+                            && let Ok(current_id) = get_default_output_device_id(&device_enumerator)
+                                && current_id != target_id {
                                     if let Err(e) = set_default_device_all_roles(&target_id) {
                                         log::warn!("Failed to restore default output device: {e}");
                                     } else {
                                         log::info!("Restored default output device to {target_id}");
                                     }
                                 }
-                            }
-                        }
-                    }
-                }
                 // Input
-                if persistent_state.lock_default_input {
-                    if let Some(target_id) = persistent_state.locked_default_input_id.clone() {
-                        if is_device_present(&device_enumerator, &target_id) {
-                            if let Ok(current_id) = get_default_input_device_id(&device_enumerator)
-                            {
-                                if current_id != target_id {
+                if persistent_state.lock_default_input
+                    && let Some(target_id) = persistent_state.locked_default_input_id.clone()
+                        && is_device_present(&device_enumerator, &target_id)
+                            && let Ok(current_id) = get_default_input_device_id(&device_enumerator)
+                                && current_id != target_id {
                                     if let Err(e) = set_default_device_all_roles(&target_id) {
                                         log::warn!("Failed to restore default input device: {e}");
                                     } else {
                                         log::info!("Restored default input device to {target_id}");
                                     }
                                 }
-                            }
-                        }
-                    }
-                }
             }
 
             Event::UserEvent(UserEvent::ConfigurationChanged) => {
