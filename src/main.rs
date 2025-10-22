@@ -394,8 +394,8 @@ fn main() {
                     *control_flow = ControlFlow::Exit;
                 } else if let Some(device_info) = menu_id_to_device.get(&event.id) {
                     // Check if the menu item is checked
-                    if let Some(item) = tray_menu.items().iter().find(|i| i.id() == &event.id) {
-                        if let Some(check_item) = item.as_check_menuitem() {
+                    if let Some(item) = tray_menu.items().iter().find(|i| i.id() == &event.id)
+                        && let Some(check_item) = item.as_check_menuitem() {
                             if check_item.is_checked() {
                                 persistent_state.locked_devices.insert(
                                     device_info.device_id.clone(),
@@ -412,7 +412,6 @@ fn main() {
                             }
                             let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
                         }
-                    }
                 }
             }
 
@@ -962,12 +961,11 @@ fn save_state(state: &PersistentState) {
 
 fn load_state() -> PersistentState {
     let state_path = get_state_file_path();
-    if state_path.exists() {
-        if let Ok(data) = fs::read_to_string(state_path) {
-            if let Ok(state) = serde_json::from_str(&data) {
-                return state;
-            }
-        }
+    if state_path.exists()
+        && let Ok(data) = fs::read_to_string(state_path)
+        && let Ok(state) = serde_json::from_str(&data)
+    {
+        return state;
     }
     PersistentState::default()
 }
@@ -1076,10 +1074,9 @@ fn get_default_output_device(device_enumerator: &IMMDeviceEnumerator) -> Result<
 
 fn get_default_input_device(device_enumerator: &IMMDeviceEnumerator) -> Result<IMMDevice> {
     unsafe {
-        let input_devices: IMMDeviceCollection =
-            device_enumerator.EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE)?;
-        let default_input_device = input_devices.Item(0)?;
-        Ok(default_input_device)
+        let default_device: IMMDevice =
+            device_enumerator.GetDefaultAudioEndpoint(eCapture, eConsole)?;
+        Ok(default_device)
     }
 }
 
@@ -1134,12 +1131,11 @@ fn is_default_device(
         DeviceType::Output => get_default_output_device(device_enumerator),
         DeviceType::Input => get_default_input_device(device_enumerator),
     };
-    if let Ok(default_device) = default_device {
-        if let (Ok(default_id), Ok(device_id)) =
+    if let Ok(default_device) = default_device
+        && let (Ok(default_id), Ok(device_id)) =
             (get_device_id(&default_device), get_device_id(device))
-        {
-            return default_id == device_id;
-        }
+    {
+        return default_id == device_id;
     }
     false
 }
@@ -1155,21 +1151,21 @@ fn migrate_device_ids(
     for (device_id, device_info) in persistent_state.locked_devices.iter() {
         if let Ok(device) = get_device_by_id(device_enumerator, device_id) {
             // Device exists, check if name has changed
-            if let Ok(current_name) = get_device_name(&device) {
-                if current_name != device_info.name {
-                    log::info!(
-                        "Device {} with ID {} had the name changed to {}",
-                        device_info.name,
-                        device_id,
-                        current_name,
-                    );
-                    let updated_info = DeviceLockedInfo {
-                        name: current_name,
-                        volume_percent: device_info.volume_percent,
-                        device_type: device_info.device_type,
-                    };
-                    devices_to_update.push((device_id.clone(), updated_info));
-                }
+            if let Ok(current_name) = get_device_name(&device)
+                && current_name != device_info.name
+            {
+                log::info!(
+                    "Device {} with ID {} had the name changed to {}",
+                    device_info.name,
+                    device_id,
+                    current_name,
+                );
+                let updated_info = DeviceLockedInfo {
+                    name: current_name,
+                    volume_percent: device_info.volume_percent,
+                    device_type: device_info.device_type,
+                };
+                devices_to_update.push((device_id.clone(), updated_info));
             }
         } else {
             devices_to_migrate.push((device_id.clone(), device_info.clone()));
