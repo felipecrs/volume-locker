@@ -749,10 +749,9 @@ fn get_default_output_device(device_enumerator: &IMMDeviceEnumerator) -> Result<
 
 fn get_default_input_device(device_enumerator: &IMMDeviceEnumerator) -> Result<IMMDevice> {
     unsafe {
-        let input_devices: IMMDeviceCollection =
-            device_enumerator.EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE)?;
-        let default_input_device = input_devices.Item(0)?;
-        Ok(default_input_device)
+        let default_device: IMMDevice =
+            device_enumerator.GetDefaultAudioEndpoint(eCapture, eConsole)?;
+        Ok(default_device)
     }
 }
 
