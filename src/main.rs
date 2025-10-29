@@ -3,7 +3,6 @@
     windows_subsystem = "windows"
 )]
 
-use com_policy_config::{IPolicyConfig, PolicyConfigClient};
 use faccess::PathExt;
 use regex_lite::Regex;
 use serde::{Deserialize, Serialize};
@@ -85,14 +84,6 @@ struct PersistentState {
     #[serde(default)]
     #[allow(dead_code)]
     notify_on_output_unmute_restore: bool,
-    #[serde(default)]
-    lock_default_output: bool,
-    #[serde(default)]
-    lock_default_input: bool,
-    #[serde(default)]
-    locked_default_output_id: Option<String>,
-    #[serde(default)]
-    locked_default_input_id: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -273,10 +264,6 @@ fn main() {
         CheckMenuItem::new("Keep selected speaker volumes fixed", true, false, None);
     let auto_launch_check_item: CheckMenuItem =
         CheckMenuItem::new("Auto launch on startup", true, false, None);
-    let lock_default_output_check_item: CheckMenuItem =
-        CheckMenuItem::new("Keep default output device fixed", true, false, None);
-    let lock_default_input_check_item: CheckMenuItem =
-        CheckMenuItem::new("Keep default input device fixed", true, false, None);
     let quit_item = MenuItem::new("Quit", true, None);
 
     let tray_menu = Menu::new();
@@ -357,30 +344,6 @@ fn main() {
                 } else if event.id == keep_outputs_fixed_check_item.id() {
                     persistent_state.keep_selected_outputs_fixed =
                         keep_outputs_fixed_check_item.is_checked();
-                    let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
-                } else if event.id == lock_default_output_check_item.id() {
-                    let checked = lock_default_output_check_item.is_checked();
-                    persistent_state.lock_default_output = checked;
-                    if checked {
-                        if let Ok(id) = get_default_output_device_id(&device_enumerator) {
-                            persistent_state.locked_default_output_id = Some(id.clone());
-                            let _ = set_default_device_all_roles(&id);
-                        }
-                    } else {
-                        persistent_state.locked_default_output_id = None;
-                    }
-                    let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
-                } else if event.id == lock_default_input_check_item.id() {
-                    let checked = lock_default_input_check_item.is_checked();
-                    persistent_state.lock_default_input = checked;
-                    if checked {
-                        if let Ok(id) = get_default_input_device_id(&device_enumerator) {
-                            persistent_state.locked_default_input_id = Some(id.clone());
-                            let _ = set_default_device_all_roles(&id);
-                        }
-                    } else {
-                        persistent_state.locked_default_input_id = None;
-                    }
                     let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
                 } else if event.id == auto_launch_check_item.id() {
                     let checked = auto_launch_check_item.is_checked();
@@ -484,10 +447,6 @@ fn main() {
                 keep_outputs_fixed_check_item
                     .set_checked(persistent_state.keep_selected_outputs_fixed);
                 tray_menu.append(&keep_outputs_fixed_check_item).unwrap();
-                lock_default_output_check_item.set_checked(persistent_state.lock_default_output);
-                tray_menu.append(&lock_default_output_check_item).unwrap();
-                lock_default_input_check_item.set_checked(persistent_state.lock_default_input);
-                tray_menu.append(&lock_default_input_check_item).unwrap();
                 let auto_launch_enabled = auto_launch.is_enabled().unwrap();
                 auto_launch_check_item.set_checked(auto_launch_enabled);
                 tray_menu.append(&auto_launch_check_item).unwrap();
@@ -862,31 +821,6 @@ fn main() {
                     }
                 }
 
-                // Enforce locked default devices (allow switch when device absent; resume when present)
-                // Output
-                if persistent_state.lock_default_output
-                    && let Some(target_id) = persistent_state.locked_default_output_id.clone()
-                        && is_device_present(&device_enumerator, &target_id)
-                            && let Ok(current_id) = get_default_output_device_id(&device_enumerator)
-                                && current_id != target_id {
-                                    if let Err(e) = set_default_device_all_roles(&target_id) {
-                                        log::warn!("Failed to restore default output device: {e}");
-                                    } else {
-                                        log::info!("Restored default output device to {target_id}");
-                                    }
-                                }
-                // Input
-                if persistent_state.lock_default_input
-                    && let Some(target_id) = persistent_state.locked_default_input_id.clone()
-                        && is_device_present(&device_enumerator, &target_id)
-                            && let Ok(current_id) = get_default_input_device_id(&device_enumerator)
-                                && current_id != target_id {
-                                    if let Err(e) = set_default_device_all_roles(&target_id) {
-                                        log::warn!("Failed to restore default input device: {e}");
-                                    } else {
-                                        log::info!("Restored default input device to {target_id}");
-                                    }
-                                }
             }
 
             Event::UserEvent(UserEvent::ConfigurationChanged) => {
@@ -1066,47 +1000,6 @@ fn get_default_input_device(device_enumerator: &IMMDeviceEnumerator) -> Result<I
     }
 }
 
-fn get_default_output_device_id(device_enumerator: &IMMDeviceEnumerator) -> Result<String> {
-    let dev = get_default_output_device(device_enumerator)?;
-    get_device_id(&dev)
-}
-
-fn get_default_input_device_id(device_enumerator: &IMMDeviceEnumerator) -> Result<String> {
-    let dev = get_default_input_device(device_enumerator)?;
-    get_device_id(&dev)
-}
-
-fn is_device_present(device_enumerator: &IMMDeviceEnumerator, device_id: &str) -> bool {
-    get_device_by_id(device_enumerator, device_id)
-        .and_then(|d| unsafe { d.GetState() })
-        .map(|s| s == DEVICE_STATE_ACTIVE)
-        .unwrap_or(false)
-}
-
-fn set_default_device_all_roles(device_id: &str) -> Result<()> {
-    // SAFETY: COM call into undocumented interface; errors are bubbled up.
-    unsafe {
-        let policy: IPolicyConfig =
-            CoCreateInstance(&PolicyConfigClient as *const _, None, CLSCTX_INPROC_SERVER)?;
-        let wide: Vec<u16> = OsStr::new(device_id)
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        let id = PCWSTR(wide.as_ptr());
-
-        // Set for all roles; log individual failures but continue
-        if let Err(e) = policy.SetDefaultEndpoint(id, ERole(0)) {
-            log::warn!("Failed to set Console role for {device_id}: {e}");
-        }
-        if let Err(e) = policy.SetDefaultEndpoint(id, ERole(1)) {
-            log::warn!("Failed to set Multimedia role for {device_id}: {e}");
-        }
-        if let Err(e) = policy.SetDefaultEndpoint(id, ERole(2)) {
-            log::warn!("Failed to set Communications role for {device_id}: {e}");
-        }
-        Ok(())
-    }
-}
 
 fn is_default_device(
     device_enumerator: &IMMDeviceEnumerator,
