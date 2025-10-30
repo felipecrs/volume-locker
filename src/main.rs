@@ -26,8 +26,7 @@ use tray_icon::{
 use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
 use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
-use windows::core::HSTRING;
-use windows_core::PCWSTR;
+use windows::core::{HSTRING, PCWSTR};
 use windows_registry::CURRENT_USER;
 
 use auto_launch::AutoLaunchBuilder;
@@ -71,6 +70,24 @@ struct PersistentState {
     locked_devices: HashMap<String, DeviceLockedInfo>,
     #[serde(default)]
     notify_on_volume_restored: bool,
+    #[serde(default = "default_true")]
+    keep_selected_inputs_fixed: bool,
+    #[serde(default = "default_true")]
+    keep_selected_outputs_fixed: bool,
+    #[serde(default)]
+    keep_selected_mics_unmuted: bool,
+    #[serde(default)]
+    #[allow(dead_code)]
+    notify_on_mic_unmute_restore: bool,
+    #[serde(default)]
+    keep_selected_outputs_unmuted: bool,
+    #[serde(default)]
+    #[allow(dead_code)]
+    notify_on_output_unmute_restore: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug)]
@@ -124,6 +141,7 @@ impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
         _: ERole,
         _: &PCWSTR,
     ) -> windows::core::Result<()> {
+        let _ = self.proxy.send_event(UserEvent::DevicesChanged);
         Ok(())
     }
 
@@ -235,7 +253,15 @@ fn main() {
     let output_devices_heading_item = MenuItem::new("Output devices", false, None);
     let input_devices_heading_item = MenuItem::new("Input devices", false, None);
     let notify_check_item: CheckMenuItem =
-        CheckMenuItem::new("Notify on volume restored", true, false, None);
+        CheckMenuItem::new("Show notifications", true, false, None);
+    let keep_mics_unmuted_check_item: CheckMenuItem =
+        CheckMenuItem::new("Keep selected microphones unmuted", true, false, None);
+    let keep_outputs_unmuted_check_item: CheckMenuItem =
+        CheckMenuItem::new("Keep selected speakers unmuted", true, false, None);
+    let keep_inputs_fixed_check_item: CheckMenuItem =
+        CheckMenuItem::new("Keep selected microphone volumes fixed", true, false, None);
+    let keep_outputs_fixed_check_item: CheckMenuItem =
+        CheckMenuItem::new("Keep selected speaker volumes fixed", true, false, None);
     let auto_launch_check_item: CheckMenuItem =
         CheckMenuItem::new("Auto launch on startup", true, false, None);
     let quit_item = MenuItem::new("Quit", true, None);
@@ -302,6 +328,22 @@ fn main() {
             Event::UserEvent(UserEvent::Menu(event)) => {
                 if event.id == notify_check_item.id() {
                     persistent_state.notify_on_volume_restored = notify_check_item.is_checked();
+                    let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
+                } else if event.id == keep_mics_unmuted_check_item.id() {
+                    persistent_state.keep_selected_mics_unmuted =
+                        keep_mics_unmuted_check_item.is_checked();
+                    let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
+                } else if event.id == keep_outputs_unmuted_check_item.id() {
+                    persistent_state.keep_selected_outputs_unmuted =
+                        keep_outputs_unmuted_check_item.is_checked();
+                    let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
+                } else if event.id == keep_inputs_fixed_check_item.id() {
+                    persistent_state.keep_selected_inputs_fixed =
+                        keep_inputs_fixed_check_item.is_checked();
+                    let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
+                } else if event.id == keep_outputs_fixed_check_item.id() {
+                    persistent_state.keep_selected_outputs_fixed =
+                        keep_outputs_fixed_check_item.is_checked();
                     let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
                 } else if event.id == auto_launch_check_item.id() {
                     let checked = auto_launch_check_item.is_checked();
@@ -393,6 +435,18 @@ fn main() {
                 // Refresh check items
                 notify_check_item.set_checked(persistent_state.notify_on_volume_restored);
                 tray_menu.append(&notify_check_item).unwrap();
+                keep_mics_unmuted_check_item
+                    .set_checked(persistent_state.keep_selected_mics_unmuted);
+                tray_menu.append(&keep_mics_unmuted_check_item).unwrap();
+                keep_outputs_unmuted_check_item
+                    .set_checked(persistent_state.keep_selected_outputs_unmuted);
+                tray_menu.append(&keep_outputs_unmuted_check_item).unwrap();
+                keep_inputs_fixed_check_item
+                    .set_checked(persistent_state.keep_selected_inputs_fixed);
+                tray_menu.append(&keep_inputs_fixed_check_item).unwrap();
+                keep_outputs_fixed_check_item
+                    .set_checked(persistent_state.keep_selected_outputs_fixed);
+                tray_menu.append(&keep_outputs_fixed_check_item).unwrap();
                 let auto_launch_enabled = auto_launch.is_enabled().unwrap();
                 auto_launch_check_item.set_checked(auto_launch_enabled);
                 tray_menu.append(&auto_launch_check_item).unwrap();
@@ -435,6 +489,18 @@ fn main() {
                 };
                 let new_volume_percent = convert_float_to_percent(new_volume);
                 let device_info = persistent_state.locked_devices.get(&device_id).unwrap();
+                match device_info.device_type {
+                    DeviceType::Input => {
+                        if !persistent_state.keep_selected_inputs_fixed {
+                            return;
+                        }
+                    }
+                    DeviceType::Output => {
+                        if !persistent_state.keep_selected_outputs_fixed {
+                            return;
+                        }
+                    }
+                }
                 let target_volume_percent = device_info.volume_percent;
                 if new_volume_percent != target_volume_percent {
                     let target_volume = convert_percent_to_float(target_volume_percent);
@@ -469,7 +535,7 @@ fn main() {
                     );
                     if persistent_state.notify_on_volume_restored {
                         let now = Instant::now();
-                        let should_notify = match last_notification_times.get(&device_id) {
+                        let should_notify = match last_notification_times.get(device_id.as_str()) {
                             Some(&last_time) => {
                                 now.duration_since(last_time) > Duration::from_secs(5)
                             }
@@ -488,6 +554,98 @@ fn main() {
                                 );
                             }
                             last_notification_times.insert(device_id.clone(), now);
+                        }
+                    }
+                }
+
+                // Enforce unmute for locked input devices when enabled
+                if persistent_state.keep_selected_mics_unmuted
+                    && device_info.device_type == DeviceType::Input
+                {
+                    let device = match get_device_by_id(&device_enumerator, &device_id) {
+                        Ok(d) => d,
+                        Err(_) => return,
+                    };
+                    let device_name =
+                        get_device_name(&device).unwrap_or_else(|_| device_info.name.clone());
+                    let endpoint = match get_audio_endpoint(&device) {
+                        Ok(ep) => ep,
+                        Err(_) => return,
+                    };
+                    if let Ok(true) = get_mute(&endpoint) {
+                        if let Err(e) = set_mute(&endpoint, false) {
+                            log::error!("Failed to unmute {device_name}: {e}");
+                        } else {
+                            log::info!(
+                                "Unmuted {device_name} due to keep-selected-mics-unmuted"
+                            );
+                            if persistent_state.notify_on_volume_restored {
+                                let now = Instant::now();
+                        let should_notify = match last_notification_times.get(device_id.as_str()) {
+                                    Some(&last_time) => now.duration_since(last_time) > Duration::from_secs(5),
+                                    None => true,
+                                };
+                                if should_notify {
+                                    if let Err(e) = Toast::new(APP_AUMID)
+                                        .title("Microphone Unmuted")
+                                        .text1(&format!(
+                                            "{device_name} was unmuted due to Keep selected microphones unmuted."
+                                        ))
+                                        .show()
+                                    {
+                                        log::error!(
+                                            "Failed to show mic unmute restore notification for {device_name}: {e}"
+                                        );
+                                    }
+                                    last_notification_times.insert(device_id.clone(), now);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Enforce unmute for locked output devices when enabled
+                if persistent_state.keep_selected_outputs_unmuted
+                    && device_info.device_type == DeviceType::Output
+                {
+                    let device = match get_device_by_id(&device_enumerator, &device_id) {
+                        Ok(d) => d,
+                        Err(_) => return,
+                    };
+                    let device_name =
+                        get_device_name(&device).unwrap_or_else(|_| device_info.name.clone());
+                    let endpoint = match get_audio_endpoint(&device) {
+                        Ok(ep) => ep,
+                        Err(_) => return,
+                    };
+                    if let Ok(true) = get_mute(&endpoint) {
+                        if let Err(e) = set_mute(&endpoint, false) {
+                            log::error!("Failed to unmute {device_name}: {e}");
+                        } else {
+                            log::info!(
+                                "Unmuted {device_name} due to keep-selected-outputs-unmuted"
+                            );
+                            if persistent_state.notify_on_volume_restored {
+                                let now = Instant::now();
+                                let should_notify = match last_notification_times.get(device_id.as_str()) {
+                                    Some(&last_time) => now.duration_since(last_time) > Duration::from_secs(5),
+                                    None => true,
+                                };
+                                if should_notify {
+                                    if let Err(e) = Toast::new(APP_AUMID)
+                                        .title("Speaker Unmuted")
+                                        .text1(&format!(
+                                            "{device_name} was unmuted due to Keep selected outputs unmuted."
+                                        ))
+                                        .show()
+                                    {
+                                        log::error!(
+                                            "Failed to show output unmute restore notification for {device_name}: {e}"
+                                        );
+                                    }
+                                    last_notification_times.insert(device_id.clone(), now);
+                                }
+                            }
                         }
                     }
                 }
@@ -556,7 +714,7 @@ fn main() {
                         );
                         continue;
                     }
-                    watched_endpoints.push(endpoint);
+                    watched_endpoints.push(endpoint.clone());
                     log::info!(
                         "Watching volume of {} for when it changes from {}%",
                         device_info.name,
@@ -570,6 +728,86 @@ fn main() {
                         },
                     ));
 
+                    // Enforce unmute for locked input devices when enabled on refresh
+                    if persistent_state.keep_selected_mics_unmuted
+                        && device_info.device_type == DeviceType::Input
+                        && let Ok(true) = get_mute(&endpoint) {
+                            if let Err(e) = set_mute(&endpoint, false) {
+                                log::warn!(
+                                    "Failed to unmute {} on refresh: {}",
+                                    device_info.name, e
+                                );
+                            } else {
+                                log::info!(
+                                    "Unmuted {} on refresh due to keep-selected-mics-unmuted",
+                                    device_info.name
+                                );
+                                if persistent_state.notify_on_volume_restored {
+                                    let now = Instant::now();
+                                    let should_notify = match last_notification_times.get(device_id.as_str()) {
+                                        Some(&last_time) => now.duration_since(last_time) > Duration::from_secs(5),
+                                        None => true,
+                                    };
+                                    if should_notify {
+                                        if let Err(e) = Toast::new(APP_AUMID)
+                                            .title("Microphone Unmuted")
+                                            .text1(&format!(
+                                                "{} was unmuted due to Keep selected microphones unmuted.",
+                                                device_info.name
+                                            ))
+                                            .show()
+                                        {
+                                            log::error!(
+                                                "Failed to show mic unmute restore notification for {}: {}",
+                                                device_info.name, e
+                                            );
+                                        }
+                                        last_notification_times.insert(device_id.clone(), now);
+                                    }
+                                }
+                            }
+                        }
+
+                    // Enforce unmute for locked output devices when enabled on refresh
+                    if persistent_state.keep_selected_outputs_unmuted
+                        && device_info.device_type == DeviceType::Output
+                        && let Ok(true) = get_mute(&endpoint) {
+                            if let Err(e) = set_mute(&endpoint, false) {
+                                log::warn!(
+                                    "Failed to unmute {} on refresh: {}",
+                                    device_info.name, e
+                                );
+                            } else {
+                                log::info!(
+                                    "Unmuted {} on refresh due to keep-selected-outputs-unmuted",
+                                    device_info.name
+                                );
+                                if persistent_state.notify_on_volume_restored {
+                                    let now = Instant::now();
+                                    let should_notify = match last_notification_times.get(device_id.as_str()) {
+                                        Some(&last_time) => now.duration_since(last_time) > Duration::from_secs(5),
+                                        None => true,
+                                    };
+                                    if should_notify {
+                                        if let Err(e) = Toast::new(APP_AUMID)
+                                            .title("Speaker Unmuted")
+                                            .text1(&format!(
+                                                "{} was unmuted due to Keep selected outputs unmuted.",
+                                                device_info.name
+                                            ))
+                                            .show()
+                                        {
+                                            log::error!(
+                                                "Failed to show output unmute restore notification for {}: {}",
+                                                device_info.name, e
+                                            );
+                                        }
+                                        last_notification_times.insert(device_id.clone(), now);
+                                    }
+                                }
+                            }
+                        }
+
                     some_locked = true;
                 }
 
@@ -582,6 +820,7 @@ fn main() {
                         log::error!("Failed to update tray icon to unlocked: {e}");
                     }
                 }
+
             }
 
             Event::UserEvent(UserEvent::ConfigurationChanged) => {
@@ -720,6 +959,14 @@ fn get_device_by_id(device_enumerator: &IMMDeviceEnumerator, device_id: &str) ->
 
 fn get_volume(endpoint: &IAudioEndpointVolume) -> Result<f32> {
     unsafe { endpoint.GetMasterVolumeLevelScalar() }
+}
+
+fn get_mute(endpoint: &IAudioEndpointVolume) -> Result<bool> {
+    unsafe { endpoint.GetMute().map(|b| b.as_bool()) }
+}
+
+fn set_mute(endpoint: &IAudioEndpointVolume, muted: bool) -> Result<()> {
+    unsafe { endpoint.SetMute(muted, std::ptr::null()).map(|_| ()) }
 }
 
 fn convert_float_to_percent(volume: f32) -> f32 {
