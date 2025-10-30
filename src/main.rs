@@ -1000,7 +1000,6 @@ fn get_default_input_device(device_enumerator: &IMMDeviceEnumerator) -> Result<I
     }
 }
 
-
 fn is_default_device(
     device_enumerator: &IMMDeviceEnumerator,
     device: &IMMDevice,
