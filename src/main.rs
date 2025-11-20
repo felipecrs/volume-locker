@@ -483,20 +483,13 @@ fn main() {
                 };
                 let new_volume_percent = convert_float_to_percent(new_volume);
                 let device_info = persistent_state.locked_devices.get(&device_id).unwrap();
-                match device_info.device_type {
-                    DeviceType::Input => {
-                        if !persistent_state.keep_selected_inputs_fixed {
-                            return;
-                        }
-                    }
-                    DeviceType::Output => {
-                        if !persistent_state.keep_selected_outputs_fixed {
-                            return;
-                        }
-                    }
-                }
+                let should_enforce_volume = match device_info.device_type {
+                    DeviceType::Input => persistent_state.keep_selected_inputs_fixed,
+                    DeviceType::Output => persistent_state.keep_selected_outputs_fixed,
+                };
+
                 let target_volume_percent = device_info.volume_percent;
-                if new_volume_percent != target_volume_percent {
+                if should_enforce_volume && new_volume_percent != target_volume_percent {
                     let target_volume = convert_percent_to_float(target_volume_percent);
                     let device = match get_device_by_id(&device_enumerator, &device_id) {
                         Ok(d) => d,
