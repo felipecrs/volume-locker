@@ -75,7 +75,7 @@ struct PersistentState {
     #[serde(default = "default_true")]
     keep_selected_outputs_fixed: bool,
     #[serde(default)]
-    keep_selected_mics_unmuted: bool,
+    keep_selected_inputs_unmuted: bool,
     #[serde(default)]
     keep_selected_outputs_unmuted: bool,
 }
@@ -248,14 +248,22 @@ fn main() {
     let input_devices_heading_item = MenuItem::new("Input devices", false, None);
     let notify_check_item: CheckMenuItem =
         CheckMenuItem::new("Show notifications", true, false, None);
-    let keep_mics_unmuted_check_item: CheckMenuItem =
-        CheckMenuItem::new("Keep selected microphones unmuted", true, false, None);
+    let keep_inputs_unmuted_check_item: CheckMenuItem =
+        CheckMenuItem::new("Keep selected input devices unmuted", true, false, None);
     let keep_outputs_unmuted_check_item: CheckMenuItem =
-        CheckMenuItem::new("Keep selected speakers unmuted", true, false, None);
-    let keep_inputs_fixed_check_item: CheckMenuItem =
-        CheckMenuItem::new("Keep selected microphone volumes fixed", true, false, None);
-    let keep_outputs_fixed_check_item: CheckMenuItem =
-        CheckMenuItem::new("Keep selected speaker volumes fixed", true, false, None);
+        CheckMenuItem::new("Keep selected output devices unmuted", true, false, None);
+    let keep_inputs_fixed_check_item: CheckMenuItem = CheckMenuItem::new(
+        "Keep selected input device volumes fixed",
+        true,
+        false,
+        None,
+    );
+    let keep_outputs_fixed_check_item: CheckMenuItem = CheckMenuItem::new(
+        "Keep selected output device volumes fixed",
+        true,
+        false,
+        None,
+    );
     let auto_launch_check_item: CheckMenuItem =
         CheckMenuItem::new("Auto launch on startup", true, false, None);
     let quit_item = MenuItem::new("Quit", true, None);
@@ -323,9 +331,9 @@ fn main() {
                 if event.id == notify_check_item.id() {
                     persistent_state.notify_on_volume_restored = notify_check_item.is_checked();
                     let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
-                } else if event.id == keep_mics_unmuted_check_item.id() {
-                    persistent_state.keep_selected_mics_unmuted =
-                        keep_mics_unmuted_check_item.is_checked();
+                } else if event.id == keep_inputs_unmuted_check_item.id() {
+                    persistent_state.keep_selected_inputs_unmuted =
+                        keep_inputs_unmuted_check_item.is_checked();
                     let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
                 } else if event.id == keep_outputs_unmuted_check_item.id() {
                     persistent_state.keep_selected_outputs_unmuted =
@@ -429,9 +437,9 @@ fn main() {
                 // Refresh check items
                 notify_check_item.set_checked(persistent_state.notify_on_volume_restored);
                 tray_menu.append(&notify_check_item).unwrap();
-                keep_mics_unmuted_check_item
-                    .set_checked(persistent_state.keep_selected_mics_unmuted);
-                tray_menu.append(&keep_mics_unmuted_check_item).unwrap();
+                keep_inputs_unmuted_check_item
+                    .set_checked(persistent_state.keep_selected_inputs_unmuted);
+                tray_menu.append(&keep_inputs_unmuted_check_item).unwrap();
                 keep_outputs_unmuted_check_item
                     .set_checked(persistent_state.keep_selected_outputs_unmuted);
                 tray_menu.append(&keep_outputs_unmuted_check_item).unwrap();
@@ -533,7 +541,7 @@ fn main() {
                 }
 
                 // Enforce unmute for locked input devices when enabled
-                if persistent_state.keep_selected_mics_unmuted
+                if persistent_state.keep_selected_inputs_unmuted
                     && device_info.device_type == DeviceType::Input
                 {
                     let device = match get_device_by_id(&device_enumerator, &device_id) {
@@ -547,8 +555,8 @@ fn main() {
                         &device_id,
                         &device_name,
                         persistent_state.notify_on_volume_restored,
-                        "Microphone Unmuted",
-                        "was unmuted due to Keep selected microphones unmuted.",
+                        "Input Device Unmuted",
+                        "was unmuted due to Keep selected input devices unmuted.",
                         &mut last_notification_times,
                     );
                 }
@@ -568,8 +576,8 @@ fn main() {
                         &device_id,
                         &device_name,
                         persistent_state.notify_on_volume_restored,
-                        "Speaker Unmuted",
-                        "was unmuted due to Keep selected outputs unmuted.",
+                        "Output Device Unmuted",
+                        "was unmuted due to Keep selected output devices unmuted.",
                         &mut last_notification_times,
                     );
                 }
@@ -653,7 +661,7 @@ fn main() {
                     ));
 
                     // Enforce unmute for locked input devices when enabled on refresh
-                    if persistent_state.keep_selected_mics_unmuted
+                    if persistent_state.keep_selected_inputs_unmuted
                         && device_info.device_type == DeviceType::Input
                     {
                         check_and_unmute_device(
@@ -661,8 +669,8 @@ fn main() {
                             device_id,
                             &device_info.name,
                             persistent_state.notify_on_volume_restored,
-                            "Microphone Unmuted",
-                            "was unmuted due to Keep selected microphones unmuted.",
+                            "Input Device Unmuted",
+                            "was unmuted due to Keep selected input devices unmuted.",
                             &mut last_notification_times,
                         );
                     }
@@ -676,8 +684,8 @@ fn main() {
                             device_id,
                             &device_info.name,
                             persistent_state.notify_on_volume_restored,
-                            "Speaker Unmuted",
-                            "was unmuted due to Keep selected outputs unmuted.",
+                            "Output Device Unmuted",
+                            "was unmuted due to Keep selected output devices unmuted.",
                             &mut last_notification_times,
                         );
                     }
