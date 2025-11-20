@@ -44,6 +44,14 @@ When you want to lock the volume of your audio output or input devices:
 3. Select the device you want to lock the volume for
 4. Try messing with the volume of the device. It should return to the locked level shortly after.
 
+### Options
+
+- **Keep selected input device volumes fixed**: restores volume if a locked input device (ticked) changes.
+- **Keep selected output device volumes fixed**: restores volume if a locked output device (ticked) changes.
+- **Keep selected input devices unmuted**: prevents locked input devices (ticked) from being muted.
+- **Keep selected output devices unmuted**: prevents locked output devices (ticked) from being muted.
+- Show notifications: shows toasts for volume restores and unmute restores.
+
 ## Credits
 
 This is my first Rust project, with no prior experience or knowledge of the language. Don't expect the code to be examplary, but I think it's overall optimised.
