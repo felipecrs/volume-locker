@@ -416,9 +416,9 @@ fn main() {
                         let endpoint = get_audio_endpoint(&device).unwrap();
                         let volume = get_volume(&endpoint).unwrap();
                         let volume_percent = convert_float_to_percent(volume);
+                        let is_muted = get_mute(&endpoint).unwrap_or(false);
                         let is_default =
                             is_default_device(&device_enumerator, &device, device_type);
-                        let label = to_label(&name, volume_percent, is_default);
 
                         let (is_volume_locked, is_unmute_locked) =
                             if let Some(settings) = persistent_state.devices.get(&device_id) {
@@ -426,6 +426,9 @@ fn main() {
                             } else {
                                 (false, false)
                             };
+
+                        let is_locked = is_volume_locked || is_unmute_locked;
+                        let label = to_label(&name, volume_percent, is_default, is_locked, is_muted);
 
                         let submenu = Submenu::new(&label, true);
 
@@ -781,9 +784,17 @@ fn load_state() -> PersistentState {
     PersistentState::default()
 }
 
-fn to_label(name: &str, volume_percent: f32, is_default: bool) -> String {
+fn to_label(
+    name: &str,
+    volume_percent: f32,
+    is_default: bool,
+    is_locked: bool,
+    is_muted: bool,
+) -> String {
     let default_indicator = if is_default { " · ☆" } else { "" };
-    format!("{name}{default_indicator} · {volume_percent}%")
+    let locked_indicator = if is_locked { " · 🔒" } else { "" };
+    let muted_indicator = if is_muted { " 🚫" } else { "" };
+    format!("{name}{default_indicator} · {volume_percent}%{muted_indicator}{locked_indicator}")
 }
 
 fn get_audio_endpoint(device: &IMMDevice) -> Result<IAudioEndpointVolume> {
