@@ -77,13 +77,7 @@ struct PersistentState {
     #[serde(default)]
     keep_selected_mics_unmuted: bool,
     #[serde(default)]
-    #[allow(dead_code)]
-    notify_on_mic_unmute_restore: bool,
-    #[serde(default)]
     keep_selected_outputs_unmuted: bool,
-    #[serde(default)]
-    #[allow(dead_code)]
-    notify_on_output_unmute_restore: bool,
 }
 
 fn default_true() -> bool {
@@ -534,27 +528,14 @@ fn main() {
                         "Restored volume of {device_name} from {new_volume_percent}% to {target_volume_percent}%"
                     );
                     if persistent_state.notify_on_volume_restored {
-                        let now = Instant::now();
-                        let should_notify = match last_notification_times.get(device_id.as_str()) {
-                            Some(&last_time) => {
-                                now.duration_since(last_time) > Duration::from_secs(5)
-                            }
-                            None => true,
-                        };
-                        if should_notify {
-                            if let Err(e) = Toast::new(APP_AUMID)
-                                .title("Volume Restored")
-                                .text1(&format!(
-                                    "The volume of {device_name} has been restored from {new_volume_percent}% to {target_volume_percent}%."
-                                ))
-                                .show()
-                            {
-                                log::error!(
-                                    "Failed to show volume restored notification for {device_name}: {e}"
-                                );
-                            }
-                            last_notification_times.insert(device_id.clone(), now);
-                        }
+                        send_notification_debounced(
+                            &device_id,
+                            "Volume Restored",
+                            &format!(
+                                "The volume of {device_name} has been restored from {new_volume_percent}% to {target_volume_percent}%."
+                            ),
+                            &mut last_notification_times,
+                        );
                     }
                 }
 
@@ -568,40 +549,15 @@ fn main() {
                     };
                     let device_name =
                         get_device_name(&device).unwrap_or_else(|_| device_info.name.clone());
-                    let endpoint = match get_audio_endpoint(&device) {
-                        Ok(ep) => ep,
-                        Err(_) => return,
-                    };
-                    if let Ok(true) = get_mute(&endpoint) {
-                        if let Err(e) = set_mute(&endpoint, false) {
-                            log::error!("Failed to unmute {device_name}: {e}");
-                        } else {
-                            log::info!(
-                                "Unmuted {device_name} due to keep-selected-mics-unmuted"
-                            );
-                            if persistent_state.notify_on_volume_restored {
-                                let now = Instant::now();
-                        let should_notify = match last_notification_times.get(device_id.as_str()) {
-                                    Some(&last_time) => now.duration_since(last_time) > Duration::from_secs(5),
-                                    None => true,
-                                };
-                                if should_notify {
-                                    if let Err(e) = Toast::new(APP_AUMID)
-                                        .title("Microphone Unmuted")
-                                        .text1(&format!(
-                                            "{device_name} was unmuted due to Keep selected microphones unmuted."
-                                        ))
-                                        .show()
-                                    {
-                                        log::error!(
-                                            "Failed to show mic unmute restore notification for {device_name}: {e}"
-                                        );
-                                    }
-                                    last_notification_times.insert(device_id.clone(), now);
-                                }
-                            }
-                        }
-                    }
+                    check_and_unmute_device(
+                        &device_enumerator,
+                        &device_id,
+                        &device_name,
+                        persistent_state.notify_on_volume_restored,
+                        "Microphone Unmuted",
+                        "was unmuted due to Keep selected microphones unmuted.",
+                        &mut last_notification_times,
+                    );
                 }
 
                 // Enforce unmute for locked output devices when enabled
@@ -614,40 +570,15 @@ fn main() {
                     };
                     let device_name =
                         get_device_name(&device).unwrap_or_else(|_| device_info.name.clone());
-                    let endpoint = match get_audio_endpoint(&device) {
-                        Ok(ep) => ep,
-                        Err(_) => return,
-                    };
-                    if let Ok(true) = get_mute(&endpoint) {
-                        if let Err(e) = set_mute(&endpoint, false) {
-                            log::error!("Failed to unmute {device_name}: {e}");
-                        } else {
-                            log::info!(
-                                "Unmuted {device_name} due to keep-selected-outputs-unmuted"
-                            );
-                            if persistent_state.notify_on_volume_restored {
-                                let now = Instant::now();
-                                let should_notify = match last_notification_times.get(device_id.as_str()) {
-                                    Some(&last_time) => now.duration_since(last_time) > Duration::from_secs(5),
-                                    None => true,
-                                };
-                                if should_notify {
-                                    if let Err(e) = Toast::new(APP_AUMID)
-                                        .title("Speaker Unmuted")
-                                        .text1(&format!(
-                                            "{device_name} was unmuted due to Keep selected outputs unmuted."
-                                        ))
-                                        .show()
-                                    {
-                                        log::error!(
-                                            "Failed to show output unmute restore notification for {device_name}: {e}"
-                                        );
-                                    }
-                                    last_notification_times.insert(device_id.clone(), now);
-                                }
-                            }
-                        }
-                    }
+                    check_and_unmute_device(
+                        &device_enumerator,
+                        &device_id,
+                        &device_name,
+                        persistent_state.notify_on_volume_restored,
+                        "Speaker Unmuted",
+                        "was unmuted due to Keep selected outputs unmuted.",
+                        &mut last_notification_times,
+                    );
                 }
             }
 
@@ -731,82 +662,32 @@ fn main() {
                     // Enforce unmute for locked input devices when enabled on refresh
                     if persistent_state.keep_selected_mics_unmuted
                         && device_info.device_type == DeviceType::Input
-                        && let Ok(true) = get_mute(&endpoint) {
-                            if let Err(e) = set_mute(&endpoint, false) {
-                                log::warn!(
-                                    "Failed to unmute {} on refresh: {}",
-                                    device_info.name, e
-                                );
-                            } else {
-                                log::info!(
-                                    "Unmuted {} on refresh due to keep-selected-mics-unmuted",
-                                    device_info.name
-                                );
-                                if persistent_state.notify_on_volume_restored {
-                                    let now = Instant::now();
-                                    let should_notify = match last_notification_times.get(device_id.as_str()) {
-                                        Some(&last_time) => now.duration_since(last_time) > Duration::from_secs(5),
-                                        None => true,
-                                    };
-                                    if should_notify {
-                                        if let Err(e) = Toast::new(APP_AUMID)
-                                            .title("Microphone Unmuted")
-                                            .text1(&format!(
-                                                "{} was unmuted due to Keep selected microphones unmuted.",
-                                                device_info.name
-                                            ))
-                                            .show()
-                                        {
-                                            log::error!(
-                                                "Failed to show mic unmute restore notification for {}: {}",
-                                                device_info.name, e
-                                            );
-                                        }
-                                        last_notification_times.insert(device_id.clone(), now);
-                                    }
-                                }
-                            }
-                        }
+                    {
+                        check_and_unmute_device(
+                            &device_enumerator,
+                            device_id,
+                            &device_info.name,
+                            persistent_state.notify_on_volume_restored,
+                            "Microphone Unmuted",
+                            "was unmuted due to Keep selected microphones unmuted.",
+                            &mut last_notification_times,
+                        );
+                    }
 
                     // Enforce unmute for locked output devices when enabled on refresh
                     if persistent_state.keep_selected_outputs_unmuted
                         && device_info.device_type == DeviceType::Output
-                        && let Ok(true) = get_mute(&endpoint) {
-                            if let Err(e) = set_mute(&endpoint, false) {
-                                log::warn!(
-                                    "Failed to unmute {} on refresh: {}",
-                                    device_info.name, e
-                                );
-                            } else {
-                                log::info!(
-                                    "Unmuted {} on refresh due to keep-selected-outputs-unmuted",
-                                    device_info.name
-                                );
-                                if persistent_state.notify_on_volume_restored {
-                                    let now = Instant::now();
-                                    let should_notify = match last_notification_times.get(device_id.as_str()) {
-                                        Some(&last_time) => now.duration_since(last_time) > Duration::from_secs(5),
-                                        None => true,
-                                    };
-                                    if should_notify {
-                                        if let Err(e) = Toast::new(APP_AUMID)
-                                            .title("Speaker Unmuted")
-                                            .text1(&format!(
-                                                "{} was unmuted due to Keep selected outputs unmuted.",
-                                                device_info.name
-                                            ))
-                                            .show()
-                                        {
-                                            log::error!(
-                                                "Failed to show output unmute restore notification for {}: {}",
-                                                device_info.name, e
-                                            );
-                                        }
-                                        last_notification_times.insert(device_id.clone(), now);
-                                    }
-                                }
-                            }
-                        }
+                    {
+                        check_and_unmute_device(
+                            &device_enumerator,
+                            device_id,
+                            &device_info.name,
+                            persistent_state.notify_on_volume_restored,
+                            "Speaker Unmuted",
+                            "was unmuted due to Keep selected outputs unmuted.",
+                            &mut last_notification_times,
+                        );
+                    }
 
                     some_locked = true;
                 }
@@ -1101,4 +982,59 @@ fn find_device_by_name_and_type(
     }
 
     Err(windows::core::Error::empty())
+}
+
+fn send_notification_debounced(
+    device_id: &str,
+    title: &str,
+    message: &str,
+    last_notification_times: &mut HashMap<String, Instant>,
+) {
+    let now = Instant::now();
+    let should_notify = match last_notification_times.get(device_id) {
+        Some(&last_time) => now.duration_since(last_time) > Duration::from_secs(5),
+        None => true,
+    };
+    if should_notify {
+        if let Err(e) = Toast::new(APP_AUMID).title(title).text1(message).show() {
+            log::error!("Failed to show notification for {title}: {e}");
+        }
+        last_notification_times.insert(device_id.to_string(), now);
+    }
+}
+
+fn check_and_unmute_device(
+    device_enumerator: &IMMDeviceEnumerator,
+    device_id: &str,
+    device_name: &str,
+    notify: bool,
+    notification_title: &str,
+    notification_message_suffix: &str,
+    last_notification_times: &mut HashMap<String, Instant>,
+) {
+    let device = match get_device_by_id(device_enumerator, device_id) {
+        Ok(d) => d,
+        Err(_) => return,
+    };
+    let endpoint = match get_audio_endpoint(&device) {
+        Ok(ep) => ep,
+        Err(_) => return,
+    };
+
+    if let Ok(true) = get_mute(&endpoint) {
+        if let Err(e) = set_mute(&endpoint, false) {
+            log::error!("Failed to unmute {device_name}: {e}");
+        } else {
+            log::info!("Unmuted {device_name} due to lock settings");
+            if notify {
+                let message = format!("{device_name} {notification_message_suffix}");
+                send_notification_debounced(
+                    device_id,
+                    notification_title,
+                    &message,
+                    last_notification_times,
+                );
+            }
+        }
+    }
 }
