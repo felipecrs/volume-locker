@@ -46,12 +46,10 @@ When you want to lock the volume of your audio output or input devices:
 
 ### Options
 
-- Keep selected microphone volumes fixed: restores volume if a locked input device (ticked) changes.
-- Keep selected speaker volumes fixed: restores volume if a locked output device (ticked) changes.
-- Keep selected microphones unmuted: prevents locked input devices (ticked) from being muted.
-- Keep selected speakers unmuted: prevents locked output devices (ticked) from being muted.
-- Keep default output device fixed: re-sets the default output device if it changes.
-- Keep default input device fixed: re-sets the default input device if it changes.
+- **Keep selected input device volumes fixed**: restores volume if a locked input device (ticked) changes.
+- **Keep selected output device volumes fixed**: restores volume if a locked output device (ticked) changes.
+- **Keep selected input devices unmuted**: prevents locked input devices (ticked) from being muted.
+- **Keep selected output devices unmuted**: prevents locked output devices (ticked) from being muted.
 - Show notifications: shows toasts for volume restores and unmute restores.
 
 ## Credits
