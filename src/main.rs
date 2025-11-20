@@ -67,7 +67,11 @@ struct DeviceSettings {
     #[serde(default)]
     volume_percent: f32,
     #[serde(default)]
+    notify_on_volume_lock: bool,
+    #[serde(default)]
     is_unmute_locked: bool,
+    #[serde(default)]
+    notify_on_unmute_lock: bool,
     device_type: DeviceType,
     name: String,
 }
@@ -76,14 +80,14 @@ struct DeviceSettings {
 struct PersistentState {
     #[serde(default)]
     devices: HashMap<String, DeviceSettings>,
-    #[serde(default)]
-    notify_on_volume_restored: bool,
 }
 
 #[derive(Debug)]
 enum DeviceSettingType {
     VolumeLock,
+    VolumeLockNotify,
     UnmuteLock,
+    UnmuteLockNotify,
 }
 
 #[derive(Debug)]
@@ -248,8 +252,6 @@ fn main() {
 
     let output_devices_heading_item = MenuItem::new("Output devices", false, None);
     let input_devices_heading_item = MenuItem::new("Input devices", false, None);
-    let notify_check_item: CheckMenuItem =
-        CheckMenuItem::new("Show notifications", true, false, None);
     let auto_launch_check_item: CheckMenuItem =
         CheckMenuItem::new("Auto launch on startup", true, false, None);
     let quit_item = MenuItem::new("Quit", true, None);
@@ -314,10 +316,7 @@ fn main() {
             }
 
             Event::UserEvent(UserEvent::Menu(event)) => {
-                if event.id == notify_check_item.id() {
-                    persistent_state.notify_on_volume_restored = notify_check_item.is_checked();
-                    let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
-                } else if event.id == auto_launch_check_item.id() {
+                if event.id == auto_launch_check_item.id() {
                     let checked = auto_launch_check_item.is_checked();
                     if checked {
                         auto_launch.enable().unwrap();
@@ -342,7 +341,9 @@ fn main() {
                                 .or_insert_with(|| DeviceSettings {
                                     is_volume_locked: false,
                                     volume_percent: 0.0,
+                                    notify_on_volume_lock: false,
                                     is_unmute_locked: false,
+                                    notify_on_unmute_lock: false,
                                     device_type: menu_info.device_type,
                                     name: menu_info.name.clone(),
                                 });
@@ -363,13 +364,21 @@ fn main() {
                                                 convert_float_to_percent(vol);
                                         }
                                 }
+                                DeviceSettingType::VolumeLockNotify => {
+                                    device_settings.notify_on_volume_lock = is_checked;
+                                }
                                 DeviceSettingType::UnmuteLock => {
                                     device_settings.is_unmute_locked = is_checked;
+                                }
+                                DeviceSettingType::UnmuteLockNotify => {
+                                    device_settings.notify_on_unmute_lock = is_checked;
                                 }
                             }
 
                             if !device_settings.is_volume_locked
                                 && !device_settings.is_unmute_locked
+                                && !device_settings.notify_on_volume_lock
+                                && !device_settings.notify_on_unmute_lock
                             {
                                 should_remove = true;
                             }
@@ -420,11 +429,16 @@ fn main() {
                         let is_default =
                             is_default_device(&device_enumerator, &device, device_type);
 
-                        let (is_volume_locked, is_unmute_locked) =
+                        let (is_volume_locked, notify_on_volume_lock, is_unmute_locked, notify_on_unmute_lock) =
                             if let Some(settings) = persistent_state.devices.get(&device_id) {
-                                (settings.is_volume_locked, settings.is_unmute_locked)
+                                (
+                                    settings.is_volume_locked,
+                                    settings.notify_on_volume_lock,
+                                    settings.is_unmute_locked,
+                                    settings.notify_on_unmute_lock,
+                                )
                             } else {
-                                (false, false)
+                                (false, false, false, false)
                             };
 
                         let is_locked = is_volume_locked || is_unmute_locked;
@@ -438,10 +452,22 @@ fn main() {
                             is_volume_locked,
                             None,
                         );
+                        let volume_notify_item = CheckMenuItem::new(
+                            "Notify on volume restore",
+                            is_volume_locked,
+                            notify_on_volume_lock,
+                            None,
+                        );
                         let unmute_lock_item = CheckMenuItem::new(
                             "Keep unmuted",
                             true,
                             is_unmute_locked,
+                            None,
+                        );
+                        let unmute_notify_item = CheckMenuItem::new(
+                            "Notify on unmute",
+                            is_unmute_locked,
+                            notify_on_unmute_lock,
                             None,
                         );
 
@@ -455,10 +481,28 @@ fn main() {
                             },
                         );
                         menu_id_to_device.insert(
+                            volume_notify_item.id().clone(),
+                            MenuItemDeviceInfo {
+                                device_id: device_id.clone(),
+                                setting_type: DeviceSettingType::VolumeLockNotify,
+                                name: name.clone(),
+                                device_type,
+                            },
+                        );
+                        menu_id_to_device.insert(
                             unmute_lock_item.id().clone(),
                             MenuItemDeviceInfo {
                                 device_id: device_id.clone(),
                                 setting_type: DeviceSettingType::UnmuteLock,
+                                name: name.clone(),
+                                device_type,
+                            },
+                        );
+                        menu_id_to_device.insert(
+                            unmute_notify_item.id().clone(),
+                            MenuItemDeviceInfo {
+                                device_id: device_id.clone(),
+                                setting_type: DeviceSettingType::UnmuteLockNotify,
                                 name: name.clone(),
                                 device_type,
                             },
@@ -472,14 +516,15 @@ fn main() {
 
                         submenu.append(&volume_lock_item).unwrap();
                         submenu.append(&unmute_lock_item).unwrap();
+                        submenu.append(&PredefinedMenuItem::separator()).unwrap();
+                        submenu.append(&volume_notify_item).unwrap();
+                        submenu.append(&unmute_notify_item).unwrap();
                         tray_menu.append(&submenu).unwrap();
                     }
                     tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
                 }
 
                 // Refresh check items
-                notify_check_item.set_checked(persistent_state.notify_on_volume_restored);
-                tray_menu.append(&notify_check_item).unwrap();
                 let auto_launch_enabled = auto_launch.is_enabled().unwrap();
                 auto_launch_check_item.set_checked(auto_launch_enabled);
                 tray_menu.append(&auto_launch_check_item).unwrap();
@@ -558,7 +603,7 @@ fn main() {
                             log::info!(
                                 "Restored volume of {device_name} from {new_volume_percent}% to {target_volume_percent}%"
                             );
-                            if persistent_state.notify_on_volume_restored {
+                            if device_settings.notify_on_volume_lock {
                                 send_notification_debounced(
                                     &device_id,
                                     "Volume Restored",
@@ -587,7 +632,7 @@ fn main() {
                             &device_enumerator,
                             &device_id,
                             &device_name,
-                            persistent_state.notify_on_volume_restored,
+                            device_settings.notify_on_unmute_lock,
                             notification_title,
                             notification_suffix,
                             &mut last_notification_times,
@@ -695,7 +740,7 @@ fn main() {
                             &device_enumerator,
                             device_id,
                             &device_settings.name,
-                            persistent_state.notify_on_volume_restored,
+                            device_settings.notify_on_unmute_lock,
                             notification_title,
                             notification_suffix,
                             &mut last_notification_times,
