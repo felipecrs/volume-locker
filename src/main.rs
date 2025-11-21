@@ -743,7 +743,7 @@ fn main() {
                     let priority_header = MenuItem::new(priority_label, false, None);
                     tray_menu.append(&priority_header).unwrap();
 
-                    // Need available devices for "Temporary default" and "Add device"
+                    // Need available devices for "Add device"
                     let endpoint_type = match device_type {
                         DeviceType::Output => eRender,
                         DeviceType::Input => eCapture,
@@ -766,39 +766,6 @@ fn main() {
                         DeviceType::Output => temporary_priority_output.as_ref(),
                         DeviceType::Input => temporary_priority_input.as_ref(),
                     };
-
-                    let temp_default_label = if let Some(temp_id) = temp_id_opt {
-                        let device_name =
-                            if let Some(settings) = persistent_state.devices.get(temp_id) {
-                                settings.name.clone()
-                            } else {
-                                match get_device_by_id(&device_enumerator, temp_id) {
-                                    Ok(d) => get_device_name(&d)
-                                        .unwrap_or_else(|_| "Unknown Device".to_string()),
-                                    Err(_) => "Unknown Device".to_string(),
-                                }
-                            };
-                        format!("Temporary: {}", device_name)
-                    } else {
-                        "Temporary default".to_string()
-                    };
-
-                    let temporary_default_submenu = Submenu::new(&temp_default_label, true);
-                    for (id, name) in &available_devices {
-                        let is_checked = Some(id) == temp_id_opt;
-                        let item = CheckMenuItem::new(name, true, is_checked, None);
-                        menu_id_to_device.insert(
-                            item.id().clone(),
-                            MenuItemDeviceInfo {
-                                device_id: id.clone(),
-                                setting_type: DeviceSettingType::SetTemporaryPriority,
-                                name: name.clone(),
-                                device_type,
-                            },
-                        );
-                        temporary_default_submenu.append(&item).unwrap();
-                    }
-                    tray_menu.append(&temporary_default_submenu).unwrap();
 
                     for (index, device_id) in priority_list.iter().enumerate() {
                         let device_name =
@@ -932,6 +899,74 @@ fn main() {
 
                     tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
                 }
+
+                // 3. Temporary Default Priority
+                tray_menu.append(&MenuItem::new("Temporary default priority", false, None)).unwrap();
+
+                for device_type in [DeviceType::Output, DeviceType::Input] {
+                    let endpoint_type = match device_type {
+                        DeviceType::Output => eRender,
+                        DeviceType::Input => eCapture,
+                    };
+                    let devices: IMMDeviceCollection = unsafe {
+                        device_enumerator
+                            .EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE)
+                            .unwrap()
+                    };
+                    let count = unsafe { devices.GetCount().unwrap() };
+                    let mut available_devices = Vec::new();
+                    for i in 0..count {
+                        let device = unsafe { devices.Item(i).unwrap() };
+                        let name = get_device_name(&device).unwrap();
+                        let device_id = get_device_id(&device).unwrap();
+                        available_devices.push((device_id, name));
+                    }
+
+                    let temp_id_opt = match device_type {
+                        DeviceType::Output => temporary_priority_output.as_ref(),
+                        DeviceType::Input => temporary_priority_input.as_ref(),
+                    };
+
+                    let label_prefix = match device_type {
+                        DeviceType::Output => "Output device",
+                        DeviceType::Input => "Input device",
+                    };
+
+                    let submenu_label = if let Some(temp_id) = temp_id_opt {
+                        let device_name =
+                            if let Some(settings) = persistent_state.devices.get(temp_id) {
+                                settings.name.clone()
+                            } else {
+                                match get_device_by_id(&device_enumerator, temp_id) {
+                                    Ok(d) => get_device_name(&d)
+                                        .unwrap_or_else(|_| "Unknown Device".to_string()),
+                                    Err(_) => "Unknown Device".to_string(),
+                                }
+                            };
+                        format!("{}: {}", label_prefix, device_name)
+                    } else {
+                        label_prefix.to_string()
+                    };
+
+                    let submenu = Submenu::new(&submenu_label, true);
+
+                    for (id, name) in &available_devices {
+                        let is_checked = Some(id) == temp_id_opt;
+                        let item = CheckMenuItem::new(name, true, is_checked, None);
+                        menu_id_to_device.insert(
+                            item.id().clone(),
+                            MenuItemDeviceInfo {
+                                device_id: id.clone(),
+                                setting_type: DeviceSettingType::SetTemporaryPriority,
+                                name: name.clone(),
+                                device_type,
+                            },
+                        );
+                        submenu.append(&item).unwrap();
+                    }
+                    tray_menu.append(&submenu).unwrap();
+                }
+                tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
 
                 // Refresh check items
                 let auto_launch_enabled = auto_launch.is_enabled().unwrap();
