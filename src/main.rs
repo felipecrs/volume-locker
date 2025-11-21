@@ -39,7 +39,7 @@ use windows::Win32::Media::Audio::Endpoints::{
 use windows::Win32::Media::Audio::{
     AUDIO_VOLUME_NOTIFICATION_DATA, DEVICE_STATE, DEVICE_STATE_ACTIVE, EDataFlow, ERole, IMMDevice,
     IMMDeviceCollection, IMMDeviceEnumerator, IMMNotificationClient, IMMNotificationClient_Impl,
-    MMDeviceEnumerator, eCapture, eConsole, eRender,
+    MMDeviceEnumerator, eCapture, eCommunications, eConsole, eRender,
 };
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, STGM_READ,
@@ -76,7 +76,11 @@ struct DeviceSettings {
     name: String,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+fn return_true() -> bool {
+    true
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct PersistentState {
     #[serde(default)]
     devices: HashMap<String, DeviceSettings>,
@@ -88,6 +92,24 @@ struct PersistentState {
     notify_on_priority_restore_output: bool,
     #[serde(default)]
     notify_on_priority_restore_input: bool,
+    #[serde(default = "return_true")]
+    switch_communication_device_output: bool,
+    #[serde(default = "return_true")]
+    switch_communication_device_input: bool,
+}
+
+impl Default for PersistentState {
+    fn default() -> Self {
+        Self {
+            devices: HashMap::default(),
+            output_priority_list: Vec::default(),
+            input_priority_list: Vec::default(),
+            notify_on_priority_restore_output: false,
+            notify_on_priority_restore_input: false,
+            switch_communication_device_output: true,
+            switch_communication_device_input: true,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -101,6 +123,7 @@ enum DeviceSettingType {
     MovePriorityUp,
     MovePriorityDown,
     PriorityRestoreNotify,
+    SwitchCommunicationDevice,
 }
 
 #[derive(Debug)]
@@ -511,6 +534,24 @@ fn main() {
                                 should_save = true;
                             }
                         }
+                        DeviceSettingType::SwitchCommunicationDevice => {
+                            if let Some(item) = find_menu_item(&tray_menu, &event.id)
+                                && let Some(check_item) = item.as_check_menuitem()
+                            {
+                                let is_checked = check_item.is_checked();
+                                match menu_info.device_type {
+                                    DeviceType::Output => {
+                                        persistent_state.switch_communication_device_output =
+                                            is_checked
+                                    }
+                                    DeviceType::Input => {
+                                        persistent_state.switch_communication_device_input =
+                                            is_checked
+                                    }
+                                }
+                                should_save = true;
+                            }
+                        }
                     }
 
                     if should_save {
@@ -714,7 +755,7 @@ fn main() {
                         priority_submenu.append(&PredefinedMenuItem::separator()).unwrap();
 
                         let remove_priority_item =
-                            MenuItem::new("Remove from Default Priority List", true, None);
+                            MenuItem::new("Remove device", true, None);
                         menu_id_to_device.insert(
                             remove_priority_item.id().clone(),
                             MenuItemDeviceInfo {
@@ -774,6 +815,29 @@ fn main() {
                         },
                     );
                     tray_menu.append(&notify_item).unwrap();
+
+                    let switch_communication = match device_type {
+                        DeviceType::Output => persistent_state.switch_communication_device_output,
+                        DeviceType::Input => persistent_state.switch_communication_device_input,
+                    };
+
+                    let switch_comm_item = CheckMenuItem::new(
+                        "Also switch default communication device",
+                        !priority_list.is_empty(),
+                        switch_communication,
+                        None,
+                    );
+
+                    menu_id_to_device.insert(
+                        switch_comm_item.id().clone(),
+                        MenuItemDeviceInfo {
+                            device_id: String::new(),
+                            setting_type: DeviceSettingType::SwitchCommunicationDevice,
+                            name: "Switch Communication Device".to_string(),
+                            device_type,
+                        },
+                    );
+                    tray_menu.append(&switch_comm_item).unwrap();
 
                     tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
                 }
@@ -1401,48 +1465,57 @@ fn enforce_priorities(
     if let Some(target_id) =
         find_highest_priority_active_device(device_enumerator, &state.output_priority_list)
     {
-        // Check if it is already default
-        if let Ok(default_device) = get_default_output_device(device_enumerator)
+        let mut switched = false;
+
+        // Check Console/Multimedia
+        let is_console_correct = if let Ok(default_device) =
+            get_default_output_device(device_enumerator)
             && let Ok(default_id) = get_device_id(&default_device)
         {
-            if default_id != target_id {
-                log::info!("Enforcing output priority: Switching to {}", target_id);
-                let _ = set_default_device(&target_id, eConsole);
-                let _ = set_default_device(&target_id, windows::Win32::Media::Audio::eMultimedia);
-
-                if state.notify_on_priority_restore_output {
-                    let device_name = match get_device_by_id(device_enumerator, &target_id) {
-                        Ok(d) => {
-                            get_device_name(&d).unwrap_or_else(|_| "Unknown Device".to_string())
-                        }
-                        Err(_) => "Unknown Device".to_string(),
-                    };
-                    send_notification_debounced(
-                        &target_id,
-                        "Default Output Device Restored",
-                        &format!("Switched to {} based on priority list.", device_name),
-                        last_notification_times,
-                    );
-                }
-            }
+            default_id == target_id
         } else {
-            // No default device? Try to set it anyway.
+            false
+        };
+
+        if !is_console_correct {
             log::info!("Enforcing output priority: Switching to {}", target_id);
             let _ = set_default_device(&target_id, eConsole);
             let _ = set_default_device(&target_id, windows::Win32::Media::Audio::eMultimedia);
+            switched = true;
+        }
 
-            if state.notify_on_priority_restore_output {
-                let device_name = match get_device_by_id(device_enumerator, &target_id) {
-                    Ok(d) => get_device_name(&d).unwrap_or_else(|_| "Unknown Device".to_string()),
-                    Err(_) => "Unknown Device".to_string(),
-                };
-                send_notification_debounced(
-                    &target_id,
-                    "Default Output Device Restored",
-                    &format!("Switched to {} based on priority list.", device_name),
-                    last_notification_times,
+        // Check Communications
+        if state.switch_communication_device_output {
+            let is_comm_correct = if let Ok(default_device) =
+                unsafe { device_enumerator.GetDefaultAudioEndpoint(eRender, eCommunications) }
+                && let Ok(default_id) = get_device_id(&default_device)
+            {
+                default_id == target_id
+            } else {
+                false
+            };
+
+            if !is_comm_correct {
+                log::info!(
+                    "Enforcing output priority (Communication): Switching to {}",
+                    target_id
                 );
+                let _ = set_default_device(&target_id, eCommunications);
+                switched = true;
             }
+        }
+
+        if switched && state.notify_on_priority_restore_output {
+            let device_name = match get_device_by_id(device_enumerator, &target_id) {
+                Ok(d) => get_device_name(&d).unwrap_or_else(|_| "Unknown Device".to_string()),
+                Err(_) => "Unknown Device".to_string(),
+            };
+            send_notification_debounced(
+                &target_id,
+                "Default Output Device Restored",
+                &format!("Switched to {} based on priority list.", device_name),
+                last_notification_times,
+            );
         }
     }
 
@@ -1450,47 +1523,57 @@ fn enforce_priorities(
     if let Some(target_id) =
         find_highest_priority_active_device(device_enumerator, &state.input_priority_list)
     {
-        // Check if it is already default
-        if let Ok(default_device) = get_default_input_device(device_enumerator)
+        let mut switched = false;
+
+        // Check Console/Multimedia
+        let is_console_correct = if let Ok(default_device) =
+            get_default_input_device(device_enumerator)
             && let Ok(default_id) = get_device_id(&default_device)
         {
-            if default_id != target_id {
-                log::info!("Enforcing input priority: Switching to {}", target_id);
-                let _ = set_default_device(&target_id, eConsole);
-                let _ = set_default_device(&target_id, windows::Win32::Media::Audio::eMultimedia);
-
-                if state.notify_on_priority_restore_input {
-                    let device_name = match get_device_by_id(device_enumerator, &target_id) {
-                        Ok(d) => {
-                            get_device_name(&d).unwrap_or_else(|_| "Unknown Device".to_string())
-                        }
-                        Err(_) => "Unknown Device".to_string(),
-                    };
-                    send_notification_debounced(
-                        &target_id,
-                        "Default Input Device Restored",
-                        &format!("Switched to {} based on priority list.", device_name),
-                        last_notification_times,
-                    );
-                }
-            }
+            default_id == target_id
         } else {
+            false
+        };
+
+        if !is_console_correct {
             log::info!("Enforcing input priority: Switching to {}", target_id);
             let _ = set_default_device(&target_id, eConsole);
             let _ = set_default_device(&target_id, windows::Win32::Media::Audio::eMultimedia);
+            switched = true;
+        }
 
-            if state.notify_on_priority_restore_input {
-                let device_name = match get_device_by_id(device_enumerator, &target_id) {
-                    Ok(d) => get_device_name(&d).unwrap_or_else(|_| "Unknown Device".to_string()),
-                    Err(_) => "Unknown Device".to_string(),
-                };
-                send_notification_debounced(
-                    &target_id,
-                    "Default Input Device Restored",
-                    &format!("Switched to {} based on priority list.", device_name),
-                    last_notification_times,
+        // Check Communications
+        if state.switch_communication_device_input {
+            let is_comm_correct = if let Ok(default_device) =
+                unsafe { device_enumerator.GetDefaultAudioEndpoint(eCapture, eCommunications) }
+                && let Ok(default_id) = get_device_id(&default_device)
+            {
+                default_id == target_id
+            } else {
+                false
+            };
+
+            if !is_comm_correct {
+                log::info!(
+                    "Enforcing input priority (Communication): Switching to {}",
+                    target_id
                 );
+                let _ = set_default_device(&target_id, eCommunications);
+                switched = true;
             }
+        }
+
+        if switched && state.notify_on_priority_restore_input {
+            let device_name = match get_device_by_id(device_enumerator, &target_id) {
+                Ok(d) => get_device_name(&d).unwrap_or_else(|_| "Unknown Device".to_string()),
+                Err(_) => "Unknown Device".to_string(),
+            };
+            send_notification_debounced(
+                &target_id,
+                "Default Input Device Restored",
+                &format!("Switched to {} based on priority list.", device_name),
+                last_notification_times,
+            );
         }
     }
 }
