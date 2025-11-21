@@ -1,16 +1,16 @@
+<img align="right" width="200" alt="Volume Locker" src="https://github.com/user-attachments/assets/80473f4a-f901-440b-9d7b-5003ef1c96c7" />
+
 <p align="center">
 ⭐<b>Please star this project in GitHub if it helps you!</b>⭐
 </p>
 
 # Volume Locker
 
-<img align="right" width="200" alt="Volume Locker" src="https://github.com/user-attachments/assets/20dbba8d-f86f-4f88-b72c-088180ecbe30" />
+Tired of apps changing your microphone volume without your consent? Or Windows constantly switching to the wrong audio device?
 
-Tired of apps changing your microphone volume without your consent?
+Volume Locker is a tray icon app that keeps the volume of your audio devices locked and manages your default audio devices based on a priority list. It is a portable, ~1MB binary written in Rust for Windows.
 
-Volume Locker is a tray icon app that keeps the volume of your audio devices locked. It is a portable, less than 1MB binary written in Rust for Windows.
-
-Never worry about your microphone volume again!
+Never worry about your microphone volume or default device again!
 
 ## Demo
 
@@ -86,3 +86,4 @@ Special thanks to:
 - [tauri-apps/tray-icon](https://github.com/tauri-apps/tray-icon) for the tray icon implementation.
 - [GitHub Copilot](https://github.com/copilot/) for assisting with the code structure, syntax, and feature implementation.
 - [@jmb](https://github.com/jmb) for the [great icon design](https://github.com/Templarian/MaterialDesign/issues/7714).
+
