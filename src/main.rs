@@ -39,7 +39,7 @@ use windows::Win32::Media::Audio::Endpoints::{
 use windows::Win32::Media::Audio::{
     AUDIO_VOLUME_NOTIFICATION_DATA, DEVICE_STATE, DEVICE_STATE_ACTIVE, EDataFlow, ERole, IMMDevice,
     IMMDeviceCollection, IMMDeviceEnumerator, IMMNotificationClient, IMMNotificationClient_Impl,
-    MMDeviceEnumerator, eCapture, eConsole, eRender,
+    MMDeviceEnumerator, eCapture, eCommunications, eConsole, eRender,
 };
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, STGM_READ,
@@ -76,10 +76,40 @@ struct DeviceSettings {
     name: String,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+fn return_true() -> bool {
+    true
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct PersistentState {
     #[serde(default)]
     devices: HashMap<String, DeviceSettings>,
+    #[serde(default)]
+    output_priority_list: Vec<String>,
+    #[serde(default)]
+    input_priority_list: Vec<String>,
+    #[serde(default)]
+    notify_on_priority_restore_output: bool,
+    #[serde(default)]
+    notify_on_priority_restore_input: bool,
+    #[serde(default = "return_true")]
+    switch_communication_device_output: bool,
+    #[serde(default = "return_true")]
+    switch_communication_device_input: bool,
+}
+
+impl Default for PersistentState {
+    fn default() -> Self {
+        Self {
+            devices: HashMap::default(),
+            output_priority_list: Vec::default(),
+            input_priority_list: Vec::default(),
+            notify_on_priority_restore_output: false,
+            notify_on_priority_restore_input: false,
+            switch_communication_device_output: true,
+            switch_communication_device_input: true,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -88,6 +118,13 @@ enum DeviceSettingType {
     VolumeLockNotify,
     UnmuteLock,
     UnmuteLockNotify,
+    AddToPriority,
+    RemoveFromPriority,
+    MovePriorityUp,
+    MovePriorityDown,
+    PriorityRestoreNotify,
+    SwitchCommunicationDevice,
+    SetTemporaryPriority,
 }
 
 #[derive(Debug)]
@@ -286,6 +323,9 @@ fn main() {
 
     let mut last_notification_times: HashMap<String, Instant> = HashMap::new();
 
+    let mut temporary_priority_output: Option<String> = None;
+    let mut temporary_priority_input: Option<String> = None;
+
     let main_proxy = event_loop.create_proxy();
 
     let mut persistent_state = load_state();
@@ -327,75 +367,227 @@ fn main() {
                     tray_icon.take();
                     *control_flow = ControlFlow::Exit;
                 } else if let Some(menu_info) = menu_id_to_device.get(&event.id) {
-                    // Check if the menu item is checked
-                    if let Some(item) = find_menu_item(&tray_menu, &event.id)
-                        && let Some(check_item) = item.as_check_menuitem()
-                    {
-                        let is_checked = check_item.is_checked();
-                        let mut should_remove = false;
+                    let mut should_save = false;
 
-                        {
-                            let device_settings = persistent_state
-                                .devices
-                                .entry(menu_info.device_id.clone())
-                                .or_insert_with(|| DeviceSettings {
-                                    is_volume_locked: false,
-                                    volume_percent: 0.0,
-                                    notify_on_volume_lock: false,
-                                    is_unmute_locked: false,
-                                    notify_on_unmute_lock: false,
-                                    device_type: menu_info.device_type,
-                                    name: menu_info.name.clone(),
-                                });
+                    match menu_info.setting_type {
+                        DeviceSettingType::VolumeLock
+                        | DeviceSettingType::VolumeLockNotify
+                        | DeviceSettingType::UnmuteLock
+                        | DeviceSettingType::UnmuteLockNotify => {
+                            if let Some(item) = find_menu_item(&tray_menu, &event.id)
+                                && let Some(check_item) = item.as_check_menuitem()
+                            {
+                                let is_checked = check_item.is_checked();
+                                let mut should_remove = false;
 
-                            match menu_info.setting_type {
-                                DeviceSettingType::VolumeLock => {
-                                    if is_checked {
-                                        if let Ok(device) = get_device_by_id(
-                                            &device_enumerator,
-                                            &menu_info.device_id,
-                                        )
-                                        && let Ok(endpoint) = get_audio_endpoint(&device)
-                                        && let Ok(vol) = get_volume(&endpoint)
-                                        {
-                                            device_settings.volume_percent =
-                                                convert_float_to_percent(vol);
-                                            device_settings.is_volume_locked = true;
-                                        } else {
-                                            log::error!(
-                                                "Failed to get volume for device {}, cannot lock.",
-                                                menu_info.name
-                                            );
-                                            device_settings.is_volume_locked = false;
+                                {
+                                    let device_settings = persistent_state
+                                        .devices
+                                        .entry(menu_info.device_id.clone())
+                                        .or_insert_with(|| DeviceSettings {
+                                            is_volume_locked: false,
+                                            volume_percent: 0.0,
+                                            notify_on_volume_lock: false,
+                                            is_unmute_locked: false,
+                                            notify_on_unmute_lock: false,
+                                            device_type: menu_info.device_type,
+                                            name: menu_info.name.clone(),
+                                        });
+
+                                    match menu_info.setting_type {
+                                        DeviceSettingType::VolumeLock => {
+                                            if is_checked {
+                                                if let Ok(device) = get_device_by_id(
+                                                    &device_enumerator,
+                                                    &menu_info.device_id,
+                                                )
+                                                && let Ok(endpoint) = get_audio_endpoint(&device)
+                                                && let Ok(vol) = get_volume(&endpoint)
+                                                {
+                                                    device_settings.volume_percent =
+                                                        convert_float_to_percent(vol);
+                                                    device_settings.is_volume_locked = true;
+                                                } else {
+                                                    log::error!(
+                                                        "Failed to get volume for device {}, cannot lock.",
+                                                        menu_info.name
+                                                    );
+                                                    device_settings.is_volume_locked = false;
+                                                }
+                                            } else {
+                                                device_settings.is_volume_locked = false;
+                                            }
                                         }
-                                    } else {
-                                        device_settings.is_volume_locked = false;
+                                        DeviceSettingType::VolumeLockNotify => {
+                                            device_settings.notify_on_volume_lock = is_checked;
+                                        }
+                                        DeviceSettingType::UnmuteLock => {
+                                            device_settings.is_unmute_locked = is_checked;
+                                        }
+                                        DeviceSettingType::UnmuteLockNotify => {
+                                            device_settings.notify_on_unmute_lock = is_checked;
+                                        }
+                                        _ => {}
+                                    }
+
+                                    if !device_settings.is_volume_locked
+                                        && !device_settings.is_unmute_locked
+                                        && !device_settings.notify_on_volume_lock
+                                        && !device_settings.notify_on_unmute_lock
+                                    {
+                                        should_remove = true;
                                     }
                                 }
-                                DeviceSettingType::VolumeLockNotify => {
-                                    device_settings.notify_on_volume_lock = is_checked;
-                                }
-                                DeviceSettingType::UnmuteLock => {
-                                    device_settings.is_unmute_locked = is_checked;
-                                }
-                                DeviceSettingType::UnmuteLockNotify => {
-                                    device_settings.notify_on_unmute_lock = is_checked;
-                                }
-                            }
 
-                            if !device_settings.is_volume_locked
-                                && !device_settings.is_unmute_locked
-                                && !device_settings.notify_on_volume_lock
-                                && !device_settings.notify_on_unmute_lock
+                                if should_remove {
+                                    let is_in_priority = persistent_state
+                                        .output_priority_list
+                                        .contains(&menu_info.device_id)
+                                        || persistent_state
+                                            .input_priority_list
+                                            .contains(&menu_info.device_id);
+
+                                    if !is_in_priority {
+                                        persistent_state.devices.remove(&menu_info.device_id);
+                                    }
+                                }
+                                should_save = true;
+                            }
+                        }
+                        DeviceSettingType::AddToPriority => {
+                            let list = match menu_info.device_type {
+                                DeviceType::Output => &mut persistent_state.output_priority_list,
+                                DeviceType::Input => &mut persistent_state.input_priority_list,
+                            };
+                            if !list.contains(&menu_info.device_id) {
+                                list.push(menu_info.device_id.clone());
+
+                                persistent_state
+                                    .devices
+                                    .entry(menu_info.device_id.clone())
+                                    .or_insert_with(|| DeviceSettings {
+                                        is_volume_locked: false,
+                                        volume_percent: 0.0,
+                                        notify_on_volume_lock: false,
+                                        is_unmute_locked: false,
+                                        notify_on_unmute_lock: false,
+                                        device_type: menu_info.device_type,
+                                        name: menu_info.name.clone(),
+                                    });
+
+                                should_save = true;
+                            }
+                        }
+                        DeviceSettingType::RemoveFromPriority => {
+                            let list = match menu_info.device_type {
+                                DeviceType::Output => &mut persistent_state.output_priority_list,
+                                DeviceType::Input => &mut persistent_state.input_priority_list,
+                            };
+                            if let Some(pos) = list.iter().position(|x| x == &menu_info.device_id) {
+                                list.remove(pos);
+                                should_save = true;
+
+                                if let Some(settings) =
+                                    persistent_state.devices.get(&menu_info.device_id)
+                                    && !settings.is_volume_locked
+                                        && !settings.is_unmute_locked
+                                        && !settings.notify_on_volume_lock
+                                        && !settings.notify_on_unmute_lock
+                                    {
+                                        persistent_state.devices.remove(&menu_info.device_id);
+                                    }
+                            }
+                        }
+                        DeviceSettingType::MovePriorityUp => {
+                            let list = match menu_info.device_type {
+                                DeviceType::Output => &mut persistent_state.output_priority_list,
+                                DeviceType::Input => &mut persistent_state.input_priority_list,
+                            };
+                            if let Some(pos) = list.iter().position(|x| x == &menu_info.device_id)
+                                && pos > 0 {
+                                    list.swap(pos, pos - 1);
+                                    should_save = true;
+                                }
+                        }
+                        DeviceSettingType::MovePriorityDown => {
+                            let list = match menu_info.device_type {
+                                DeviceType::Output => &mut persistent_state.output_priority_list,
+                                DeviceType::Input => &mut persistent_state.input_priority_list,
+                            };
+                            if let Some(pos) = list.iter().position(|x| x == &menu_info.device_id)
+                                && pos < list.len() - 1 {
+                                    list.swap(pos, pos + 1);
+                                    should_save = true;
+                                }
+                        }
+                        DeviceSettingType::PriorityRestoreNotify => {
+                            if let Some(item) = find_menu_item(&tray_menu, &event.id)
+                                && let Some(check_item) = item.as_check_menuitem()
                             {
-                                should_remove = true;
+                                let is_checked = check_item.is_checked();
+                                match menu_info.device_type {
+                                    DeviceType::Output => {
+                                        persistent_state.notify_on_priority_restore_output =
+                                            is_checked
+                                    }
+                                    DeviceType::Input => {
+                                        persistent_state.notify_on_priority_restore_input =
+                                            is_checked
+                                    }
+                                }
+                                should_save = true;
                             }
                         }
-
-                        if should_remove {
-                            persistent_state.devices.remove(&menu_info.device_id);
+                        DeviceSettingType::SwitchCommunicationDevice => {
+                            if let Some(item) = find_menu_item(&tray_menu, &event.id)
+                                && let Some(check_item) = item.as_check_menuitem()
+                            {
+                                let is_checked = check_item.is_checked();
+                                match menu_info.device_type {
+                                    DeviceType::Output => {
+                                        persistent_state.switch_communication_device_output =
+                                            is_checked
+                                    }
+                                    DeviceType::Input => {
+                                        persistent_state.switch_communication_device_input =
+                                            is_checked
+                                    }
+                                }
+                                should_save = true;
+                            }
                         }
+                        DeviceSettingType::SetTemporaryPriority => {
+                            if let Some(item) = find_menu_item(&tray_menu, &event.id) {
+                                let is_checked = if let Some(check_item) = item.as_check_menuitem()
+                                {
+                                    check_item.is_checked()
+                                } else {
+                                    // If it's not a check item (e.g. "Unset Temporary Default"), we treat it as unchecking
+                                    false
+                                };
 
+                                match menu_info.device_type {
+                                    DeviceType::Output => {
+                                        temporary_priority_output = if is_checked {
+                                            Some(menu_info.device_id.clone())
+                                        } else {
+                                            None
+                                        };
+                                    }
+                                    DeviceType::Input => {
+                                        temporary_priority_input = if is_checked {
+                                            Some(menu_info.device_id.clone())
+                                        } else {
+                                            None
+                                        };
+                                    }
+                                }
+                                let _ = main_proxy.send_event(UserEvent::DevicesChanged);
+                            }
+                        }
+                    }
+
+                    if should_save {
                         let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
                     }
                 }
@@ -426,6 +618,7 @@ fn main() {
                             .unwrap()
                     };
                     let count = unsafe { devices.GetCount().unwrap() };
+
                     for i in 0..count {
                         let device = unsafe { devices.Item(i).unwrap() };
                         let name = get_device_name(&device).unwrap();
@@ -527,10 +720,250 @@ fn main() {
                         submenu.append(&PredefinedMenuItem::separator()).unwrap();
                         submenu.append(&volume_notify_item).unwrap();
                         submenu.append(&unmute_notify_item).unwrap();
+
                         tray_menu.append(&submenu).unwrap();
                     }
                     tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
                 }
+
+                for device_type in [DeviceType::Output, DeviceType::Input] {
+                    let (priority_list, priority_label) = match device_type {
+                        DeviceType::Output => (
+                            &persistent_state.output_priority_list,
+                            "Default output device priority",
+                        ),
+                        DeviceType::Input => (
+                            &persistent_state.input_priority_list,
+                            "Default input device priority",
+                        ),
+                    };
+
+                    let priority_header = MenuItem::new(priority_label, false, None);
+                    tray_menu.append(&priority_header).unwrap();
+
+                    // Need available devices for "Add device"
+                    let endpoint_type = match device_type {
+                        DeviceType::Output => eRender,
+                        DeviceType::Input => eCapture,
+                    };
+                    let devices: IMMDeviceCollection = unsafe {
+                        device_enumerator
+                            .EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE)
+                            .unwrap()
+                    };
+                    let count = unsafe { devices.GetCount().unwrap() };
+                    let mut available_devices = Vec::new();
+                    for i in 0..count {
+                        let device = unsafe { devices.Item(i).unwrap() };
+                        let name = get_device_name(&device).unwrap();
+                        let device_id = get_device_id(&device).unwrap();
+                        available_devices.push((device_id, name));
+                    }
+
+                    let temp_id_opt = match device_type {
+                        DeviceType::Output => temporary_priority_output.as_ref(),
+                        DeviceType::Input => temporary_priority_input.as_ref(),
+                    };
+
+                    for (index, device_id) in priority_list.iter().enumerate() {
+                        let device_name =
+                            if let Some(settings) = persistent_state.devices.get(device_id) {
+                                settings.name.clone()
+                            } else {
+                                match get_device_by_id(&device_enumerator, device_id) {
+                                    Ok(d) => get_device_name(&d)
+                                        .unwrap_or_else(|_| "Unknown Device".to_string()),
+                                    Err(_) => "Unknown Device".to_string(),
+                                }
+                            };
+
+                        let label = format!("{}. {}", index + 1, device_name);
+                        let priority_submenu = Submenu::new(&label, true);
+
+                        let move_up_item = MenuItem::new("Move up", index > 0, None);
+                        if index > 0 {
+                            menu_id_to_device.insert(
+                                move_up_item.id().clone(),
+                                MenuItemDeviceInfo {
+                                    device_id: device_id.clone(),
+                                    setting_type: DeviceSettingType::MovePriorityUp,
+                                    name: device_name.clone(),
+                                    device_type,
+                                },
+                            );
+                        }
+                        priority_submenu.append(&move_up_item).unwrap();
+
+                        let move_down_item =
+                            MenuItem::new("Move down", index < priority_list.len() - 1, None);
+                        if index < priority_list.len() - 1 {
+                            menu_id_to_device.insert(
+                                move_down_item.id().clone(),
+                                MenuItemDeviceInfo {
+                                    device_id: device_id.clone(),
+                                    setting_type: DeviceSettingType::MovePriorityDown,
+                                    name: device_name.clone(),
+                                    device_type,
+                                },
+                            );
+                        }
+                        priority_submenu.append(&move_down_item).unwrap();
+                        priority_submenu.append(&PredefinedMenuItem::separator()).unwrap();
+
+                        let remove_priority_item =
+                            MenuItem::new("Remove device", true, None);
+                        menu_id_to_device.insert(
+                            remove_priority_item.id().clone(),
+                            MenuItemDeviceInfo {
+                                device_id: device_id.clone(),
+                                setting_type: DeviceSettingType::RemoveFromPriority,
+                                name: device_name.clone(),
+                                device_type,
+                            },
+                        );
+                        priority_submenu.append(&remove_priority_item).unwrap();
+
+                        tray_menu.append(&priority_submenu).unwrap();
+                    }
+
+                    let mut devices_to_add = Vec::new();
+                    for (id, name) in &available_devices {
+                        if !priority_list.contains(id) {
+                            devices_to_add.push((id, name));
+                        }
+                    }
+
+                    let add_device_submenu = Submenu::new("Add device", !devices_to_add.is_empty());
+                    for (id, name) in devices_to_add {
+                        let item = MenuItem::new(name, true, None);
+                        menu_id_to_device.insert(
+                            item.id().clone(),
+                            MenuItemDeviceInfo {
+                                device_id: id.clone(),
+                                setting_type: DeviceSettingType::AddToPriority,
+                                name: name.clone(),
+                                device_type,
+                            },
+                        );
+                        add_device_submenu.append(&item).unwrap();
+                    }
+                    tray_menu.append(&add_device_submenu).unwrap();
+
+                    let notify_on_restore = match device_type {
+                        DeviceType::Output => persistent_state.notify_on_priority_restore_output,
+                        DeviceType::Input => persistent_state.notify_on_priority_restore_input,
+                    };
+
+                    let notify_item = CheckMenuItem::new(
+                        "Notify on priority restore",
+                        !priority_list.is_empty() || temp_id_opt.is_some(),
+                        notify_on_restore,
+                        None,
+                    );
+
+                    menu_id_to_device.insert(
+                        notify_item.id().clone(),
+                        MenuItemDeviceInfo {
+                            device_id: String::new(),
+                            setting_type: DeviceSettingType::PriorityRestoreNotify,
+                            name: "Priority Restore Notify".to_string(),
+                            device_type,
+                        },
+                    );
+                    tray_menu.append(&notify_item).unwrap();
+
+                    let switch_communication = match device_type {
+                        DeviceType::Output => persistent_state.switch_communication_device_output,
+                        DeviceType::Input => persistent_state.switch_communication_device_input,
+                    };
+
+                    let switch_comm_item = CheckMenuItem::new(
+                        "Also switch default communication device",
+                        !priority_list.is_empty() || temp_id_opt.is_some(),
+                        switch_communication,
+                        None,
+                    );
+
+                    menu_id_to_device.insert(
+                        switch_comm_item.id().clone(),
+                        MenuItemDeviceInfo {
+                            device_id: String::new(),
+                            setting_type: DeviceSettingType::SwitchCommunicationDevice,
+                            name: "Switch Communication Device".to_string(),
+                            device_type,
+                        },
+                    );
+                    tray_menu.append(&switch_comm_item).unwrap();
+
+                    tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
+                }
+
+                tray_menu.append(&MenuItem::new("Temporary default device priority", false, None)).unwrap();
+
+                for device_type in [DeviceType::Output, DeviceType::Input] {
+                    let endpoint_type = match device_type {
+                        DeviceType::Output => eRender,
+                        DeviceType::Input => eCapture,
+                    };
+                    let devices: IMMDeviceCollection = unsafe {
+                        device_enumerator
+                            .EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE)
+                            .unwrap()
+                    };
+                    let count = unsafe { devices.GetCount().unwrap() };
+                    let mut available_devices = Vec::new();
+                    for i in 0..count {
+                        let device = unsafe { devices.Item(i).unwrap() };
+                        let name = get_device_name(&device).unwrap();
+                        let device_id = get_device_id(&device).unwrap();
+                        available_devices.push((device_id, name));
+                    }
+
+                    let temp_id_opt = match device_type {
+                        DeviceType::Output => temporary_priority_output.as_ref(),
+                        DeviceType::Input => temporary_priority_input.as_ref(),
+                    };
+
+                    let label_prefix = match device_type {
+                        DeviceType::Output => "Output device",
+                        DeviceType::Input => "Input device",
+                    };
+
+                    let submenu_label = if let Some(temp_id) = temp_id_opt {
+                        let device_name =
+                            if let Some(settings) = persistent_state.devices.get(temp_id) {
+                                settings.name.clone()
+                            } else {
+                                match get_device_by_id(&device_enumerator, temp_id) {
+                                    Ok(d) => get_device_name(&d)
+                                        .unwrap_or_else(|_| "Unknown Device".to_string()),
+                                    Err(_) => "Unknown Device".to_string(),
+                                }
+                            };
+                        format!("{}: {}", label_prefix, device_name)
+                    } else {
+                        label_prefix.to_string()
+                    };
+
+                    let submenu = Submenu::new(&submenu_label, true);
+
+                    for (id, name) in &available_devices {
+                        let is_checked = Some(id) == temp_id_opt;
+                        let item = CheckMenuItem::new(name, true, is_checked, None);
+                        menu_id_to_device.insert(
+                            item.id().clone(),
+                            MenuItemDeviceInfo {
+                                device_id: id.clone(),
+                                setting_type: DeviceSettingType::SetTemporaryPriority,
+                                name: name.clone(),
+                                device_type,
+                            },
+                        );
+                        submenu.append(&item).unwrap();
+                    }
+                    tray_menu.append(&submenu).unwrap();
+                }
+                tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
 
                 // Refresh check items
                 let auto_launch_enabled = auto_launch.is_enabled().unwrap();
@@ -613,7 +1046,7 @@ fn main() {
                             );
                             if device_settings.notify_on_volume_lock {
                                 send_notification_debounced(
-                                    &device_id,
+                                    &format!("volume_restore_{}", device_id),
                                     "Volume Restored",
                                     &format!(
                                         "The volume of {device_name} has been restored from {new_volume_percent}% to {target_volume_percent}%."
@@ -645,6 +1078,14 @@ fn main() {
 
             Event::UserEvent(UserEvent::DevicesChanged) => {
                 log::info!("Reloading list of watched devices...");
+
+                enforce_priorities(
+                    &device_enumerator,
+                    &persistent_state,
+                    &mut last_notification_times,
+                    &temporary_priority_output,
+                    &temporary_priority_input,
+                );
 
                 watched_endpoints.clear();
                 let mut some_locked = false;
@@ -1007,7 +1448,18 @@ fn migrate_device_ids(
             persistent_state.devices.remove(&old_device_id);
             persistent_state
                 .devices
-                .insert(new_device_id.clone(), device_settings);
+                .insert(new_device_id.clone(), device_settings.clone());
+
+            // Update priority lists
+            let priority_list = match device_settings.device_type {
+                DeviceType::Output => &mut persistent_state.output_priority_list,
+                DeviceType::Input => &mut persistent_state.input_priority_list,
+            };
+
+            if let Some(pos) = priority_list.iter().position(|id| id == &old_device_id) {
+                priority_list[pos] = new_device_id.clone();
+            }
+
             log::info!("Migrated device {device_name} from ID {old_device_id} to {new_device_id}");
         } else {
             log::warn!(
@@ -1044,13 +1496,13 @@ fn find_device_by_name_and_type(
 }
 
 fn send_notification_debounced(
-    device_id: &str,
+    key: &str,
     title: &str,
     message: &str,
     last_notification_times: &mut HashMap<String, Instant>,
 ) {
     let now = Instant::now();
-    let should_notify = match last_notification_times.get(device_id) {
+    let should_notify = match last_notification_times.get(key) {
         Some(&last_time) => now.duration_since(last_time) > Duration::from_secs(5),
         None => true,
     };
@@ -1058,7 +1510,7 @@ fn send_notification_debounced(
         if let Err(e) = Toast::new(APP_AUMID).title(title).text1(message).show() {
             log::error!("Failed to show notification for {title}: {e}");
         }
-        last_notification_times.insert(device_id.to_string(), now);
+        last_notification_times.insert(key.to_string(), now);
     }
 }
 
@@ -1088,7 +1540,7 @@ fn check_and_unmute_device(
             if notify {
                 let message = format!("{device_name} {notification_message_suffix}");
                 send_notification_debounced(
-                    device_id,
+                    &format!("unmute_{}", device_id),
                     notification_title,
                     &message,
                     last_notification_times,
@@ -1127,4 +1579,169 @@ fn find_in_items(items: &[MenuItemKind], id: &MenuId) -> Option<MenuItemKind> {
         }
     }
     None
+}
+
+fn enforce_priorities(
+    device_enumerator: &IMMDeviceEnumerator,
+    state: &PersistentState,
+    last_notification_times: &mut HashMap<String, Instant>,
+    temporary_priority_output: &Option<String>,
+    temporary_priority_input: &Option<String>,
+) {
+    // Check Output Priorities
+    let mut output_priority_list = state.output_priority_list.clone();
+    if let Some(temp_id) = temporary_priority_output {
+        output_priority_list.insert(0, temp_id.clone());
+    }
+
+    if let Some(target_id) =
+        find_highest_priority_active_device(device_enumerator, &output_priority_list)
+    {
+        let mut switched = false;
+
+        // Check Console/Multimedia
+        let is_console_correct = if let Ok(default_device) =
+            get_default_output_device(device_enumerator)
+            && let Ok(default_id) = get_device_id(&default_device)
+        {
+            default_id == target_id
+        } else {
+            false
+        };
+
+        if !is_console_correct {
+            log::info!("Enforcing output priority: Switching to {}", target_id);
+            let _ = set_default_device(&target_id, eConsole);
+            let _ = set_default_device(&target_id, windows::Win32::Media::Audio::eMultimedia);
+            switched = true;
+        }
+
+        // Check Communications
+        if state.switch_communication_device_output {
+            let is_comm_correct = if let Ok(default_device) =
+                unsafe { device_enumerator.GetDefaultAudioEndpoint(eRender, eCommunications) }
+                && let Ok(default_id) = get_device_id(&default_device)
+            {
+                default_id == target_id
+            } else {
+                false
+            };
+
+            if !is_comm_correct {
+                log::info!(
+                    "Enforcing output priority (Communication): Switching to {}",
+                    target_id
+                );
+                let _ = set_default_device(&target_id, eCommunications);
+                switched = true;
+            }
+        }
+
+        if switched && state.notify_on_priority_restore_output {
+            let device_name = match get_device_by_id(device_enumerator, &target_id) {
+                Ok(d) => get_device_name(&d).unwrap_or_else(|_| "Unknown Device".to_string()),
+                Err(_) => "Unknown Device".to_string(),
+            };
+            send_notification_debounced(
+                &format!("priority_restore_{}", target_id),
+                "Default Output Device Restored",
+                &format!("Switched to {} based on priority list.", device_name),
+                last_notification_times,
+            );
+        }
+    }
+
+    // Check Input Priorities
+    let mut input_priority_list = state.input_priority_list.clone();
+    if let Some(temp_id) = temporary_priority_input {
+        input_priority_list.insert(0, temp_id.clone());
+    }
+
+    if let Some(target_id) =
+        find_highest_priority_active_device(device_enumerator, &input_priority_list)
+    {
+        let mut switched = false;
+
+        // Check Console/Multimedia
+        let is_console_correct = if let Ok(default_device) =
+            get_default_input_device(device_enumerator)
+            && let Ok(default_id) = get_device_id(&default_device)
+        {
+            default_id == target_id
+        } else {
+            false
+        };
+
+        if !is_console_correct {
+            log::info!("Enforcing input priority: Switching to {}", target_id);
+            let _ = set_default_device(&target_id, eConsole);
+            let _ = set_default_device(&target_id, windows::Win32::Media::Audio::eMultimedia);
+            switched = true;
+        }
+
+        // Check Communications
+        if state.switch_communication_device_input {
+            let is_comm_correct = if let Ok(default_device) =
+                unsafe { device_enumerator.GetDefaultAudioEndpoint(eCapture, eCommunications) }
+                && let Ok(default_id) = get_device_id(&default_device)
+            {
+                default_id == target_id
+            } else {
+                false
+            };
+
+            if !is_comm_correct {
+                log::info!(
+                    "Enforcing input priority (Communication): Switching to {}",
+                    target_id
+                );
+                let _ = set_default_device(&target_id, eCommunications);
+                switched = true;
+            }
+        }
+
+        if switched && state.notify_on_priority_restore_input {
+            let device_name = match get_device_by_id(device_enumerator, &target_id) {
+                Ok(d) => get_device_name(&d).unwrap_or_else(|_| "Unknown Device".to_string()),
+                Err(_) => "Unknown Device".to_string(),
+            };
+            send_notification_debounced(
+                &format!("priority_restore_{}", target_id),
+                "Default Input Device Restored",
+                &format!("Switched to {} based on priority list.", device_name),
+                last_notification_times,
+            );
+        }
+    }
+}
+
+fn find_highest_priority_active_device(
+    device_enumerator: &IMMDeviceEnumerator,
+    priority_list: &[String],
+) -> Option<String> {
+    for device_id in priority_list {
+        if let Ok(device) = get_device_by_id(device_enumerator, device_id)
+            && let Ok(state) = unsafe { device.GetState() }
+            && state == DEVICE_STATE_ACTIVE
+        {
+            return Some(device_id.clone());
+        }
+    }
+    None
+}
+
+fn set_default_device(device_id: &str, role: ERole) -> Result<()> {
+    unsafe {
+        let policy_config: com_policy_config::IPolicyConfig = CoCreateInstance(
+            &com_policy_config::PolicyConfigClient,
+            None,
+            CLSCTX_INPROC_SERVER,
+        )?;
+        let wide: Vec<u16> = OsStr::new(device_id)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        policy_config.SetDefaultEndpoint(PCWSTR(wide.as_ptr()), role)?;
+        Ok(())
+    }
 }
