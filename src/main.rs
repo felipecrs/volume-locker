@@ -1203,7 +1203,18 @@ fn migrate_device_ids(
             persistent_state.devices.remove(&old_device_id);
             persistent_state
                 .devices
-                .insert(new_device_id.clone(), device_settings);
+                .insert(new_device_id.clone(), device_settings.clone());
+
+            // Update priority lists
+            let priority_list = match device_settings.device_type {
+                DeviceType::Output => &mut persistent_state.output_priority_list,
+                DeviceType::Input => &mut persistent_state.input_priority_list,
+            };
+
+            if let Some(pos) = priority_list.iter().position(|id| id == &old_device_id) {
+                priority_list[pos] = new_device_id.clone();
+            }
+
             log::info!("Migrated device {device_name} from ID {old_device_id} to {new_device_id}");
         } else {
             log::warn!(
