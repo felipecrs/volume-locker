@@ -350,10 +350,8 @@ fn main() {
 
                             match menu_info.setting_type {
                                 DeviceSettingType::VolumeLock => {
-                                    device_settings.is_volume_locked = is_checked;
-                                    // Update target volume to current volume when locking
-                                    if is_checked
-                                        && let Ok(device) = get_device_by_id(
+                                    if is_checked {
+                                        if let Ok(device) = get_device_by_id(
                                             &device_enumerator,
                                             &menu_info.device_id,
                                         )
@@ -362,7 +360,17 @@ fn main() {
                                         {
                                             device_settings.volume_percent =
                                                 convert_float_to_percent(vol);
+                                            device_settings.is_volume_locked = true;
+                                        } else {
+                                            log::error!(
+                                                "Failed to get volume for device {}, cannot lock.",
+                                                menu_info.name
+                                            );
+                                            device_settings.is_volume_locked = false;
                                         }
+                                    } else {
+                                        device_settings.is_volume_locked = false;
+                                    }
                                 }
                                 DeviceSettingType::VolumeLockNotify => {
                                     device_settings.notify_on_volume_lock = is_checked;
@@ -619,14 +627,8 @@ fn main() {
                     // Check unmute lock
                     if device_settings.is_unmute_locked {
                         let device_name = device_settings.name.clone();
-                        let notification_title = match device_settings.device_type {
-                            DeviceType::Input => "Input Device Unmuted",
-                            DeviceType::Output => "Output Device Unmuted",
-                        };
-                        let notification_suffix = match device_settings.device_type {
-                            DeviceType::Input => "was unmuted due to Keep unmuted setting.",
-                            DeviceType::Output => "was unmuted due to Keep unmuted setting.",
-                        };
+                        let (notification_title, notification_suffix) =
+                            get_unmute_notification_details(device_settings.device_type);
 
                         check_and_unmute_device(
                             &device_enumerator,
@@ -727,14 +729,8 @@ fn main() {
 
                     // Enforce unmute on refresh if enabled
                     if device_settings.is_unmute_locked {
-                        let notification_title = match device_settings.device_type {
-                            DeviceType::Input => "Input Device Unmuted",
-                            DeviceType::Output => "Output Device Unmuted",
-                        };
-                        let notification_suffix = match device_settings.device_type {
-                            DeviceType::Input => "was unmuted due to Keep unmuted setting.",
-                            DeviceType::Output => "was unmuted due to Keep unmuted setting.",
-                        };
+                        let (notification_title, notification_suffix) =
+                            get_unmute_notification_details(device_settings.device_type);
 
                         check_and_unmute_device(
                             &device_enumerator,
@@ -1099,6 +1095,19 @@ fn check_and_unmute_device(
                 );
             }
         }
+    }
+}
+
+fn get_unmute_notification_details(device_type: DeviceType) -> (&'static str, &'static str) {
+    match device_type {
+        DeviceType::Input => (
+            "Input Device Unmuted",
+            "was unmuted due to Keep unmuted setting.",
+        ),
+        DeviceType::Output => (
+            "Output Device Unmuted",
+            "was unmuted due to Keep unmuted setting.",
+        ),
     }
 }
 
