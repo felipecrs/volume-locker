@@ -782,7 +782,7 @@ fn main() {
                         let label = format!("{}. {}", index + 1, device_name);
                         let priority_submenu = Submenu::new(&label, true);
 
-                        let move_up_item = MenuItem::new("Move Up", index > 0, None);
+                        let move_up_item = MenuItem::new("Move up", index > 0, None);
                         if index > 0 {
                             menu_id_to_device.insert(
                                 move_up_item.id().clone(),
@@ -797,7 +797,7 @@ fn main() {
                         priority_submenu.append(&move_up_item).unwrap();
 
                         let move_down_item =
-                            MenuItem::new("Move Down", index < priority_list.len() - 1, None);
+                            MenuItem::new("Move down", index < priority_list.len() - 1, None);
                         if index < priority_list.len() - 1 {
                             menu_id_to_device.insert(
                                 move_down_item.id().clone(),
@@ -857,7 +857,7 @@ fn main() {
                     };
 
                     let notify_item = CheckMenuItem::new(
-                        "Notify on restore",
+                        "Notify on priority restore",
                         !priority_list.is_empty() || temp_id_opt.is_some(),
                         notify_on_restore,
                         None,
@@ -1049,7 +1049,7 @@ fn main() {
                             );
                             if device_settings.notify_on_volume_lock {
                                 send_notification_debounced(
-                                    &device_id,
+                                    &format!("volume_restore_{}", device_id),
                                     "Volume Restored",
                                     &format!(
                                         "The volume of {device_name} has been restored from {new_volume_percent}% to {target_volume_percent}%."
@@ -1499,13 +1499,13 @@ fn find_device_by_name_and_type(
 }
 
 fn send_notification_debounced(
-    device_id: &str,
+    key: &str,
     title: &str,
     message: &str,
     last_notification_times: &mut HashMap<String, Instant>,
 ) {
     let now = Instant::now();
-    let should_notify = match last_notification_times.get(device_id) {
+    let should_notify = match last_notification_times.get(key) {
         Some(&last_time) => now.duration_since(last_time) > Duration::from_secs(5),
         None => true,
     };
@@ -1513,7 +1513,7 @@ fn send_notification_debounced(
         if let Err(e) = Toast::new(APP_AUMID).title(title).text1(message).show() {
             log::error!("Failed to show notification for {title}: {e}");
         }
-        last_notification_times.insert(device_id.to_string(), now);
+        last_notification_times.insert(key.to_string(), now);
     }
 }
 
@@ -1543,7 +1543,7 @@ fn check_and_unmute_device(
             if notify {
                 let message = format!("{device_name} {notification_message_suffix}");
                 send_notification_debounced(
-                    device_id,
+                    &format!("unmute_{}", device_id),
                     notification_title,
                     &message,
                     last_notification_times,
@@ -1646,7 +1646,7 @@ fn enforce_priorities(
                 Err(_) => "Unknown Device".to_string(),
             };
             send_notification_debounced(
-                &target_id,
+                &format!("priority_restore_{}", target_id),
                 "Default Output Device Restored",
                 &format!("Switched to {} based on priority list.", device_name),
                 last_notification_times,
@@ -1709,7 +1709,7 @@ fn enforce_priorities(
                 Err(_) => "Unknown Device".to_string(),
             };
             send_notification_debounced(
-                &target_id,
+                &format!("priority_restore_{}", target_id),
                 "Default Input Device Restored",
                 &format!("Switched to {} based on priority list.", device_name),
                 last_notification_times,
