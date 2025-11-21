@@ -603,7 +603,6 @@ fn main() {
                 }
                 menu_id_to_device.clear();
 
-                // 1. List Output and Input Devices
                 for (heading_item, device_type) in [
                     (&output_devices_heading_item, DeviceType::Output),
                     (&input_devices_heading_item, DeviceType::Input),
@@ -727,7 +726,6 @@ fn main() {
                     tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
                 }
 
-                // 2. List Priority Settings
                 for device_type in [DeviceType::Output, DeviceType::Input] {
                     let (priority_list, priority_label) = match device_type {
                         DeviceType::Output => (
@@ -900,8 +898,7 @@ fn main() {
                     tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
                 }
 
-                // 3. Temporary Default Priority
-                tray_menu.append(&MenuItem::new("Temporary default priority", false, None)).unwrap();
+                tray_menu.append(&MenuItem::new("Temporary default device priority", false, None)).unwrap();
 
                 for device_type in [DeviceType::Output, DeviceType::Input] {
                     let endpoint_type = match device_type {
