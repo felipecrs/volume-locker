@@ -521,10 +521,12 @@ fn main() {
                             .unwrap()
                     };
                     let count = unsafe { devices.GetCount().unwrap() };
+                    let mut available_devices = Vec::new();
                     for i in 0..count {
                         let device = unsafe { devices.Item(i).unwrap() };
                         let name = get_device_name(&device).unwrap();
                         let device_id = get_device_id(&device).unwrap();
+                        available_devices.push((device_id.clone(), name.clone()));
                         let endpoint = get_audio_endpoint(&device).unwrap();
                         let volume = get_volume(&endpoint).unwrap();
                         let volume_percent = convert_float_to_percent(volume);
@@ -625,72 +627,6 @@ fn main() {
 
                         submenu.append(&PredefinedMenuItem::separator()).unwrap();
 
-                        let priority_list = match device_type {
-                            DeviceType::Output => &persistent_state.output_priority_list,
-                            DeviceType::Input => &persistent_state.input_priority_list,
-                        };
-
-                        if let Some(index) = priority_list.iter().position(|id| id == &device_id) {
-                            let priority_label = format!("Priority: #{}", index + 1);
-                            let priority_item = MenuItem::new(&priority_label, false, None);
-                            submenu.append(&priority_item).unwrap();
-
-                            if index > 0 {
-                                let move_up_item = MenuItem::new("Move Priority Up", true, None);
-                                menu_id_to_device.insert(
-                                    move_up_item.id().clone(),
-                                    MenuItemDeviceInfo {
-                                        device_id: device_id.clone(),
-                                        setting_type: DeviceSettingType::MovePriorityUp,
-                                        name: name.clone(),
-                                        device_type,
-                                    },
-                                );
-                                submenu.append(&move_up_item).unwrap();
-                            }
-
-                            if index < priority_list.len() - 1 {
-                                let move_down_item =
-                                    MenuItem::new("Move Priority Down", true, None);
-                                menu_id_to_device.insert(
-                                    move_down_item.id().clone(),
-                                    MenuItemDeviceInfo {
-                                        device_id: device_id.clone(),
-                                        setting_type: DeviceSettingType::MovePriorityDown,
-                                        name: name.clone(),
-                                        device_type,
-                                    },
-                                );
-                                submenu.append(&move_down_item).unwrap();
-                            }
-
-                            let remove_priority_item =
-                                MenuItem::new("Remove from Priorities", true, None);
-                            menu_id_to_device.insert(
-                                remove_priority_item.id().clone(),
-                                MenuItemDeviceInfo {
-                                    device_id: device_id.clone(),
-                                    setting_type: DeviceSettingType::RemoveFromPriority,
-                                    name: name.clone(),
-                                    device_type,
-                                },
-                            );
-                            submenu.append(&remove_priority_item).unwrap();
-                        } else {
-                            let add_priority_item =
-                                MenuItem::new("Add to Priority List", true, None);
-                            menu_id_to_device.insert(
-                                add_priority_item.id().clone(),
-                                MenuItemDeviceInfo {
-                                    device_id: device_id.clone(),
-                                    setting_type: DeviceSettingType::AddToPriority,
-                                    name: name.clone(),
-                                    device_type,
-                                },
-                            );
-                            submenu.append(&add_priority_item).unwrap();
-                        }
-
                         tray_menu.append(&submenu).unwrap();
                     }
 
@@ -699,29 +635,92 @@ fn main() {
                         DeviceType::Input => &persistent_state.input_priority_list,
                     };
 
-                    if !priority_list.is_empty() {
-                        let priority_submenu = Submenu::new("Priority List", true);
-                        for (index, device_id) in priority_list.iter().enumerate() {
-                            let device_name =
-                                if let Some(settings) = persistent_state.devices.get(device_id) {
-                                    settings.name.clone()
-                                } else {
-                                    match get_device_by_id(&device_enumerator, device_id) {
-                                        Ok(d) => get_device_name(&d)
-                                            .unwrap_or_else(|_| "Unknown Device".to_string()),
-                                        Err(_) => "Unknown Device".to_string(),
-                                    }
-                                };
+                    let priority_header = MenuItem::new("Default device priority", false, None);
+                    tray_menu.append(&priority_header).unwrap();
 
-                            let item = MenuItem::new(
-                                format!("{}. {}", index + 1, device_name),
-                                false,
-                                None,
+                    for (index, device_id) in priority_list.iter().enumerate() {
+                        let device_name =
+                            if let Some(settings) = persistent_state.devices.get(device_id) {
+                                settings.name.clone()
+                            } else {
+                                match get_device_by_id(&device_enumerator, device_id) {
+                                    Ok(d) => get_device_name(&d)
+                                        .unwrap_or_else(|_| "Unknown Device".to_string()),
+                                    Err(_) => "Unknown Device".to_string(),
+                                }
+                            };
+
+                        let label = format!("{}. {}", index + 1, device_name);
+                        let priority_submenu = Submenu::new(&label, true);
+
+                        let move_up_item = MenuItem::new("Move Up", index > 0, None);
+                        if index > 0 {
+                            menu_id_to_device.insert(
+                                move_up_item.id().clone(),
+                                MenuItemDeviceInfo {
+                                    device_id: device_id.clone(),
+                                    setting_type: DeviceSettingType::MovePriorityUp,
+                                    name: device_name.clone(),
+                                    device_type,
+                                },
                             );
-                            priority_submenu.append(&item).unwrap();
                         }
+                        priority_submenu.append(&move_up_item).unwrap();
+
+                        let move_down_item =
+                            MenuItem::new("Move Down", index < priority_list.len() - 1, None);
+                        if index < priority_list.len() - 1 {
+                            menu_id_to_device.insert(
+                                move_down_item.id().clone(),
+                                MenuItemDeviceInfo {
+                                    device_id: device_id.clone(),
+                                    setting_type: DeviceSettingType::MovePriorityDown,
+                                    name: device_name.clone(),
+                                    device_type,
+                                },
+                            );
+                        }
+                        priority_submenu.append(&move_down_item).unwrap();
+                        priority_submenu.append(&PredefinedMenuItem::separator()).unwrap();
+
+                        let remove_priority_item =
+                            MenuItem::new("Remove from Default Priority List", true, None);
+                        menu_id_to_device.insert(
+                            remove_priority_item.id().clone(),
+                            MenuItemDeviceInfo {
+                                device_id: device_id.clone(),
+                                setting_type: DeviceSettingType::RemoveFromPriority,
+                                name: device_name.clone(),
+                                device_type,
+                            },
+                        );
+                        priority_submenu.append(&remove_priority_item).unwrap();
+
                         tray_menu.append(&priority_submenu).unwrap();
                     }
+
+                    let mut devices_to_add = Vec::new();
+                    for (id, name) in &available_devices {
+                        if !priority_list.contains(id) {
+                            devices_to_add.push((id, name));
+                        }
+                    }
+
+                    let add_device_submenu = Submenu::new("Add device", !devices_to_add.is_empty());
+                    for (id, name) in devices_to_add {
+                        let item = MenuItem::new(name, true, None);
+                        menu_id_to_device.insert(
+                            item.id().clone(),
+                            MenuItemDeviceInfo {
+                                device_id: id.clone(),
+                                setting_type: DeviceSettingType::AddToPriority,
+                                name: name.clone(),
+                                device_type,
+                            },
+                        );
+                        add_device_submenu.append(&item).unwrap();
+                    }
+                    tray_menu.append(&add_device_submenu).unwrap();
 
                     tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
                 }
