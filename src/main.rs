@@ -84,6 +84,10 @@ struct PersistentState {
     output_priority_list: Vec<String>,
     #[serde(default)]
     input_priority_list: Vec<String>,
+    #[serde(default)]
+    notify_on_priority_restore_output: bool,
+    #[serde(default)]
+    notify_on_priority_restore_input: bool,
 }
 
 #[derive(Debug)]
@@ -96,6 +100,7 @@ enum DeviceSettingType {
     RemoveFromPriority,
     MovePriorityUp,
     MovePriorityDown,
+    PriorityRestoreNotify,
 }
 
 #[derive(Debug)]
@@ -488,6 +493,24 @@ fn main() {
                                     should_save = true;
                                 }
                         }
+                        DeviceSettingType::PriorityRestoreNotify => {
+                            if let Some(item) = find_menu_item(&tray_menu, &event.id)
+                                && let Some(check_item) = item.as_check_menuitem()
+                            {
+                                let is_checked = check_item.is_checked();
+                                match menu_info.device_type {
+                                    DeviceType::Output => {
+                                        persistent_state.notify_on_priority_restore_output =
+                                            is_checked
+                                    }
+                                    DeviceType::Input => {
+                                        persistent_state.notify_on_priority_restore_input =
+                                            is_checked
+                                    }
+                                }
+                                should_save = true;
+                            }
+                        }
                     }
 
                     if should_save {
@@ -630,12 +653,19 @@ fn main() {
                         tray_menu.append(&submenu).unwrap();
                     }
 
-                    let priority_list = match device_type {
-                        DeviceType::Output => &persistent_state.output_priority_list,
-                        DeviceType::Input => &persistent_state.input_priority_list,
+                    let (priority_list, priority_label) = match device_type {
+                        DeviceType::Output => (
+                            &persistent_state.output_priority_list,
+                            "Default output device priority",
+                        ),
+                        DeviceType::Input => (
+                            &persistent_state.input_priority_list,
+                            "Default input device priority",
+                        ),
                     };
 
-                    let priority_header = MenuItem::new("Default device priority", false, None);
+                    tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
+                    let priority_header = MenuItem::new(priority_label, false, None);
                     tray_menu.append(&priority_header).unwrap();
 
                     for (index, device_id) in priority_list.iter().enumerate() {
@@ -721,6 +751,29 @@ fn main() {
                         add_device_submenu.append(&item).unwrap();
                     }
                     tray_menu.append(&add_device_submenu).unwrap();
+
+                    let notify_on_restore = match device_type {
+                        DeviceType::Output => persistent_state.notify_on_priority_restore_output,
+                        DeviceType::Input => persistent_state.notify_on_priority_restore_input,
+                    };
+
+                    let notify_item = CheckMenuItem::new(
+                        "Notify on restore",
+                        !priority_list.is_empty(),
+                        notify_on_restore,
+                        None,
+                    );
+
+                    menu_id_to_device.insert(
+                        notify_item.id().clone(),
+                        MenuItemDeviceInfo {
+                            device_id: String::new(),
+                            setting_type: DeviceSettingType::PriorityRestoreNotify,
+                            name: "Priority Restore Notify".to_string(),
+                            device_type,
+                        },
+                    );
+                    tray_menu.append(&notify_item).unwrap();
 
                     tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
                 }
@@ -839,7 +892,11 @@ fn main() {
             Event::UserEvent(UserEvent::DevicesChanged) => {
                 log::info!("Reloading list of watched devices...");
 
-                enforce_priorities(&device_enumerator, &persistent_state);
+                enforce_priorities(
+                    &device_enumerator,
+                    &persistent_state,
+                    &mut last_notification_times,
+                );
 
                 watched_endpoints.clear();
                 let mut some_locked = false;
@@ -1335,7 +1392,11 @@ fn find_in_items(items: &[MenuItemKind], id: &MenuId) -> Option<MenuItemKind> {
     None
 }
 
-fn enforce_priorities(device_enumerator: &IMMDeviceEnumerator, state: &PersistentState) {
+fn enforce_priorities(
+    device_enumerator: &IMMDeviceEnumerator,
+    state: &PersistentState,
+    last_notification_times: &mut HashMap<String, Instant>,
+) {
     // Check Output Priorities
     if let Some(target_id) =
         find_highest_priority_active_device(device_enumerator, &state.output_priority_list)
@@ -1348,12 +1409,40 @@ fn enforce_priorities(device_enumerator: &IMMDeviceEnumerator, state: &Persisten
                 log::info!("Enforcing output priority: Switching to {}", target_id);
                 let _ = set_default_device(&target_id, eConsole);
                 let _ = set_default_device(&target_id, windows::Win32::Media::Audio::eMultimedia);
+
+                if state.notify_on_priority_restore_output {
+                    let device_name = match get_device_by_id(device_enumerator, &target_id) {
+                        Ok(d) => {
+                            get_device_name(&d).unwrap_or_else(|_| "Unknown Device".to_string())
+                        }
+                        Err(_) => "Unknown Device".to_string(),
+                    };
+                    send_notification_debounced(
+                        &target_id,
+                        "Default Output Device Restored",
+                        &format!("Switched to {} based on priority list.", device_name),
+                        last_notification_times,
+                    );
+                }
             }
         } else {
             // No default device? Try to set it anyway.
             log::info!("Enforcing output priority: Switching to {}", target_id);
             let _ = set_default_device(&target_id, eConsole);
             let _ = set_default_device(&target_id, windows::Win32::Media::Audio::eMultimedia);
+
+            if state.notify_on_priority_restore_output {
+                let device_name = match get_device_by_id(device_enumerator, &target_id) {
+                    Ok(d) => get_device_name(&d).unwrap_or_else(|_| "Unknown Device".to_string()),
+                    Err(_) => "Unknown Device".to_string(),
+                };
+                send_notification_debounced(
+                    &target_id,
+                    "Default Output Device Restored",
+                    &format!("Switched to {} based on priority list.", device_name),
+                    last_notification_times,
+                );
+            }
         }
     }
 
@@ -1369,11 +1458,39 @@ fn enforce_priorities(device_enumerator: &IMMDeviceEnumerator, state: &Persisten
                 log::info!("Enforcing input priority: Switching to {}", target_id);
                 let _ = set_default_device(&target_id, eConsole);
                 let _ = set_default_device(&target_id, windows::Win32::Media::Audio::eMultimedia);
+
+                if state.notify_on_priority_restore_input {
+                    let device_name = match get_device_by_id(device_enumerator, &target_id) {
+                        Ok(d) => {
+                            get_device_name(&d).unwrap_or_else(|_| "Unknown Device".to_string())
+                        }
+                        Err(_) => "Unknown Device".to_string(),
+                    };
+                    send_notification_debounced(
+                        &target_id,
+                        "Default Input Device Restored",
+                        &format!("Switched to {} based on priority list.", device_name),
+                        last_notification_times,
+                    );
+                }
             }
         } else {
             log::info!("Enforcing input priority: Switching to {}", target_id);
             let _ = set_default_device(&target_id, eConsole);
             let _ = set_default_device(&target_id, windows::Win32::Media::Audio::eMultimedia);
+
+            if state.notify_on_priority_restore_input {
+                let device_name = match get_device_by_id(device_enumerator, &target_id) {
+                    Ok(d) => get_device_name(&d).unwrap_or_else(|_| "Unknown Device".to_string()),
+                    Err(_) => "Unknown Device".to_string(),
+                };
+                send_notification_debounced(
+                    &target_id,
+                    "Default Input Device Restored",
+                    &format!("Switched to {} based on priority list.", device_name),
+                    last_notification_times,
+                );
+            }
         }
     }
 }
