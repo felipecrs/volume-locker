@@ -14,10 +14,7 @@ Never worry about your microphone volume again!
 
 ## Demo
 
-> [!IMPORTANT]
-> This demo is outdated, since v0.6.0, Volume Locker no longer takes some seconds to restore the volume. It is now instantaneous.
-
-https://github.com/user-attachments/assets/772af810-0353-4db0-99ec-ab39c6cd6aab
+https://github.com/user-attachments/assets/b7e47898-ee9f-42b4-a804-f107beac4e98
 
 ## Getting Started
 
@@ -37,35 +34,55 @@ You can also use the snippet above to update the app, just run it again.
 
 ## Usage
 
-When you want to lock the volume of your audio output or input devices:
+Click on the Volume Locker tray icon to access the menu. The menu is organized into the following sections:
 
-1. Adjust the volume to the desired level
-2. Click on the Volume Locker tray icon
-3. Select the device you want to lock the volume for
-4. Try messing with the volume of the device. It should return to the locked level shortly after.
+1.  **Output devices**: List of all active output devices.
+2.  **Input devices**: List of all active input devices.
+3.  **Default output device priority**: Manage the priority list for default output devices.
+4.  **Default input device priority**: Manage the priority list for default input devices.
+5.  **Temporary default device priority**: Temporarily override the default device priority.
 
-### Options
+### Locking Volume and Unmute State
 
-- **Keep selected input device volumes fixed**: restores volume if a locked input device (ticked) changes.
-- **Keep selected output device volumes fixed**: restores volume if a locked output device (ticked) changes.
-- **Keep selected input devices unmuted**: prevents locked input devices (ticked) from being muted.
-- **Keep selected output devices unmuted**: prevents locked output devices (ticked) from being muted.
-- Show notifications: shows toasts for volume restores and unmute restores.
+To lock the volume or unmute state of a specific device:
+
+1.  Navigate to **Output devices** or **Input devices**.
+2.  Select the desired device.
+3.  Check **Keep volume locked** to lock the volume at the current level.
+4.  Check **Keep unmuted** to prevent the device from being muted.
+5.  You can also enable notifications for these actions.
+
+### Default Device Priority
+
+Volume Locker can automatically switch your default audio device based on a priority list. This is useful if you have multiple devices (e.g., speakers and headphones) and want to ensure a specific one is always used when available.
+
+1.  Navigate to **Default output device priority** or **Default input device priority**.
+2.  Select **Add device** to add a device to the priority list.
+3.  Use **Move Up** and **Move Down** to adjust the priority order. The device at the top has the highest priority.
+4.  Volume Locker will monitor your devices and automatically switch the default device to the highest priority one available.
+5.  Check **Notify on restore** to get a notification when the default device is switched.
+6.  Check **Also switch default communication device** to also switch the default communication device.
+
+### Temporary Default Device Priority
+
+If you want to temporarily use a different device without changing your priority list (e.g., switching to speakers for a call while the headphones are connected), you can use the **Temporary default device priority** feature.
+
+1.  Navigate to **Temporary default device priority**.
+2.  Select **Output device** or **Input device**.
+3.  Choose the device you want to use temporarily.
+4.  This device will be treated as the highest priority device until you uncheck it or restart the application.
 
 ## Credits
 
-This is my first Rust project, with no prior experience or knowledge of the language. Don't expect the code to be examplary, but I think it's overall optimised.
+Volume Locker started as my first Rust project, born from the dissatisfaction with existing solutions that relied on closed-source tools or lacked specific device locking capabilities. It has since evolved to include advanced features like default device priority management.
 
-I was dissastisfied with any existing solution because they were either relying on `nircmd.exe`, which is not open source, and also didn't allow to lock the volume of specific devices, only the current default one.
-
-In fact, I used [wolfinabox/Windows-Mic-Volume-Locker](https://github.com/wolfinabox/Windows-Mic-Volume-Locker) for years before deciding to write my own solution.
+I used [wolfinabox/Windows-Mic-Volume-Locker](https://github.com/wolfinabox/Windows-Mic-Volume-Locker) for years before deciding to write my own solution.
 
 I was inspired by [AntoineGS/teams-status-rs](https://github.com/AntoineGS/teams-status-rs) being so amazing in such a lightweight package. I wanted to do something similar, but for volume locking.
 
-Thanks [Kingloo/volume](https://github.com/Kingloo/volume) for the Windows volume control code. I copied pretty much everything from there.
+Special thanks to:
 
-The barebones of the tray icon code were taken from [tauri-apps/tray-icon](https://github.com/tauri-apps/tray-icon)'s [tao example](https://github.com/tauri-apps/tray-icon/blob/97723fd207add9c3bb0511cb0e4d04d8652a0027/examples/tao.rs)
-
-[GitHub Copilot](https://github.com/copilot/) helped me a lot to glue everything together, and to get the syntax going.
-
-Finally, thanks to [@jmb](https://github.com/jmb) for the [great icon design](https://github.com/Templarian/MaterialDesign/issues/7714).
+- [Kingloo/volume](https://github.com/Kingloo/volume) for the Windows volume control code foundation.
+- [tauri-apps/tray-icon](https://github.com/tauri-apps/tray-icon) for the tray icon implementation.
+- [GitHub Copilot](https://github.com/copilot/) for assisting with the code structure, syntax, and feature implementation.
+- [@jmb](https://github.com/jmb) for the [great icon design](https://github.com/Templarian/MaterialDesign/issues/7714).
