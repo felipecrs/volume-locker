@@ -124,6 +124,7 @@ enum DeviceSettingType {
     MovePriorityDown,
     PriorityRestoreNotify,
     SwitchCommunicationDevice,
+    SetTemporaryPriority,
 }
 
 #[derive(Debug)]
@@ -321,6 +322,9 @@ fn main() {
     let mut watched_endpoints: Vec<IAudioEndpointVolume> = Vec::new();
 
     let mut last_notification_times: HashMap<String, Instant> = HashMap::new();
+
+    let mut temporary_priority_output: Option<String> = None;
+    let mut temporary_priority_input: Option<String> = None;
 
     let main_proxy = event_loop.create_proxy();
 
@@ -552,6 +556,35 @@ fn main() {
                                 should_save = true;
                             }
                         }
+                        DeviceSettingType::SetTemporaryPriority => {
+                            if let Some(item) = find_menu_item(&tray_menu, &event.id) {
+                                let is_checked = if let Some(check_item) = item.as_check_menuitem()
+                                {
+                                    check_item.is_checked()
+                                } else {
+                                    // If it's not a check item (e.g. "Unset Temporary Default"), we treat it as unchecking
+                                    false
+                                };
+
+                                match menu_info.device_type {
+                                    DeviceType::Output => {
+                                        temporary_priority_output = if is_checked {
+                                            Some(menu_info.device_id.clone())
+                                        } else {
+                                            None
+                                        };
+                                    }
+                                    DeviceType::Input => {
+                                        temporary_priority_input = if is_checked {
+                                            Some(menu_info.device_id.clone())
+                                        } else {
+                                            None
+                                        };
+                                    }
+                                }
+                                let _ = main_proxy.send_event(UserEvent::DevicesChanged);
+                            }
+                        }
                     }
 
                     if should_save {
@@ -709,6 +742,44 @@ fn main() {
                     let priority_header = MenuItem::new(priority_label, false, None);
                     tray_menu.append(&priority_header).unwrap();
 
+                    let temp_id_opt = match device_type {
+                        DeviceType::Output => temporary_priority_output.as_ref(),
+                        DeviceType::Input => temporary_priority_input.as_ref(),
+                    };
+
+                    let temp_default_label = if let Some(temp_id) = temp_id_opt {
+                        let device_name =
+                            if let Some(settings) = persistent_state.devices.get(temp_id) {
+                                settings.name.clone()
+                            } else {
+                                match get_device_by_id(&device_enumerator, temp_id) {
+                                    Ok(d) => get_device_name(&d)
+                                        .unwrap_or_else(|_| "Unknown Device".to_string()),
+                                    Err(_) => "Unknown Device".to_string(),
+                                }
+                            };
+                        format!("Temporary: {}", device_name)
+                    } else {
+                        "Temporary default".to_string()
+                    };
+
+                    let temporary_default_submenu = Submenu::new(&temp_default_label, true);
+                    for (id, name) in &available_devices {
+                        let is_checked = Some(id) == temp_id_opt;
+                        let item = CheckMenuItem::new(name, true, is_checked, None);
+                        menu_id_to_device.insert(
+                            item.id().clone(),
+                            MenuItemDeviceInfo {
+                                device_id: id.clone(),
+                                setting_type: DeviceSettingType::SetTemporaryPriority,
+                                name: name.clone(),
+                                device_type,
+                            },
+                        );
+                        temporary_default_submenu.append(&item).unwrap();
+                    }
+                    tray_menu.append(&temporary_default_submenu).unwrap();
+
                     for (index, device_id) in priority_list.iter().enumerate() {
                         let device_name =
                             if let Some(settings) = persistent_state.devices.get(device_id) {
@@ -800,7 +871,7 @@ fn main() {
 
                     let notify_item = CheckMenuItem::new(
                         "Notify on restore",
-                        !priority_list.is_empty(),
+                        !priority_list.is_empty() || temp_id_opt.is_some(),
                         notify_on_restore,
                         None,
                     );
@@ -823,7 +894,7 @@ fn main() {
 
                     let switch_comm_item = CheckMenuItem::new(
                         "Also switch default communication device",
-                        !priority_list.is_empty(),
+                        !priority_list.is_empty() || temp_id_opt.is_some(),
                         switch_communication,
                         None,
                     );
@@ -960,6 +1031,8 @@ fn main() {
                     &device_enumerator,
                     &persistent_state,
                     &mut last_notification_times,
+                    &temporary_priority_output,
+                    &temporary_priority_input,
                 );
 
                 watched_endpoints.clear();
@@ -1460,10 +1533,17 @@ fn enforce_priorities(
     device_enumerator: &IMMDeviceEnumerator,
     state: &PersistentState,
     last_notification_times: &mut HashMap<String, Instant>,
+    temporary_priority_output: &Option<String>,
+    temporary_priority_input: &Option<String>,
 ) {
     // Check Output Priorities
+    let mut output_priority_list = state.output_priority_list.clone();
+    if let Some(temp_id) = temporary_priority_output {
+        output_priority_list.insert(0, temp_id.clone());
+    }
+
     if let Some(target_id) =
-        find_highest_priority_active_device(device_enumerator, &state.output_priority_list)
+        find_highest_priority_active_device(device_enumerator, &output_priority_list)
     {
         let mut switched = false;
 
@@ -1520,8 +1600,13 @@ fn enforce_priorities(
     }
 
     // Check Input Priorities
+    let mut input_priority_list = state.input_priority_list.clone();
+    if let Some(temp_id) = temporary_priority_input {
+        input_priority_list.insert(0, temp_id.clone());
+    }
+
     if let Some(target_id) =
-        find_highest_priority_active_device(device_enumerator, &state.input_priority_list)
+        find_highest_priority_active_device(device_enumerator, &input_priority_list)
     {
         let mut switched = false;
 
