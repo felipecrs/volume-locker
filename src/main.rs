@@ -603,6 +603,7 @@ fn main() {
                 }
                 menu_id_to_device.clear();
 
+                // 1. List Output and Input Devices
                 for (heading_item, device_type) in [
                     (&output_devices_heading_item, DeviceType::Output),
                     (&input_devices_heading_item, DeviceType::Input),
@@ -618,12 +619,11 @@ fn main() {
                             .unwrap()
                     };
                     let count = unsafe { devices.GetCount().unwrap() };
-                    let mut available_devices = Vec::new();
+
                     for i in 0..count {
                         let device = unsafe { devices.Item(i).unwrap() };
                         let name = get_device_name(&device).unwrap();
                         let device_id = get_device_id(&device).unwrap();
-                        available_devices.push((device_id.clone(), name.clone()));
                         let endpoint = get_audio_endpoint(&device).unwrap();
                         let volume = get_volume(&endpoint).unwrap();
                         let volume_percent = convert_float_to_percent(volume);
@@ -722,11 +722,13 @@ fn main() {
                         submenu.append(&volume_notify_item).unwrap();
                         submenu.append(&unmute_notify_item).unwrap();
 
-                        submenu.append(&PredefinedMenuItem::separator()).unwrap();
-
                         tray_menu.append(&submenu).unwrap();
                     }
+                    tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
+                }
 
+                // 2. List Priority Settings
+                for device_type in [DeviceType::Output, DeviceType::Input] {
                     let (priority_list, priority_label) = match device_type {
                         DeviceType::Output => (
                             &persistent_state.output_priority_list,
@@ -738,9 +740,27 @@ fn main() {
                         ),
                     };
 
-                    tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
                     let priority_header = MenuItem::new(priority_label, false, None);
                     tray_menu.append(&priority_header).unwrap();
+
+                    // Need available devices for "Temporary default" and "Add device"
+                    let endpoint_type = match device_type {
+                        DeviceType::Output => eRender,
+                        DeviceType::Input => eCapture,
+                    };
+                    let devices: IMMDeviceCollection = unsafe {
+                        device_enumerator
+                            .EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE)
+                            .unwrap()
+                    };
+                    let count = unsafe { devices.GetCount().unwrap() };
+                    let mut available_devices = Vec::new();
+                    for i in 0..count {
+                        let device = unsafe { devices.Item(i).unwrap() };
+                        let name = get_device_name(&device).unwrap();
+                        let device_id = get_device_id(&device).unwrap();
+                        available_devices.push((device_id, name));
+                    }
 
                     let temp_id_opt = match device_type {
                         DeviceType::Output => temporary_priority_output.as_ref(),
