@@ -1,12 +1,7 @@
-use crate::consts::{APP_AUMID, APP_NAME, PNG_ICON_BYTES, PNG_ICON_FILE_NAME};
+use crate::platform::{NotificationDuration, send_notification};
 use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
-use tauri_winrt_notification::Toast;
-use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
-use windows::core::{HSTRING, Result};
-use windows_registry::CURRENT_USER;
 
 pub fn get_executable_directory() -> PathBuf {
     std::env::current_exe()
@@ -18,29 +13,6 @@ pub fn get_executable_directory() -> PathBuf {
 
 pub fn get_executable_path() -> PathBuf {
     std::env::current_exe().unwrap()
-}
-
-pub fn setup_app_aumid(executable_directory: &Path) -> Result<()> {
-    // Create registry keys for the AppUserModelID
-    let registry_path = format!(r"SOFTWARE\Classes\AppUserModelId\{APP_AUMID}");
-    let _ = CURRENT_USER.remove_tree(registry_path.clone());
-    let key = CURRENT_USER.create(registry_path.clone()).unwrap();
-    let _ = key.set_string("DisplayName", APP_NAME);
-
-    // Write the icon file to the executable directory and use it as the icon
-    let png_path = executable_directory.join(PNG_ICON_FILE_NAME);
-    if let Err(e) = fs::write(&png_path, PNG_ICON_BYTES) {
-        log::warn!("Failed to write {PNG_ICON_FILE_NAME} icon: {e}");
-        let _ = key.remove_value("IconUri");
-    } else {
-        let _ = key.set_hstring("IconUri", &png_path.as_path().into());
-    }
-
-    unsafe {
-        let _ = SetCurrentProcessExplicitAppUserModelID(&HSTRING::from(APP_AUMID));
-    }
-
-    Ok(())
 }
 
 pub fn send_notification_debounced(
@@ -55,7 +27,7 @@ pub fn send_notification_debounced(
         None => true,
     };
     if should_notify {
-        if let Err(e) = Toast::new(APP_AUMID).title(title).text1(message).show() {
+        if let Err(e) = send_notification(title, message, NotificationDuration::Short) {
             log::error!("Failed to show notification for {title}: {e}");
         }
         last_notification_times.insert(key.to_string(), now);

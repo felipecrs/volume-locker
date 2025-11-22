@@ -6,6 +6,13 @@ pub enum DeviceType {
     Output,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeviceRole {
+    Console,
+    Multimedia,
+    Communications,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DeviceSettings {
     #[serde(default)]

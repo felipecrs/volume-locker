@@ -6,26 +6,25 @@
 mod audio;
 mod config;
 mod consts;
+mod platform;
 mod types;
 mod ui;
 mod utils;
 
 use crate::audio::{
-    AudioDevicesChangedCallback, VolumeChangeCallback, check_and_unmute_device,
-    convert_float_to_percent, convert_percent_to_float, create_device_enumerator,
-    enforce_priorities, get_audio_endpoint, get_device_by_id, get_device_name, get_device_state,
-    get_unmute_notification_details, get_volume, migrate_device_ids,
-    register_control_change_notify, register_notification_callback, set_volume,
+    AudioBackend, AudioBackendImpl, AudioDevice, check_and_unmute_device,
+    enforce_priorities, get_unmute_notification_details, migrate_device_ids,
 };
 use crate::config::{load_state, save_state};
-use crate::consts::{APP_AUMID, APP_NAME, APP_UID, LOG_FILE_NAME};
+use crate::consts::{APP_NAME, APP_UID, LOG_FILE_NAME};
+use crate::platform::{NotificationDuration, init_platform, send_notification, setup_app_aumid};
 use crate::types::{
     DeviceSettingType, DeviceSettings, DeviceType, MenuItemDeviceInfo, UserEvent,
     VolumeChangedEvent,
 };
 use crate::ui::{find_menu_item, rebuild_tray_menu};
 use crate::utils::{
-    get_executable_directory, get_executable_path, send_notification_debounced, setup_app_aumid,
+    get_executable_directory, get_executable_path, send_notification_debounced,
 };
 use auto_launch::AutoLaunchBuilder;
 use faccess::PathExt;
@@ -38,16 +37,22 @@ use tao::{
     event::Event,
     event_loop::{ControlFlow, EventLoopBuilder},
 };
-use tauri_winrt_notification::Toast;
 use tray_icon::{
     MouseButton, TrayIconBuilder, TrayIconEvent,
     menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem},
 };
-use windows::Win32::Media::Audio::Endpoints::{IAudioEndpointVolume, IAudioEndpointVolumeCallback};
-use windows::Win32::Media::Audio::{DEVICE_STATE_ACTIVE, IMMNotificationClient};
-use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
+
+fn convert_float_to_percent(volume: f32) -> f32 {
+    (volume * 100.0).round()
+}
+
+fn convert_percent_to_float(volume: f32) -> f32 {
+    volume / 100.0
+}
 
 fn main() {
+    init_platform();
+
     let executable_directory = get_executable_directory();
 
     if !executable_directory.writable() {
@@ -59,12 +64,11 @@ fn main() {
 
         eprintln!("{error_title}: {error_message}");
 
-        if let Err(e) = Toast::new(APP_AUMID)
-            .title(error_title)
-            .text1(&error_message)
-            .duration(tauri_winrt_notification::Duration::Long)
-            .show()
-        {
+        if let Err(e) = send_notification(
+            error_title,
+            &error_message,
+            NotificationDuration::Long,
+        ) {
             eprintln!("Failed to show {error_title} notification: {e}");
         }
 
@@ -143,16 +147,15 @@ fn main() {
 
     let mut menu_id_to_device: HashMap<MenuId, MenuItemDeviceInfo> = HashMap::new();
 
-    unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).unwrap() };
-    let device_enumerator = create_device_enumerator().unwrap();
+    #[cfg(target_os = "windows")]
+    let mut backend = AudioBackendImpl::new().expect("Failed to initialize audio backend");
 
-    let devices_changed_callback: IMMNotificationClient = AudioDevicesChangedCallback {
-        proxy: event_loop.create_proxy(),
-    }
-    .into();
-    register_notification_callback(&device_enumerator, &devices_changed_callback).unwrap();
+    let proxy = event_loop.create_proxy();
+    backend.register_device_change_callback(Box::new(move || {
+        let _ = proxy.send_event(UserEvent::DevicesChanged);
+    })).expect("Failed to register device change callback");
 
-    let mut watched_endpoints: Vec<IAudioEndpointVolume> = Vec::new();
+    let mut watched_devices: Vec<Box<dyn AudioDevice>> = Vec::new();
 
     let mut last_notification_times: HashMap<String, Instant> = HashMap::new();
 
@@ -165,7 +168,7 @@ fn main() {
     log::info!("Loaded: {persistent_state:?}");
 
     // Migrate device IDs if they have changed
-    migrate_device_ids(&device_enumerator, &mut persistent_state);
+    migrate_device_ids(&backend, &mut persistent_state);
 
     // Save the state if any migrations occurred
     save_state(&persistent_state);
@@ -230,12 +233,8 @@ fn main() {
                                     match menu_info.setting_type {
                                         DeviceSettingType::VolumeLock => {
                                             if is_checked {
-                                                if let Ok(device) = get_device_by_id(
-                                                    &device_enumerator,
-                                                    &menu_info.device_id,
-                                                )
-                                                && let Ok(endpoint) = get_audio_endpoint(&device)
-                                                && let Ok(vol) = get_volume(&endpoint)
+                                                if let Ok(device) = backend.get_device_by_id(&menu_info.device_id)
+                                                && let Ok(vol) = device.volume()
                                                 {
                                                     device_settings.volume_percent =
                                                         convert_float_to_percent(vol);
@@ -395,7 +394,6 @@ fn main() {
                                 {
                                     check_item.is_checked()
                                 } else {
-                                    // If it's not a check item (e.g. "Unset Temporary Default"), we treat it as unchecking
                                     false
                                 };
 
@@ -426,13 +424,12 @@ fn main() {
                 }
             }
 
-            // On right or left click of tray icon: reload the menu
             Event::UserEvent(UserEvent::TrayIcon(TrayIconEvent::Click { button, .. }))
                 if button == MouseButton::Right || button == MouseButton::Left =>
             {
                 menu_id_to_device = rebuild_tray_menu(
                     &tray_menu,
-                    &device_enumerator,
+                    &backend,
                     &mut persistent_state,
                     &temporary_priority_output,
                     &temporary_priority_input,
@@ -452,26 +449,18 @@ fn main() {
                 let new_volume = match new_volume {
                     Some(v) => v,
                     None => {
-                        let device = match get_device_by_id(&device_enumerator, &device_id) {
-                            Ok(d) => d,
+                        match backend.get_device_by_id(&device_id) {
+                            Ok(device) => match device.volume() {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    log::error!("Failed to get volume for {device_id}: {e}");
+                                    return;
+                                }
+                            },
                             Err(e) => {
                                 log::error!(
                                     "Failed to get device by id for {device_id}: {e}"
                                 );
-                                return;
-                            }
-                        };
-                        let endpoint = match get_audio_endpoint(&device) {
-                            Ok(ep) => ep,
-                            Err(e) => {
-                                log::error!("Failed to get endpoint for {device_id}: {e}");
-                                return;
-                            }
-                        };
-                        match get_volume(&endpoint) {
-                            Ok(v) => v,
-                            Err(e) => {
-                                log::error!("Failed to get volume for {device_id}: {e}");
                                 return;
                             }
                         }
@@ -486,7 +475,7 @@ fn main() {
                         let target_volume_percent = device_settings.volume_percent;
                         if new_volume_percent != target_volume_percent {
                             let target_volume = convert_percent_to_float(target_volume_percent);
-                            let device = match get_device_by_id(&device_enumerator, &device_id) {
+                            let device = match backend.get_device_by_id(&device_id) {
                                 Ok(d) => d,
                                 Err(e) => {
                                     log::error!(
@@ -497,16 +486,9 @@ fn main() {
                                     return;
                                 }
                             };
-                            let device_name =
-                                get_device_name(&device).unwrap_or_else(|_| device_settings.name.clone());
-                            let endpoint = match get_audio_endpoint(&device) {
-                                Ok(ep) => ep,
-                                Err(e) => {
-                                    log::error!("Failed to get endpoint for {device_name}: {e}");
-                                    return;
-                                }
-                            };
-                            if let Err(e) = set_volume(&endpoint, target_volume) {
+                            let device_name = device.name();
+                            
+                            if let Err(e) = device.set_volume(target_volume) {
                                 log::error!(
                                     "Failed to set volume of {device_name} to {target_volume_percent}%: {e}"
                                 );
@@ -535,7 +517,7 @@ fn main() {
                             get_unmute_notification_details(device_settings.device_type);
 
                         check_and_unmute_device(
-                            &device_enumerator,
+                            &backend,
                             &device_id,
                             &device_name,
                             device_settings.notify_on_unmute_lock,
@@ -551,14 +533,14 @@ fn main() {
                 log::info!("Reloading list of watched devices...");
 
                 enforce_priorities(
-                    &device_enumerator,
+                    &backend,
                     &persistent_state,
                     &mut last_notification_times,
                     &temporary_priority_output,
                     &temporary_priority_input,
                 );
 
-                watched_endpoints.clear();
+                watched_devices.clear();
                 let mut some_locked = false;
 
                 for (device_id, device_settings) in persistent_state.devices.iter() {
@@ -567,7 +549,7 @@ fn main() {
                         continue;
                     }
 
-                    let device = match get_device_by_id(&device_enumerator, device_id) {
+                    let device = match backend.get_device_by_id(device_id) {
                         Ok(device) => device,
                         Err(e) => {
                             log::warn!(
@@ -579,18 +561,7 @@ fn main() {
                         }
                     };
 
-                    let device_state = match get_device_state(&device) {
-                        Ok(state) => state,
-                        Err(e) => {
-                            log::warn!(
-                                "Not watching volume of {} as failed to get its state: {}",
-                                device_settings.name,
-                                e
-                            );
-                            continue;
-                        }
-                    };
-                    if device_state != DEVICE_STATE_ACTIVE {
+                    if let Ok(false) = device.is_active() {
                         log::info!(
                             "Not watching volume of {} as it is not active",
                             device_settings.name
@@ -598,25 +569,16 @@ fn main() {
                         continue;
                     }
 
-                    let endpoint = match get_audio_endpoint(&device) {
-                        Ok(ep) => ep,
-                        Err(e) => {
-                            log::warn!(
-                                "Not watching volume of {} as failed to get its endpoint: {}",
-                                device_settings.name,
-                                e
-                            );
-                            continue;
-                        }
-                    };
-                    let volume_callback: IAudioEndpointVolumeCallback = VolumeChangeCallback {
-                        proxy: main_proxy.clone(),
-                        device_id: device_id.clone(),
-                    }
-                    .into();
-                    if let Err(e) =
-                        register_control_change_notify(&endpoint, &volume_callback)
-                    {
+                    let proxy = main_proxy.clone();
+                    let dev_id = device_id.clone();
+                    if let Err(e) = device.watch_volume(Box::new(move |vol| {
+                        let _ = proxy.send_event(UserEvent::VolumeChanged(
+                            VolumeChangedEvent {
+                                device_id: dev_id.clone(),
+                                new_volume: vol,
+                            },
+                        ));
+                    })) {
                         log::warn!(
                             "Not watching volume of {} as failed to register for volume changes: {}",
                             device_settings.name,
@@ -624,7 +586,9 @@ fn main() {
                         );
                         continue;
                     }
-                    watched_endpoints.push(endpoint.clone());
+                    
+                    watched_devices.push(device);
+                    
                     log::info!(
                         "Watching volume of {} (Locked: {}, Unmute: {})",
                         device_settings.name,
@@ -645,7 +609,7 @@ fn main() {
                             get_unmute_notification_details(device_settings.device_type);
 
                         check_and_unmute_device(
-                            &device_enumerator,
+                            &backend,
                             device_id,
                             &device_settings.name,
                             device_settings.notify_on_unmute_lock,

@@ -1,15 +1,10 @@
-use crate::audio::{
-    convert_float_to_percent, enum_audio_endpoints, get_audio_endpoint, get_device_at_index,
-    get_device_by_id, get_device_count, get_device_id, get_device_name, get_mute, get_volume,
-    is_default_device,
-};
+use crate::audio::AudioBackend;
 use crate::config::PersistentState;
-use crate::types::{DeviceSettingType, DeviceType, MenuItemDeviceInfo};
+use crate::types::{DeviceRole, DeviceSettingType, DeviceType, MenuItemDeviceInfo};
 use std::collections::HashMap;
 use tray_icon::menu::{
     CheckMenuItem, Menu, MenuId, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu,
 };
-use windows::Win32::Media::Audio::{DEVICE_STATE_ACTIVE, IMMDeviceEnumerator, eCapture, eRender};
 
 pub fn to_label(
     name: &str,
@@ -42,10 +37,14 @@ fn find_in_items(items: &[MenuItemKind], id: &MenuId) -> Option<MenuItemKind> {
     None
 }
 
+fn convert_float_to_percent(volume: f32) -> f32 {
+    (volume * 100.0).round()
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn rebuild_tray_menu(
     tray_menu: &Menu,
-    device_enumerator: &IMMDeviceEnumerator,
+    backend: &impl AudioBackend,
     persistent_state: &mut PersistentState,
     temporary_priority_output: &Option<String>,
     temporary_priority_input: &Option<String>,
@@ -66,23 +65,25 @@ pub fn rebuild_tray_menu(
         (input_devices_heading_item, DeviceType::Input),
     ] {
         tray_menu.append(heading_item).unwrap();
-        let endpoint_type = match device_type {
-            DeviceType::Output => eRender,
-            DeviceType::Input => eCapture,
-        };
-        let devices =
-            enum_audio_endpoints(device_enumerator, endpoint_type, DEVICE_STATE_ACTIVE).unwrap();
-        let count = get_device_count(&devices).unwrap();
 
-        for i in 0..count {
-            let device = get_device_at_index(&devices, i).unwrap();
-            let name = get_device_name(&device).unwrap();
-            let device_id = get_device_id(&device).unwrap();
-            let endpoint = get_audio_endpoint(&device).unwrap();
-            let volume = get_volume(&endpoint).unwrap();
+        let devices = backend.get_devices(device_type).unwrap_or_default();
+
+        // Get default device ID for Console role to mark it
+        let default_device_id = backend
+            .get_default_device(device_type, DeviceRole::Console)
+            .map(|d| d.id())
+            .ok();
+
+        for device in devices {
+            let name = device.name();
+            let device_id = device.id();
+            let volume = device.volume().unwrap_or(0.0);
             let volume_percent = convert_float_to_percent(volume);
-            let is_muted = get_mute(&endpoint).unwrap_or(false);
-            let is_default = is_default_device(device_enumerator, &device, device_type);
+            let is_muted = device.is_muted().unwrap_or(false);
+            let is_default = default_device_id
+                .as_ref()
+                .map(|id| id == &device_id)
+                .unwrap_or(false);
 
             let (is_volume_locked, notify_on_volume_lock, is_unmute_locked, notify_on_unmute_lock) =
                 if let Some(settings) = persistent_state.devices.get(&device_id) {
@@ -187,19 +188,10 @@ pub fn rebuild_tray_menu(
         tray_menu.append(&priority_header).unwrap();
 
         // Need available devices for "Add device"
-        let endpoint_type = match device_type {
-            DeviceType::Output => eRender,
-            DeviceType::Input => eCapture,
-        };
-        let devices =
-            enum_audio_endpoints(device_enumerator, endpoint_type, DEVICE_STATE_ACTIVE).unwrap();
-        let count = get_device_count(&devices).unwrap();
+        let devices = backend.get_devices(device_type).unwrap_or_default();
         let mut available_devices = Vec::new();
-        for i in 0..count {
-            let device = get_device_at_index(&devices, i).unwrap();
-            let name = get_device_name(&device).unwrap();
-            let device_id = get_device_id(&device).unwrap();
-            available_devices.push((device_id, name));
+        for device in devices {
+            available_devices.push((device.id(), device.name()));
         }
 
         let temp_id_opt = match device_type {
@@ -211,8 +203,8 @@ pub fn rebuild_tray_menu(
             let device_name = if let Some(settings) = persistent_state.devices.get(device_id) {
                 settings.name.clone()
             } else {
-                match get_device_by_id(device_enumerator, device_id) {
-                    Ok(d) => get_device_name(&d).unwrap_or_else(|_| "Unknown Device".to_string()),
+                match backend.get_device_by_id(device_id) {
+                    Ok(d) => d.name(),
                     Err(_) => "Unknown Device".to_string(),
                 }
             };
@@ -347,19 +339,10 @@ pub fn rebuild_tray_menu(
         .unwrap();
 
     for device_type in [DeviceType::Output, DeviceType::Input] {
-        let endpoint_type = match device_type {
-            DeviceType::Output => eRender,
-            DeviceType::Input => eCapture,
-        };
-        let devices =
-            enum_audio_endpoints(device_enumerator, endpoint_type, DEVICE_STATE_ACTIVE).unwrap();
-        let count = get_device_count(&devices).unwrap();
+        let devices = backend.get_devices(device_type).unwrap_or_default();
         let mut available_devices = Vec::new();
-        for i in 0..count {
-            let device = get_device_at_index(&devices, i).unwrap();
-            let name = get_device_name(&device).unwrap();
-            let device_id = get_device_id(&device).unwrap();
-            available_devices.push((device_id, name));
+        for device in devices {
+            available_devices.push((device.id(), device.name()));
         }
 
         let temp_id_opt = match device_type {
@@ -376,8 +359,8 @@ pub fn rebuild_tray_menu(
             let device_name = if let Some(settings) = persistent_state.devices.get(temp_id) {
                 settings.name.clone()
             } else {
-                match get_device_by_id(device_enumerator, temp_id) {
-                    Ok(d) => get_device_name(&d).unwrap_or_else(|_| "Unknown Device".to_string()),
+                match backend.get_device_by_id(temp_id) {
+                    Ok(d) => d.name(),
                     Err(_) => "Unknown Device".to_string(),
                 }
             };
