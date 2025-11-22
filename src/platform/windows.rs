@@ -8,8 +8,10 @@ use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 use windows::core::{HSTRING, Result};
 use windows_registry::CURRENT_USER;
 
-pub fn init_platform() {
+pub fn init_platform(executable_directory: &Path) {
     unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).unwrap() };
+    // Set AppUserModelID so toast notifications show correct app name and icon
+    let _ = setup_app_aumid(executable_directory);
 }
 
 pub fn send_notification(
@@ -30,7 +32,7 @@ pub fn send_notification(
         .map_err(|e| e.to_string())
 }
 
-pub fn setup_app_aumid(executable_directory: &Path) -> Result<()> {
+fn setup_app_aumid(executable_directory: &Path) -> Result<()> {
     // Create registry keys for the AppUserModelID
     let registry_path = format!(r"SOFTWARE\Classes\AppUserModelId\{APP_AUMID}");
     let _ = CURRENT_USER.remove_tree(registry_path.clone());

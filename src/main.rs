@@ -17,7 +17,7 @@ use crate::audio::{
 };
 use crate::config::{load_state, save_state};
 use crate::consts::{APP_NAME, APP_UID, LOG_FILE_NAME};
-use crate::platform::{NotificationDuration, init_platform, send_notification, setup_app_aumid};
+use crate::platform::{NotificationDuration, init_platform, send_notification};
 use crate::types::{MenuItemDeviceInfo, UserEvent, VolumeChangedEvent};
 use crate::ui::{handle_menu_event, rebuild_tray_menu};
 use crate::utils::{
@@ -41,9 +41,9 @@ use tray_icon::{
 };
 
 fn main() {
-    init_platform();
-
     let executable_directory = get_executable_directory();
+
+    init_platform(&executable_directory);
 
     if !executable_directory.writable() {
         let error_title = "Volume Locker Directory Not Writable";
@@ -90,9 +90,6 @@ fn main() {
         log::error!("Another instance is already running.");
         std::process::exit(1);
     }
-
-    // Set AppUserModelID so toast notifications show correct app name and icon
-    let _ = setup_app_aumid(&executable_directory);
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
