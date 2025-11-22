@@ -1,5 +1,6 @@
 use crate::consts::STATE_FILE_NAME;
 use crate::types::DeviceSettings;
+use crate::types::DeviceType;
 use crate::utils::get_executable_directory;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -16,6 +17,50 @@ pub struct PersistentState {
     pub notify_on_priority_restore_input: bool,
     pub switch_communication_device_output: bool,
     pub switch_communication_device_input: bool,
+}
+
+impl PersistentState {
+    pub fn get_priority_list_mut(&mut self, device_type: DeviceType) -> &mut Vec<String> {
+        match device_type {
+            DeviceType::Output => &mut self.output_priority_list,
+            DeviceType::Input => &mut self.input_priority_list,
+        }
+    }
+
+    pub fn get_priority_list(&self, device_type: DeviceType) -> &Vec<String> {
+        match device_type {
+            DeviceType::Output => &self.output_priority_list,
+            DeviceType::Input => &self.input_priority_list,
+        }
+    }
+
+    pub fn set_notify_on_priority_restore(&mut self, device_type: DeviceType, notify: bool) {
+        match device_type {
+            DeviceType::Output => self.notify_on_priority_restore_output = notify,
+            DeviceType::Input => self.notify_on_priority_restore_input = notify,
+        }
+    }
+
+    pub fn get_notify_on_priority_restore(&self, device_type: DeviceType) -> bool {
+        match device_type {
+            DeviceType::Output => self.notify_on_priority_restore_output,
+            DeviceType::Input => self.notify_on_priority_restore_input,
+        }
+    }
+
+    pub fn set_switch_communication_device(&mut self, device_type: DeviceType, switch: bool) {
+        match device_type {
+            DeviceType::Output => self.switch_communication_device_output = switch,
+            DeviceType::Input => self.switch_communication_device_input = switch,
+        }
+    }
+
+    pub fn get_switch_communication_device(&self, device_type: DeviceType) -> bool {
+        match device_type {
+            DeviceType::Output => self.switch_communication_device_output,
+            DeviceType::Input => self.switch_communication_device_input,
+        }
+    }
 }
 
 impl Default for PersistentState {

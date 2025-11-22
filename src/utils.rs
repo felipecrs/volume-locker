@@ -33,3 +33,11 @@ pub fn send_notification_debounced(
         last_notification_times.insert(key.to_string(), now);
     }
 }
+
+pub fn convert_float_to_percent(volume: f32) -> f32 {
+    (volume * 100.0).round()
+}
+
+pub fn convert_percent_to_float(volume: f32) -> f32 {
+    volume / 100.0
+}

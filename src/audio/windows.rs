@@ -3,6 +3,7 @@ use crate::types::{DeviceRole, DeviceType};
 use regex_lite::Regex;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
+use std::sync::OnceLock;
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::Media::Audio::Endpoints::{
@@ -263,16 +264,14 @@ pub fn get_device_name(device: &IMMDevice) -> Result<String> {
 
 // Reimplemented from https://github.com/Belphemur/SoundSwitch/blob/50063dd35d3e648192cbcaa1f9a82a5856302562/SoundSwitch.Common/Framework/Audio/Device/DeviceInfo.cs#L33-L56
 fn clean_device_name(name: &str) -> String {
-    let name_splitter = match Regex::new(r"(?P<friendlyName>.+)\s\([\d\s\-|]*(?P<deviceName>.+)\)")
-    {
-        Ok(regex) => regex,
-        Err(_) => return name.to_string(),
-    };
+    static NAME_SPLITTER: OnceLock<Regex> = OnceLock::new();
+    static NAME_CLEANER: OnceLock<Regex> = OnceLock::new();
 
-    let name_cleaner = match Regex::new(r"\s?\(\d\)|^\d+\s?-\s?") {
-        Ok(regex) => regex,
-        Err(_) => return name.to_string(),
-    };
+    let name_splitter = NAME_SPLITTER.get_or_init(|| {
+        Regex::new(r"(?P<friendlyName>.+)\s\([\d\s\-|]*(?P<deviceName>.+)\)").unwrap()
+    });
+
+    let name_cleaner = NAME_CLEANER.get_or_init(|| Regex::new(r"\s?\(\d\)|^\d+\s?-\s?").unwrap());
 
     if let Some(captures) = name_splitter.captures(name) {
         let friendly_name = captures.name("friendlyName").map_or("", |m| m.as_str());

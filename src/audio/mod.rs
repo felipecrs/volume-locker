@@ -119,19 +119,13 @@ fn find_device_by_name_and_type(
 }
 
 pub fn check_and_unmute_device(
-    backend: &impl AudioBackend,
-    device_id: &str,
+    device: &dyn AudioDevice,
     device_name: &str,
     notify: bool,
     notification_title: &str,
     notification_message_suffix: &str,
     last_notification_times: &mut HashMap<String, Instant>,
 ) {
-    let device = match backend.get_device_by_id(device_id) {
-        Ok(d) => d,
-        Err(_) => return,
-    };
-
     if let Ok(true) = device.is_muted() {
         if let Err(e) = device.set_mute(false) {
             log::error!("Failed to unmute {device_name}: {e}");
@@ -140,7 +134,7 @@ pub fn check_and_unmute_device(
             if notify {
                 let message = format!("{device_name} {notification_message_suffix}");
                 send_notification_debounced(
-                    &format!("unmute_{}", device_id),
+                    &format!("unmute_{}", device.id()),
                     notification_title,
                     &message,
                     last_notification_times,
@@ -151,16 +145,11 @@ pub fn check_and_unmute_device(
 }
 
 pub fn get_unmute_notification_details(device_type: DeviceType) -> (&'static str, &'static str) {
-    match device_type {
-        DeviceType::Input => (
-            "Input Device Unmuted",
-            "was unmuted due to Keep unmuted setting.",
-        ),
-        DeviceType::Output => (
-            "Output Device Unmuted",
-            "was unmuted due to Keep unmuted setting.",
-        ),
-    }
+    let title = match device_type {
+        DeviceType::Input => "Input Device Unmuted",
+        DeviceType::Output => "Output Device Unmuted",
+    };
+    (title, "was unmuted due to Keep unmuted setting.")
 }
 
 pub fn enforce_priorities(
@@ -170,18 +159,40 @@ pub fn enforce_priorities(
     temporary_priority_output: &Option<String>,
     temporary_priority_input: &Option<String>,
 ) {
-    // Check Output Priorities
-    let mut output_priority_list = state.output_priority_list.clone();
-    if let Some(temp_id) = temporary_priority_output {
-        output_priority_list.insert(0, temp_id.clone());
+    enforce_priority_for_type(
+        backend,
+        state,
+        DeviceType::Output,
+        temporary_priority_output,
+        last_notification_times,
+    );
+    enforce_priority_for_type(
+        backend,
+        state,
+        DeviceType::Input,
+        temporary_priority_input,
+        last_notification_times,
+    );
+}
+
+fn enforce_priority_for_type(
+    backend: &impl AudioBackend,
+    state: &PersistentState,
+    device_type: DeviceType,
+    temporary_priority: &Option<String>,
+    last_notification_times: &mut HashMap<String, Instant>,
+) {
+    let mut priority_list = state.get_priority_list(device_type).clone();
+    if let Some(temp_id) = temporary_priority {
+        priority_list.insert(0, temp_id.clone());
     }
 
-    if let Some(target_id) = find_highest_priority_active_device(backend, &output_priority_list) {
+    if let Some(target_id) = find_highest_priority_active_device(backend, &priority_list) {
         let mut switched = false;
 
         // Check Console/Multimedia
         let is_console_correct = if let Ok(default_device) =
-            backend.get_default_device(DeviceType::Output, DeviceRole::Console)
+            backend.get_default_device(device_type, DeviceRole::Console)
         {
             default_device.id() == target_id
         } else {
@@ -189,75 +200,24 @@ pub fn enforce_priorities(
         };
 
         if !is_console_correct {
-            log::info!("Enforcing output priority: Switching to {}", target_id);
-            let _ = backend.set_default_device(&target_id, DeviceRole::Console);
-            let _ = backend.set_default_device(&target_id, DeviceRole::Multimedia);
-            switched = true;
-        }
-
-        // Check Communications
-        if state.switch_communication_device_output {
-            let is_comm_correct = if let Ok(default_device) =
-                backend.get_default_device(DeviceType::Output, DeviceRole::Communications)
-            {
-                default_device.id() == target_id
-            } else {
-                false
+            let type_str = match device_type {
+                DeviceType::Output => "output",
+                DeviceType::Input => "input",
             };
-
-            if !is_comm_correct {
-                log::info!(
-                    "Enforcing output priority (Communication): Switching to {}",
-                    target_id
-                );
-                let _ = backend.set_default_device(&target_id, DeviceRole::Communications);
-                switched = true;
-            }
-        }
-
-        if switched && state.notify_on_priority_restore_output {
-            let device_name = match backend.get_device_by_id(&target_id) {
-                Ok(d) => d.name(),
-                Err(_) => "Unknown Device".to_string(),
-            };
-            send_notification_debounced(
-                &format!("priority_restore_{}", target_id),
-                "Default Output Device Restored",
-                &format!("Switched to {} based on priority list.", device_name),
-                last_notification_times,
+            log::info!(
+                "Enforcing {} priority: Switching to {}",
+                type_str,
+                target_id
             );
-        }
-    }
-
-    // Check Input Priorities
-    let mut input_priority_list = state.input_priority_list.clone();
-    if let Some(temp_id) = temporary_priority_input {
-        input_priority_list.insert(0, temp_id.clone());
-    }
-
-    if let Some(target_id) = find_highest_priority_active_device(backend, &input_priority_list) {
-        let mut switched = false;
-
-        // Check Console/Multimedia
-        let is_console_correct = if let Ok(default_device) =
-            backend.get_default_device(DeviceType::Input, DeviceRole::Console)
-        {
-            default_device.id() == target_id
-        } else {
-            false
-        };
-
-        if !is_console_correct {
-            log::info!("Enforcing input priority: Switching to {}", target_id);
             let _ = backend.set_default_device(&target_id, DeviceRole::Console);
             let _ = backend.set_default_device(&target_id, DeviceRole::Multimedia);
             switched = true;
         }
 
         // Check Communications
-        if state.switch_communication_device_input {
+        if state.get_switch_communication_device(device_type) {
             let is_comm_correct = if let Ok(default_device) =
-                backend.get_default_device(DeviceType::Input, DeviceRole::Communications)
+                backend.get_default_device(device_type, DeviceRole::Communications)
             {
                 default_device.id() == target_id
             } else {
@@ -265,8 +225,13 @@ pub fn enforce_priorities(
             };
 
             if !is_comm_correct {
+                let type_str = match device_type {
+                    DeviceType::Output => "output",
+                    DeviceType::Input => "input",
+                };
                 log::info!(
-                    "Enforcing input priority (Communication): Switching to {}",
+                    "Enforcing {} priority (Communication): Switching to {}",
+                    type_str,
                     target_id
                 );
                 let _ = backend.set_default_device(&target_id, DeviceRole::Communications);
@@ -274,14 +239,18 @@ pub fn enforce_priorities(
             }
         }
 
-        if switched && state.notify_on_priority_restore_input {
+        if switched && state.get_notify_on_priority_restore(device_type) {
             let device_name = match backend.get_device_by_id(&target_id) {
                 Ok(d) => d.name(),
                 Err(_) => "Unknown Device".to_string(),
             };
+            let title = match device_type {
+                DeviceType::Output => "Default Output Device Restored",
+                DeviceType::Input => "Default Input Device Restored",
+            };
             send_notification_debounced(
                 &format!("priority_restore_{}", target_id),
-                "Default Input Device Restored",
+                title,
                 &format!("Switched to {} based on priority list.", device_name),
                 last_notification_times,
             );

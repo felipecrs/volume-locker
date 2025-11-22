@@ -12,19 +12,17 @@ mod ui;
 mod utils;
 
 use crate::audio::{
-    AudioBackend, AudioBackendImpl, AudioDevice, check_and_unmute_device,
-    enforce_priorities, get_unmute_notification_details, migrate_device_ids,
+    AudioBackend, AudioBackendImpl, AudioDevice, check_and_unmute_device, enforce_priorities,
+    get_unmute_notification_details, migrate_device_ids,
 };
 use crate::config::{load_state, save_state};
 use crate::consts::{APP_NAME, APP_UID, LOG_FILE_NAME};
 use crate::platform::{NotificationDuration, init_platform, send_notification, setup_app_aumid};
-use crate::types::{
-    DeviceSettingType, DeviceSettings, DeviceType, MenuItemDeviceInfo, UserEvent,
-    VolumeChangedEvent,
-};
-use crate::ui::{find_menu_item, rebuild_tray_menu};
+use crate::types::{MenuItemDeviceInfo, UserEvent, VolumeChangedEvent};
+use crate::ui::{handle_menu_event, rebuild_tray_menu};
 use crate::utils::{
-    get_executable_directory, get_executable_path, send_notification_debounced,
+    convert_float_to_percent, convert_percent_to_float, get_executable_directory,
+    get_executable_path, send_notification_debounced,
 };
 use auto_launch::AutoLaunchBuilder;
 use faccess::PathExt;
@@ -42,14 +40,6 @@ use tray_icon::{
     menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem},
 };
 
-fn convert_float_to_percent(volume: f32) -> f32 {
-    (volume * 100.0).round()
-}
-
-fn convert_percent_to_float(volume: f32) -> f32 {
-    volume / 100.0
-}
-
 fn main() {
     init_platform();
 
@@ -64,11 +54,7 @@ fn main() {
 
         eprintln!("{error_title}: {error_message}");
 
-        if let Err(e) = send_notification(
-            error_title,
-            &error_message,
-            NotificationDuration::Long,
-        ) {
+        if let Err(e) = send_notification(error_title, &error_message, NotificationDuration::Long) {
             eprintln!("Failed to show {error_title} notification: {e}");
         }
 
@@ -80,7 +66,7 @@ fn main() {
         WriteLogger::new(
             LevelFilter::Info,
             Config::default(),
-            File::create(&log_path).unwrap(),
+            File::create(&log_path).expect("Failed to create log file"),
         ),
         #[cfg(debug_assertions)]
         TermLogger::new(
@@ -91,7 +77,7 @@ fn main() {
         ),
     ];
 
-    CombinedLogger::init(loggers).unwrap();
+    CombinedLogger::init(loggers).expect("Failed to init logger");
 
     // Set panic hook to log panic info before exiting
     std::panic::set_hook(Box::new(|panic_info| {
@@ -127,7 +113,7 @@ fn main() {
         .set_app_name(APP_NAME)
         .set_app_path(&app_path)
         .build()
-        .unwrap();
+        .expect("Failed to build auto launch");
 
     let output_devices_heading_item = MenuItem::new("Output devices", false, None);
     let input_devices_heading_item = MenuItem::new("Input devices", false, None);
@@ -138,7 +124,9 @@ fn main() {
     let tray_menu = Menu::new();
     // At least one item must be added to the menu on initialization, otherwise
     // the menu will not be shown on first click
-    tray_menu.append(&quit_item).unwrap();
+    tray_menu
+        .append(&quit_item)
+        .expect("Failed to append quit item");
 
     let mut tray_icon = None;
 
@@ -151,9 +139,11 @@ fn main() {
     let mut backend = AudioBackendImpl::new().expect("Failed to initialize audio backend");
 
     let proxy = event_loop.create_proxy();
-    backend.register_device_change_callback(Box::new(move || {
-        let _ = proxy.send_event(UserEvent::DevicesChanged);
-    })).expect("Failed to register device change callback");
+    backend
+        .register_device_change_callback(Box::new(move || {
+            let _ = proxy.send_event(UserEvent::DevicesChanged);
+        }))
+        .expect("Failed to register device change callback");
 
     let mut watched_devices: Vec<Box<dyn AudioDevice>> = Vec::new();
 
@@ -186,7 +176,7 @@ fn main() {
                         .with_icon(unlocked_icon.clone())
                         .with_id(APP_UID)
                         .build()
-                        .unwrap(),
+                        .expect("Failed to build tray icon"),
                 );
                 let _ = main_proxy.send_event(UserEvent::DevicesChanged);
             }
@@ -203,222 +193,21 @@ fn main() {
                     tray_icon.take();
                     *control_flow = ControlFlow::Exit;
                 } else if let Some(menu_info) = menu_id_to_device.get(&event.id) {
-                    let mut should_save = false;
+                    let result = handle_menu_event(
+                        &event,
+                        menu_info,
+                        &tray_menu,
+                        &mut persistent_state,
+                        &backend,
+                        &mut temporary_priority_output,
+                        &mut temporary_priority_input,
+                    );
 
-                    match menu_info.setting_type {
-                        DeviceSettingType::VolumeLock
-                        | DeviceSettingType::VolumeLockNotify
-                        | DeviceSettingType::UnmuteLock
-                        | DeviceSettingType::UnmuteLockNotify => {
-                            if let Some(item) = find_menu_item(&tray_menu, &event.id)
-                                && let Some(check_item) = item.as_check_menuitem()
-                            {
-                                let is_checked = check_item.is_checked();
-                                let mut should_remove = false;
-
-                                {
-                                    let device_settings = persistent_state
-                                        .devices
-                                        .entry(menu_info.device_id.clone())
-                                        .or_insert_with(|| DeviceSettings {
-                                            is_volume_locked: false,
-                                            volume_percent: 0.0,
-                                            notify_on_volume_lock: false,
-                                            is_unmute_locked: false,
-                                            notify_on_unmute_lock: false,
-                                            device_type: menu_info.device_type,
-                                            name: menu_info.name.clone(),
-                                        });
-
-                                    match menu_info.setting_type {
-                                        DeviceSettingType::VolumeLock => {
-                                            if is_checked {
-                                                if let Ok(device) = backend.get_device_by_id(&menu_info.device_id)
-                                                && let Ok(vol) = device.volume()
-                                                {
-                                                    device_settings.volume_percent =
-                                                        convert_float_to_percent(vol);
-                                                    device_settings.is_volume_locked = true;
-                                                } else {
-                                                    log::error!(
-                                                        "Failed to get volume for device {}, cannot lock.",
-                                                        menu_info.name
-                                                    );
-                                                    device_settings.is_volume_locked = false;
-                                                }
-                                            } else {
-                                                device_settings.is_volume_locked = false;
-                                            }
-                                        }
-                                        DeviceSettingType::VolumeLockNotify => {
-                                            device_settings.notify_on_volume_lock = is_checked;
-                                        }
-                                        DeviceSettingType::UnmuteLock => {
-                                            device_settings.is_unmute_locked = is_checked;
-                                        }
-                                        DeviceSettingType::UnmuteLockNotify => {
-                                            device_settings.notify_on_unmute_lock = is_checked;
-                                        }
-                                        _ => {}
-                                    }
-
-                                    if !device_settings.is_volume_locked
-                                        && !device_settings.is_unmute_locked
-                                        && !device_settings.notify_on_volume_lock
-                                        && !device_settings.notify_on_unmute_lock
-                                    {
-                                        should_remove = true;
-                                    }
-                                }
-
-                                if should_remove {
-                                    let is_in_priority = persistent_state
-                                        .output_priority_list
-                                        .contains(&menu_info.device_id)
-                                        || persistent_state
-                                            .input_priority_list
-                                            .contains(&menu_info.device_id);
-
-                                    if !is_in_priority {
-                                        persistent_state.devices.remove(&menu_info.device_id);
-                                    }
-                                }
-                                should_save = true;
-                            }
-                        }
-                        DeviceSettingType::AddToPriority => {
-                            let list = match menu_info.device_type {
-                                DeviceType::Output => &mut persistent_state.output_priority_list,
-                                DeviceType::Input => &mut persistent_state.input_priority_list,
-                            };
-                            if !list.contains(&menu_info.device_id) {
-                                list.push(menu_info.device_id.clone());
-
-                                persistent_state
-                                    .devices
-                                    .entry(menu_info.device_id.clone())
-                                    .or_insert_with(|| DeviceSettings {
-                                        is_volume_locked: false,
-                                        volume_percent: 0.0,
-                                        notify_on_volume_lock: false,
-                                        is_unmute_locked: false,
-                                        notify_on_unmute_lock: false,
-                                        device_type: menu_info.device_type,
-                                        name: menu_info.name.clone(),
-                                    });
-
-                                should_save = true;
-                            }
-                        }
-                        DeviceSettingType::RemoveFromPriority => {
-                            let list = match menu_info.device_type {
-                                DeviceType::Output => &mut persistent_state.output_priority_list,
-                                DeviceType::Input => &mut persistent_state.input_priority_list,
-                            };
-                            if let Some(pos) = list.iter().position(|x| x == &menu_info.device_id) {
-                                list.remove(pos);
-                                should_save = true;
-
-                                if let Some(settings) =
-                                    persistent_state.devices.get(&menu_info.device_id)
-                                    && !settings.is_volume_locked
-                                        && !settings.is_unmute_locked
-                                        && !settings.notify_on_volume_lock
-                                        && !settings.notify_on_unmute_lock
-                                    {
-                                        persistent_state.devices.remove(&menu_info.device_id);
-                                    }
-                            }
-                        }
-                        DeviceSettingType::MovePriorityUp => {
-                            let list = match menu_info.device_type {
-                                DeviceType::Output => &mut persistent_state.output_priority_list,
-                                DeviceType::Input => &mut persistent_state.input_priority_list,
-                            };
-                            if let Some(pos) = list.iter().position(|x| x == &menu_info.device_id)
-                                && pos > 0 {
-                                    list.swap(pos, pos - 1);
-                                    should_save = true;
-                                }
-                        }
-                        DeviceSettingType::MovePriorityDown => {
-                            let list = match menu_info.device_type {
-                                DeviceType::Output => &mut persistent_state.output_priority_list,
-                                DeviceType::Input => &mut persistent_state.input_priority_list,
-                            };
-                            if let Some(pos) = list.iter().position(|x| x == &menu_info.device_id)
-                                && pos < list.len() - 1 {
-                                    list.swap(pos, pos + 1);
-                                    should_save = true;
-                                }
-                        }
-                        DeviceSettingType::PriorityRestoreNotify => {
-                            if let Some(item) = find_menu_item(&tray_menu, &event.id)
-                                && let Some(check_item) = item.as_check_menuitem()
-                            {
-                                let is_checked = check_item.is_checked();
-                                match menu_info.device_type {
-                                    DeviceType::Output => {
-                                        persistent_state.notify_on_priority_restore_output =
-                                            is_checked
-                                    }
-                                    DeviceType::Input => {
-                                        persistent_state.notify_on_priority_restore_input =
-                                            is_checked
-                                    }
-                                }
-                                should_save = true;
-                            }
-                        }
-                        DeviceSettingType::SwitchCommunicationDevice => {
-                            if let Some(item) = find_menu_item(&tray_menu, &event.id)
-                                && let Some(check_item) = item.as_check_menuitem()
-                            {
-                                let is_checked = check_item.is_checked();
-                                match menu_info.device_type {
-                                    DeviceType::Output => {
-                                        persistent_state.switch_communication_device_output =
-                                            is_checked
-                                    }
-                                    DeviceType::Input => {
-                                        persistent_state.switch_communication_device_input =
-                                            is_checked
-                                    }
-                                }
-                                should_save = true;
-                            }
-                        }
-                        DeviceSettingType::SetTemporaryPriority => {
-                            if let Some(item) = find_menu_item(&tray_menu, &event.id) {
-                                let is_checked = if let Some(check_item) = item.as_check_menuitem()
-                                {
-                                    check_item.is_checked()
-                                } else {
-                                    false
-                                };
-
-                                match menu_info.device_type {
-                                    DeviceType::Output => {
-                                        temporary_priority_output = if is_checked {
-                                            Some(menu_info.device_id.clone())
-                                        } else {
-                                            None
-                                        };
-                                    }
-                                    DeviceType::Input => {
-                                        temporary_priority_input = if is_checked {
-                                            Some(menu_info.device_id.clone())
-                                        } else {
-                                            None
-                                        };
-                                    }
-                                }
-                                let _ = main_proxy.send_event(UserEvent::DevicesChanged);
-                            }
-                        }
+                    if result.devices_changed {
+                        let _ = main_proxy.send_event(UserEvent::DevicesChanged);
                     }
 
-                    if should_save {
+                    if result.should_save {
                         let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
                     }
                 }
@@ -446,48 +235,40 @@ fn main() {
                     device_id,
                     new_volume,
                 } = event;
-                let new_volume = match new_volume {
-                    Some(v) => v,
-                    None => {
-                        match backend.get_device_by_id(&device_id) {
-                            Ok(device) => match device.volume() {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    log::error!("Failed to get volume for {device_id}: {e}");
-                                    return;
-                                }
-                            },
-                            Err(e) => {
-                                log::error!(
-                                    "Failed to get device by id for {device_id}: {e}"
-                                );
-                                return;
-                            }
-                        }
-                    }
-                };
-                let new_volume_percent = convert_float_to_percent(new_volume);
 
                 // We need to check if the device is in our managed list
                 if let Some(device_settings) = persistent_state.devices.get_mut(&device_id) {
+                    let device = match backend.get_device_by_id(&device_id) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            log::error!(
+                                "Failed to get device by id for {}: {}",
+                                device_settings.name,
+                                e
+                            );
+                            return;
+                        }
+                    };
+
+                    let new_volume: f32 = match new_volume {
+                        Some(v) => v,
+                        None => match device.volume() {
+                            Ok(v) => v,
+                            Err(e) => {
+                                log::error!("Failed to get volume for {device_id}: {e}");
+                                return;
+                            }
+                        },
+                    };
+                    let new_volume_percent = convert_float_to_percent(new_volume);
+
                     // Check volume lock
                     if device_settings.is_volume_locked {
                         let target_volume_percent = device_settings.volume_percent;
                         if new_volume_percent != target_volume_percent {
                             let target_volume = convert_percent_to_float(target_volume_percent);
-                            let device = match backend.get_device_by_id(&device_id) {
-                                Ok(d) => d,
-                                Err(e) => {
-                                    log::error!(
-                                        "Failed to get device by id for {}: {}",
-                                        device_settings.name,
-                                        e
-                                    );
-                                    return;
-                                }
-                            };
                             let device_name = device.name();
-                            
+
                             if let Err(e) = device.set_volume(target_volume) {
                                 log::error!(
                                     "Failed to set volume of {device_name} to {target_volume_percent}%: {e}"
@@ -517,8 +298,7 @@ fn main() {
                             get_unmute_notification_details(device_settings.device_type);
 
                         check_and_unmute_device(
-                            &backend,
-                            &device_id,
+                            device.as_ref(),
                             &device_name,
                             device_settings.notify_on_unmute_lock,
                             notification_title,
@@ -586,9 +366,24 @@ fn main() {
                         );
                         continue;
                     }
-                    
+
+                    // Enforce unmute on refresh if enabled
+                    if device_settings.is_unmute_locked {
+                        let (notification_title, notification_suffix) =
+                            get_unmute_notification_details(device_settings.device_type);
+
+                        check_and_unmute_device(
+                            device.as_ref(),
+                            &device_settings.name,
+                            device_settings.notify_on_unmute_lock,
+                            notification_title,
+                            notification_suffix,
+                            &mut last_notification_times,
+                        );
+                    }
+
                     watched_devices.push(device);
-                    
+
                     log::info!(
                         "Watching volume of {} (Locked: {}, Unmute: {})",
                         device_settings.name,
@@ -602,22 +397,6 @@ fn main() {
                             new_volume: None,
                         },
                     ));
-
-                    // Enforce unmute on refresh if enabled
-                    if device_settings.is_unmute_locked {
-                        let (notification_title, notification_suffix) =
-                            get_unmute_notification_details(device_settings.device_type);
-
-                        check_and_unmute_device(
-                            &backend,
-                            device_id,
-                            &device_settings.name,
-                            device_settings.notify_on_unmute_lock,
-                            notification_title,
-                            notification_suffix,
-                            &mut last_notification_times,
-                        );
-                    }
 
                     some_locked = true;
                 }
