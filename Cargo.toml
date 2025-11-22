@@ -22,12 +22,13 @@ serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.143"
 tao = "0.34.3"
 tray-icon = "0.21.1"
-widestring = "1.2.0"
 single-instance = "0.3.3"
 log = "0.4.28"
 simplelog = "0.12.2"
-tauri-winrt-notification = "0.7.2"
 regex-lite = "0.1.7"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+tauri-winrt-notification = "0.7.2"
 windows-registry = "0.6.0"
 windows-core = "0.61.2"
 windows = { version = "0.61.3", features = [
@@ -41,6 +42,7 @@ windows = { version = "0.61.3", features = [
 	"Win32_UI_Shell_PropertiesSystem",
 ] }
 com-policy-config = "0.6.0"
+widestring = "1.2.0"
 
-[build-dependencies]
+[target.'cfg(target_os = "windows")'.build-dependencies]
 winresource = "0.1.20"
