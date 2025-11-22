@@ -14,11 +14,33 @@ use windows::Win32::Media::Audio::Endpoints::{
 use windows::Win32::Media::Audio::{
     AUDIO_VOLUME_NOTIFICATION_DATA, DEVICE_STATE, DEVICE_STATE_ACTIVE, EDataFlow, ERole, IMMDevice,
     IMMDeviceCollection, IMMDeviceEnumerator, IMMNotificationClient, IMMNotificationClient_Impl,
-    eCapture, eCommunications, eConsole, eRender,
+    MMDeviceEnumerator, eCapture, eCommunications, eConsole, eRender,
 };
 use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance, STGM_READ};
 use windows::core::{PCWSTR, Result, implement};
+
+pub fn create_device_enumerator() -> Result<IMMDeviceEnumerator> {
+    unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_INPROC_SERVER) }
+}
+
+pub fn register_notification_callback(
+    enumerator: &IMMDeviceEnumerator,
+    callback: &IMMNotificationClient,
+) -> Result<()> {
+    unsafe { enumerator.RegisterEndpointNotificationCallback(callback) }
+}
+
+pub fn get_device_state(device: &IMMDevice) -> Result<DEVICE_STATE> {
+    unsafe { device.GetState() }
+}
+
+pub fn register_control_change_notify(
+    endpoint: &IAudioEndpointVolume,
+    callback: &IAudioEndpointVolumeCallback,
+) -> Result<()> {
+    unsafe { endpoint.RegisterControlChangeNotify(callback) }
+}
 
 #[implement(IMMNotificationClient)]
 pub struct AudioDevicesChangedCallback {
@@ -81,21 +103,34 @@ impl IAudioEndpointVolumeCallback_Impl for VolumeChangeCallback_Impl {
     }
 }
 
+pub fn enum_audio_endpoints(
+    enumerator: &IMMDeviceEnumerator,
+    data_flow: EDataFlow,
+    state_mask: DEVICE_STATE,
+) -> Result<IMMDeviceCollection> {
+    unsafe { enumerator.EnumAudioEndpoints(data_flow, state_mask) }
+}
+
+pub fn get_device_count(collection: &IMMDeviceCollection) -> Result<u32> {
+    unsafe { collection.GetCount() }
+}
+
+pub fn get_device_at_index(collection: &IMMDeviceCollection, index: u32) -> Result<IMMDevice> {
+    unsafe { collection.Item(index) }
+}
+
 pub fn get_audio_endpoint(device: &IMMDevice) -> Result<IAudioEndpointVolume> {
-    unsafe {
-        let endpoint: IAudioEndpointVolume = device.Activate(CLSCTX_INPROC_SERVER, None)?;
-        Ok(endpoint)
-    }
+    let endpoint: IAudioEndpointVolume = unsafe { device.Activate(CLSCTX_INPROC_SERVER, None)? };
+    Ok(endpoint)
 }
 
 pub fn get_device_name(device: &IMMDevice) -> Result<String> {
-    unsafe {
+    let friendly_name = unsafe {
         let prop_store = device.OpenPropertyStore(STGM_READ)?;
         let friendly_name_prop = prop_store.GetValue(&PKEY_Device_FriendlyName)?;
-        let friendly_name = PropVariantToStringAlloc(&friendly_name_prop)?.to_string()?;
-        let name_clean = clean_device_name(&friendly_name);
-        Ok(name_clean)
-    }
+        PropVariantToStringAlloc(&friendly_name_prop)?.to_string()?
+    };
+    Ok(clean_device_name(&friendly_name))
 }
 
 // Reimplemented from https://github.com/Belphemur/SoundSwitch/blob/50063dd35d3e648192cbcaa1f9a82a5856302562/SoundSwitch.Common/Framework/Audio/Device/DeviceInfo.cs#L33-L56
@@ -126,10 +161,8 @@ fn clean_device_name(name: &str) -> String {
 }
 
 pub fn get_device_id(device: &IMMDevice) -> Result<String> {
-    unsafe {
-        let dev_id = device.GetId()?.to_string()?;
-        Ok(dev_id)
-    }
+    let dev_id = unsafe { device.GetId()?.to_string()? };
+    Ok(dev_id)
 }
 
 pub fn get_device_by_id(
@@ -140,10 +173,8 @@ pub fn get_device_by_id(
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
-    unsafe {
-        let device = device_enumerator.GetDevice(PCWSTR(wide.as_ptr()))?;
-        Ok(device)
-    }
+    let device = unsafe { device_enumerator.GetDevice(PCWSTR(wide.as_ptr()))? };
+    Ok(device)
 }
 
 pub fn get_volume(endpoint: &IAudioEndpointVolume) -> Result<f32> {
@@ -151,11 +182,12 @@ pub fn get_volume(endpoint: &IAudioEndpointVolume) -> Result<f32> {
 }
 
 pub fn get_mute(endpoint: &IAudioEndpointVolume) -> Result<bool> {
-    unsafe { endpoint.GetMute().map(|b| b.as_bool()) }
+    let muted = unsafe { endpoint.GetMute()? };
+    Ok(muted.as_bool())
 }
 
 pub fn set_mute(endpoint: &IAudioEndpointVolume, muted: bool) -> Result<()> {
-    unsafe { endpoint.SetMute(muted, std::ptr::null()).map(|_| ()) }
+    unsafe { endpoint.SetMute(muted, std::ptr::null()) }
 }
 
 pub fn convert_float_to_percent(volume: f32) -> f32 {
@@ -167,26 +199,19 @@ pub fn convert_percent_to_float(volume: f32) -> f32 {
 }
 
 pub fn set_volume(endpoint: &IAudioEndpointVolume, new_volume: f32) -> Result<()> {
-    unsafe {
-        endpoint.SetMasterVolumeLevelScalar(new_volume, std::ptr::null())?;
-        Ok(())
-    }
+    unsafe { endpoint.SetMasterVolumeLevelScalar(new_volume, std::ptr::null()) }
 }
 
 pub fn get_default_output_device(device_enumerator: &IMMDeviceEnumerator) -> Result<IMMDevice> {
-    unsafe {
-        let default_device: IMMDevice =
-            device_enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?;
-        Ok(default_device)
-    }
+    let default_device: IMMDevice =
+        unsafe { device_enumerator.GetDefaultAudioEndpoint(eRender, eConsole)? };
+    Ok(default_device)
 }
 
 pub fn get_default_input_device(device_enumerator: &IMMDeviceEnumerator) -> Result<IMMDevice> {
-    unsafe {
-        let default_device: IMMDevice =
-            device_enumerator.GetDefaultAudioEndpoint(eCapture, eConsole)?;
-        Ok(default_device)
-    }
+    let default_device: IMMDevice =
+        unsafe { device_enumerator.GetDefaultAudioEndpoint(eCapture, eConsole)? };
+    Ok(default_device)
 }
 
 pub fn is_default_device(
@@ -499,17 +524,16 @@ fn find_highest_priority_active_device(
 }
 
 fn set_default_device(device_id: &str, role: ERole) -> Result<()> {
-    unsafe {
-        let policy_config: com_policy_config::IPolicyConfig = CoCreateInstance(
+    let policy_config: com_policy_config::IPolicyConfig = unsafe {
+        CoCreateInstance(
             &com_policy_config::PolicyConfigClient,
             None,
             CLSCTX_INPROC_SERVER,
-        )?;
-        let wide: Vec<u16> = OsStr::new(device_id)
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        policy_config.SetDefaultEndpoint(PCWSTR(wide.as_ptr()), role)?;
-        Ok(())
-    }
+        )?
+    };
+    let wide: Vec<u16> = OsStr::new(device_id)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    unsafe { policy_config.SetDefaultEndpoint(PCWSTR(wide.as_ptr()), role) }
 }

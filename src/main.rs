@@ -11,10 +11,11 @@ mod ui;
 mod utils;
 
 use crate::audio::{
-    check_and_unmute_device, convert_float_to_percent, convert_percent_to_float,
-    enforce_priorities, get_audio_endpoint, get_device_by_id, get_device_name,
-    get_unmute_notification_details, get_volume, migrate_device_ids, set_volume,
-    AudioDevicesChangedCallback, VolumeChangeCallback,
+    AudioDevicesChangedCallback, VolumeChangeCallback, check_and_unmute_device,
+    convert_float_to_percent, convert_percent_to_float, create_device_enumerator,
+    enforce_priorities, get_audio_endpoint, get_device_by_id, get_device_name, get_device_state,
+    get_unmute_notification_details, get_volume, migrate_device_ids,
+    register_control_change_notify, register_notification_callback, set_volume,
 };
 use crate::config::{load_state, save_state};
 use crate::consts::{APP_AUMID, APP_NAME, APP_UID, LOG_FILE_NAME};
@@ -39,18 +40,12 @@ use tao::{
 };
 use tauri_winrt_notification::Toast;
 use tray_icon::{
-    menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem},
     MouseButton, TrayIconBuilder, TrayIconEvent,
+    menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem},
 };
-use windows::Win32::Media::Audio::Endpoints::{
-    IAudioEndpointVolume, IAudioEndpointVolumeCallback,
-};
-use windows::Win32::Media::Audio::{
-    DEVICE_STATE_ACTIVE, IMMDeviceEnumerator, IMMNotificationClient, MMDeviceEnumerator,
-};
-use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx};
-
-
+use windows::Win32::Media::Audio::Endpoints::{IAudioEndpointVolume, IAudioEndpointVolumeCallback};
+use windows::Win32::Media::Audio::{DEVICE_STATE_ACTIVE, IMMNotificationClient};
+use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
 
 fn main() {
     let executable_directory = get_executable_directory();
@@ -149,18 +144,13 @@ fn main() {
     let mut menu_id_to_device: HashMap<MenuId, MenuItemDeviceInfo> = HashMap::new();
 
     unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).unwrap() };
-    let device_enumerator: IMMDeviceEnumerator =
-        unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_INPROC_SERVER).unwrap() };
+    let device_enumerator = create_device_enumerator().unwrap();
 
     let devices_changed_callback: IMMNotificationClient = AudioDevicesChangedCallback {
         proxy: event_loop.create_proxy(),
     }
     .into();
-    unsafe {
-        device_enumerator
-            .RegisterEndpointNotificationCallback(&devices_changed_callback)
-            .unwrap();
-    }
+    register_notification_callback(&device_enumerator, &devices_changed_callback).unwrap();
 
     let mut watched_endpoints: Vec<IAudioEndpointVolume> = Vec::new();
 
@@ -589,7 +579,7 @@ fn main() {
                         }
                     };
 
-                    let device_state = match unsafe { device.GetState() } {
+                    let device_state = match get_device_state(&device) {
                         Ok(state) => state,
                         Err(e) => {
                             log::warn!(
@@ -625,7 +615,7 @@ fn main() {
                     }
                     .into();
                     if let Err(e) =
-                        unsafe { endpoint.RegisterControlChangeNotify(&volume_callback) }
+                        register_control_change_notify(&endpoint, &volume_callback)
                     {
                         log::warn!(
                             "Not watching volume of {} as failed to register for volume changes: {}",
@@ -690,5 +680,3 @@ fn main() {
         }
     })
 }
-
-

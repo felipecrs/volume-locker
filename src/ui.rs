@@ -1,6 +1,7 @@
 use crate::audio::{
-    convert_float_to_percent, get_audio_endpoint, get_device_by_id, get_device_id, get_device_name,
-    get_mute, get_volume, is_default_device,
+    convert_float_to_percent, enum_audio_endpoints, get_audio_endpoint, get_device_at_index,
+    get_device_by_id, get_device_count, get_device_id, get_device_name, get_mute, get_volume,
+    is_default_device,
 };
 use crate::config::PersistentState;
 use crate::types::{DeviceSettingType, DeviceType, MenuItemDeviceInfo};
@@ -8,9 +9,7 @@ use std::collections::HashMap;
 use tray_icon::menu::{
     CheckMenuItem, Menu, MenuId, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu,
 };
-use windows::Win32::Media::Audio::{
-    DEVICE_STATE_ACTIVE, IMMDeviceCollection, IMMDeviceEnumerator, eCapture, eRender,
-};
+use windows::Win32::Media::Audio::{DEVICE_STATE_ACTIVE, IMMDeviceEnumerator, eCapture, eRender};
 
 pub fn to_label(
     name: &str,
@@ -71,15 +70,12 @@ pub fn rebuild_tray_menu(
             DeviceType::Output => eRender,
             DeviceType::Input => eCapture,
         };
-        let devices: IMMDeviceCollection = unsafe {
-            device_enumerator
-                .EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE)
-                .unwrap()
-        };
-        let count = unsafe { devices.GetCount().unwrap() };
+        let devices =
+            enum_audio_endpoints(device_enumerator, endpoint_type, DEVICE_STATE_ACTIVE).unwrap();
+        let count = get_device_count(&devices).unwrap();
 
         for i in 0..count {
-            let device = unsafe { devices.Item(i).unwrap() };
+            let device = get_device_at_index(&devices, i).unwrap();
             let name = get_device_name(&device).unwrap();
             let device_id = get_device_id(&device).unwrap();
             let endpoint = get_audio_endpoint(&device).unwrap();
@@ -113,8 +109,7 @@ pub fn rebuild_tray_menu(
                 notify_on_volume_lock,
                 None,
             );
-            let unmute_lock_item =
-                CheckMenuItem::new("Keep unmuted", true, is_unmute_locked, None);
+            let unmute_lock_item = CheckMenuItem::new("Keep unmuted", true, is_unmute_locked, None);
             let unmute_notify_item = CheckMenuItem::new(
                 "Notify on unmute",
                 is_unmute_locked,
@@ -196,15 +191,12 @@ pub fn rebuild_tray_menu(
             DeviceType::Output => eRender,
             DeviceType::Input => eCapture,
         };
-        let devices: IMMDeviceCollection = unsafe {
-            device_enumerator
-                .EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE)
-                .unwrap()
-        };
-        let count = unsafe { devices.GetCount().unwrap() };
+        let devices =
+            enum_audio_endpoints(device_enumerator, endpoint_type, DEVICE_STATE_ACTIVE).unwrap();
+        let count = get_device_count(&devices).unwrap();
         let mut available_devices = Vec::new();
         for i in 0..count {
-            let device = unsafe { devices.Item(i).unwrap() };
+            let device = get_device_at_index(&devices, i).unwrap();
             let name = get_device_name(&device).unwrap();
             let device_id = get_device_id(&device).unwrap();
             available_devices.push((device_id, name));
@@ -255,7 +247,9 @@ pub fn rebuild_tray_menu(
                 );
             }
             priority_submenu.append(&move_down_item).unwrap();
-            priority_submenu.append(&PredefinedMenuItem::separator()).unwrap();
+            priority_submenu
+                .append(&PredefinedMenuItem::separator())
+                .unwrap();
 
             let remove_priority_item = MenuItem::new("Remove device", true, None);
             menu_id_to_device.insert(
@@ -357,15 +351,12 @@ pub fn rebuild_tray_menu(
             DeviceType::Output => eRender,
             DeviceType::Input => eCapture,
         };
-        let devices: IMMDeviceCollection = unsafe {
-            device_enumerator
-                .EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE)
-                .unwrap()
-        };
-        let count = unsafe { devices.GetCount().unwrap() };
+        let devices =
+            enum_audio_endpoints(device_enumerator, endpoint_type, DEVICE_STATE_ACTIVE).unwrap();
+        let count = get_device_count(&devices).unwrap();
         let mut available_devices = Vec::new();
         for i in 0..count {
-            let device = unsafe { devices.Item(i).unwrap() };
+            let device = get_device_at_index(&devices, i).unwrap();
             let name = get_device_name(&device).unwrap();
             let device_id = get_device_id(&device).unwrap();
             available_devices.push((device_id, name));
