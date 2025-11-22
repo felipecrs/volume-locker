@@ -31,7 +31,7 @@ regex-lite = "0.1.7"
 tauri-winrt-notification = "0.7.2"
 windows-registry = "0.6.0"
 windows-core = "0.61.2"
-windows = { version = "0.61.3", features = [
+windows = { version = "0.62.0", features = [
 	"Win32_Devices_FunctionDiscovery",
 	"Win32_Foundation",
 	"Win32_Media_Audio",
