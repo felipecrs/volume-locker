@@ -41,7 +41,10 @@ use crate::utils::send_notification_debounced;
 use std::collections::HashMap;
 use std::time::Instant;
 
-pub fn migrate_device_ids(backend: &impl AudioBackend, persistent_state: &mut PersistentState) {
+pub fn migrate_device_ids(
+    backend: &impl AudioBackend,
+    persistent_state: &mut PersistentState,
+) -> bool {
     let mut devices_to_migrate: Vec<(String, DeviceSettings)> = Vec::new();
     let mut devices_to_update: Vec<(String, DeviceSettings)> = Vec::new();
 
@@ -65,6 +68,9 @@ pub fn migrate_device_ids(backend: &impl AudioBackend, persistent_state: &mut Pe
             devices_to_migrate.push((device_id.clone(), device_settings.clone()));
         }
     }
+
+    // Check if any migrations will occur
+    let migrations_occurred = !devices_to_update.is_empty() || !devices_to_migrate.is_empty();
 
     // Apply the name updates
     for (device_id, updated_settings) in devices_to_update {
@@ -100,6 +106,8 @@ pub fn migrate_device_ids(backend: &impl AudioBackend, persistent_state: &mut Pe
             );
         }
     }
+
+    migrations_occurred
 }
 
 fn find_device_by_name_and_type(

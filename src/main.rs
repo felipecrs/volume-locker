@@ -154,12 +154,6 @@ fn main() {
     let mut persistent_state = load_state();
     log::info!("Loaded: {persistent_state:?}");
 
-    // Migrate device IDs if they have changed
-    migrate_device_ids(&backend, &mut persistent_state);
-
-    // Save the state if any migrations occurred
-    save_state(&persistent_state);
-
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
 
@@ -308,6 +302,14 @@ fn main() {
 
             Event::UserEvent(UserEvent::DevicesChanged) => {
                 log::info!("Reloading list of watched devices...");
+
+                // Migrate device IDs if they have changed, and save if any migrations occurred
+                let migrations_occurred = migrate_device_ids(&backend, &mut persistent_state);
+
+                if migrations_occurred {
+                    save_state(&persistent_state);
+                    log::info!("Saved state after device migration");
+                }
 
                 enforce_priorities(
                     &backend,
