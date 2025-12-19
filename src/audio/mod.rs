@@ -12,6 +12,13 @@ pub trait AudioBackend {
     ) -> AudioResult<Box<dyn AudioDevice>>;
     fn set_default_device(&self, device_id: &str, role: DeviceRole) -> AudioResult<()>;
 
+    fn set_foreground_process_default_device(
+        &self,
+        device_id: &str,
+        role: DeviceRole,
+        device_type: DeviceType,
+    ) -> AudioResult<()>;
+
     fn register_device_change_callback(
         &mut self,
         callback: Box<dyn Fn() + Send + Sync>,
@@ -30,6 +37,8 @@ pub trait AudioDevice {
     fn watch_volume(&self, callback: Box<dyn Fn(Option<f32>) + Send + Sync>) -> AudioResult<()>;
 }
 
+#[cfg(target_os = "windows")]
+mod policy_config;
 #[cfg(target_os = "windows")]
 mod windows;
 #[cfg(target_os = "windows")]
@@ -245,6 +254,28 @@ fn enforce_priority_for_type(
                 );
                 let _ = backend.set_default_device(&target_id, DeviceRole::Communications);
                 switched = true;
+            }
+        }
+
+        // Check Foreground App
+        if state.get_switch_foreground_app(device_type) {
+            let _ = backend.set_foreground_process_default_device(
+                &target_id,
+                DeviceRole::Console,
+                device_type,
+            );
+            let _ = backend.set_foreground_process_default_device(
+                &target_id,
+                DeviceRole::Multimedia,
+                device_type,
+            );
+
+            if state.get_switch_communication_device(device_type) {
+                let _ = backend.set_foreground_process_default_device(
+                    &target_id,
+                    DeviceRole::Communications,
+                    device_type,
+                );
             }
         }
 

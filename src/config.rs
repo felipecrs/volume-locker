@@ -17,6 +17,8 @@ pub struct PersistentState {
     pub notify_on_priority_restore_input: bool,
     pub switch_communication_device_output: bool,
     pub switch_communication_device_input: bool,
+    pub switch_foreground_app_output: bool,
+    pub switch_foreground_app_input: bool,
 }
 
 impl PersistentState {
@@ -61,6 +63,20 @@ impl PersistentState {
             DeviceType::Input => self.switch_communication_device_input,
         }
     }
+
+    pub fn set_switch_foreground_app(&mut self, device_type: DeviceType, switch: bool) {
+        match device_type {
+            DeviceType::Output => self.switch_foreground_app_output = switch,
+            DeviceType::Input => self.switch_foreground_app_input = switch,
+        }
+    }
+
+    pub fn get_switch_foreground_app(&self, device_type: DeviceType) -> bool {
+        match device_type {
+            DeviceType::Output => self.switch_foreground_app_output,
+            DeviceType::Input => self.switch_foreground_app_input,
+        }
+    }
 }
 
 impl Default for PersistentState {
@@ -73,6 +89,8 @@ impl Default for PersistentState {
             notify_on_priority_restore_input: false,
             switch_communication_device_output: true,
             switch_communication_device_input: true,
+            switch_foreground_app_output: false,
+            switch_foreground_app_input: false,
         }
     }
 }

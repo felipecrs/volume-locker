@@ -41,6 +41,7 @@ pub enum DeviceSettingType {
     MovePriorityDown,
     PriorityRestoreNotify,
     SwitchCommunicationDevice,
+    SwitchForegroundApp,
     SetTemporaryPriority,
 }
 

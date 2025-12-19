@@ -416,6 +416,26 @@ fn append_priority_list_to_menu(
     );
     tray_menu.append(&switch_comm_item).unwrap();
 
+    let switch_foreground = persistent_state.get_switch_foreground_app(device_type);
+
+    let switch_foreground_item = CheckMenuItem::new(
+        "Also switch foreground program",
+        !priority_list.is_empty() || temporary_priority.is_some(),
+        switch_foreground,
+        None,
+    );
+
+    menu_id_to_device.insert(
+        switch_foreground_item.id().clone(),
+        MenuItemDeviceInfo {
+            device_id: String::new(),
+            setting_type: DeviceSettingType::SwitchForegroundApp,
+            name: "Switch Foreground App".to_string(),
+            device_type,
+        },
+    );
+    tray_menu.append(&switch_foreground_item).unwrap();
+
     tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
 }
 
@@ -586,6 +606,15 @@ pub fn handle_menu_event(
             {
                 let is_checked = check_item.is_checked();
                 persistent_state.set_switch_communication_device(menu_info.device_type, is_checked);
+                should_save = true;
+            }
+        }
+        DeviceSettingType::SwitchForegroundApp => {
+            if let Some(item) = find_menu_item(tray_menu, &event.id)
+                && let Some(check_item) = item.as_check_menuitem()
+            {
+                let is_checked = check_item.is_checked();
+                persistent_state.set_switch_foreground_app(menu_info.device_type, is_checked);
                 should_save = true;
             }
         }

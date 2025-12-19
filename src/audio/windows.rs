@@ -1,3 +1,4 @@
+use super::policy_config::AudioPolicyConfig;
 use super::{AudioBackend, AudioDevice, AudioResult};
 use crate::types::{DeviceRole, DeviceType};
 use regex_lite::Regex;
@@ -16,6 +17,7 @@ use windows::Win32::Media::Audio::{
 };
 use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance, STGM_READ};
+use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
 use windows::core::{PCWSTR, Result, implement};
 
 pub struct WindowsAudioBackend {
@@ -107,6 +109,52 @@ impl AudioBackend for WindowsAudioBackend {
             DeviceRole::Communications => eCommunications,
         };
         set_default_device(device_id, role)?;
+        Ok(())
+    }
+
+    fn set_foreground_process_default_device(
+        &self,
+        device_id: &str,
+        role: DeviceRole,
+        device_type: DeviceType,
+    ) -> AudioResult<()> {
+        let flow = match device_type {
+            DeviceType::Output => eRender,
+            DeviceType::Input => eCapture,
+        };
+        let role = match role {
+            DeviceRole::Console => eConsole,
+            DeviceRole::Multimedia => eMultimedia,
+            DeviceRole::Communications => eCommunications,
+        };
+
+        unsafe {
+            let hwnd = GetForegroundWindow();
+            if hwnd.0.is_null() {
+                return Ok(()); // No foreground window
+            }
+
+            let mut process_id = 0;
+            GetWindowThreadProcessId(hwnd, Some(&mut process_id));
+
+            if process_id == std::process::id() {
+                log::warn!("Tried to switch audio device of the app itself");
+                return Ok(());
+            }
+
+            let policy_config = AudioPolicyConfig::new()?;
+
+            if let Ok(current_id) =
+                policy_config.get_persisted_default_audio_endpoint(process_id, flow, role)
+                && current_id == device_id
+            {
+                return Ok(());
+            }
+
+            policy_config
+                .set_persisted_default_audio_endpoint(process_id, flow, role, device_id)?;
+        }
+
         Ok(())
     }
 
