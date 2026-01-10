@@ -2024,9 +2024,9 @@ checksum = "df8b2b54733674ad286d16267dcfc7a71ed5c776e4ac7aa3c3e2561f7c637bf2"
 
 [[package]]
 name = "tray-icon"
-version = "0.21.2"
+version = "0.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3d5572781bee8e3f994d7467084e1b1fd7a93ce66bd480f8156ba89dee55a2b"
+checksum = "a5e85aa143ceb072062fc4d6356c1b520a51d636e7bc8e77ec94be3608e5e80c"
 dependencies = [
  "crossbeam-channel",
  "dirs",
