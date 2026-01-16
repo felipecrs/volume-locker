@@ -356,6 +356,38 @@ fn append_priority_list_to_menu(
             .append(&PredefinedMenuItem::separator())
             .unwrap();
 
+        let move_to_top_item = MenuItem::new("Move to top", index > 0, None);
+        if index > 0 {
+            menu_id_to_device.insert(
+                move_to_top_item.id().clone(),
+                MenuItemDeviceInfo {
+                    device_id: device_id.clone(),
+                    setting_type: DeviceSettingType::MovePriorityToTop,
+                    name: device_name.clone(),
+                    device_type,
+                },
+            );
+        }
+        priority_submenu.append(&move_to_top_item).unwrap();
+
+        let move_to_bottom_item =
+            MenuItem::new("Move to bottom", index < priority_list.len() - 1, None);
+        if index < priority_list.len() - 1 {
+            menu_id_to_device.insert(
+                move_to_bottom_item.id().clone(),
+                MenuItemDeviceInfo {
+                    device_id: device_id.clone(),
+                    setting_type: DeviceSettingType::MovePriorityToBottom,
+                    name: device_name.clone(),
+                    device_type,
+                },
+            );
+        }
+        priority_submenu.append(&move_to_bottom_item).unwrap();
+        priority_submenu
+            .append(&PredefinedMenuItem::separator())
+            .unwrap();
+
         let remove_priority_item = MenuItem::new("Remove device", true, None);
         menu_id_to_device.insert(
             remove_priority_item.id().clone(),
@@ -586,6 +618,26 @@ pub fn handle_menu_event(
                 && pos < list.len() - 1
             {
                 list.swap(pos, pos + 1);
+                should_save = true;
+            }
+        }
+        DeviceSettingType::MovePriorityToTop => {
+            let list = persistent_state.get_priority_list_mut(menu_info.device_type);
+            if let Some(pos) = list.iter().position(|x| x == &menu_info.device_id)
+                && pos > 0
+            {
+                let device_id = list.remove(pos);
+                list.insert(0, device_id);
+                should_save = true;
+            }
+        }
+        DeviceSettingType::MovePriorityToBottom => {
+            let list = persistent_state.get_priority_list_mut(menu_info.device_type);
+            if let Some(pos) = list.iter().position(|x| x == &menu_info.device_id)
+                && pos < list.len() - 1
+            {
+                let device_id = list.remove(pos);
+                list.push(device_id);
                 should_save = true;
             }
         }

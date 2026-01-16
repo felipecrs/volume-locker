@@ -39,6 +39,8 @@ pub enum DeviceSettingType {
     RemoveFromPriority,
     MovePriorityUp,
     MovePriorityDown,
+    MovePriorityToTop,
+    MovePriorityToBottom,
     PriorityRestoreNotify,
     SwitchCommunicationDevice,
     SetTemporaryPriority,
