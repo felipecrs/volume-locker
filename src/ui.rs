@@ -1,5 +1,6 @@
 use crate::audio::AudioBackend;
 use crate::config::PersistentState;
+use crate::platform::open_sound_settings;
 use crate::types::{DeviceRole, DeviceSettingType, DeviceSettings, DeviceType, MenuItemDeviceInfo};
 use crate::utils::convert_float_to_percent;
 use std::collections::HashMap;
@@ -267,6 +268,23 @@ fn append_device_list_to_menu(
 
         tray_menu.append(&submenu).unwrap();
     }
+
+    let properties_label = match device_type {
+        DeviceType::Output => "Playback devices...",
+        DeviceType::Input => "Recording devices...",
+    };
+    let properties_item = MenuItem::new(properties_label, true, None);
+    menu_id_to_device.insert(
+        properties_item.id().clone(),
+        MenuItemDeviceInfo {
+            device_id: String::new(),
+            setting_type: DeviceSettingType::OpenSoundSettings,
+            name: properties_label.to_string(),
+            device_type,
+        },
+    );
+    tray_menu.append(&properties_item).unwrap();
+
     tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
 }
 
@@ -615,6 +633,9 @@ pub fn handle_menu_event(
                 }
                 devices_changed = true;
             }
+        }
+        DeviceSettingType::OpenSoundSettings => {
+            open_sound_settings(menu_info.device_type);
         }
     }
 

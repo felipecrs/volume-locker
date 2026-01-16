@@ -1,7 +1,9 @@
 use crate::consts::{APP_AUMID, APP_NAME, PNG_ICON_BYTES, PNG_ICON_FILE_NAME};
 use crate::platform::NotificationDuration;
+use crate::types::DeviceType;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 use tauri_winrt_notification::Toast;
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
 use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
@@ -53,4 +55,15 @@ fn setup_app_aumid(executable_directory: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+pub fn open_sound_settings(device_type: DeviceType) {
+    let tab_index = match device_type {
+        DeviceType::Output => "0",
+        DeviceType::Input => "1",
+    };
+
+    let _ = Command::new("control")
+        .arg(format!("mmsys.cpl,,{}", tab_index))
+        .spawn();
 }
