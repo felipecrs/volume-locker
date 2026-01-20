@@ -32,8 +32,8 @@ ureq = { version = "3.1.4", default-features = false, features = ["native-tls"] 
 [target.'cfg(target_os = "windows")'.dependencies]
 tauri-winrt-notification = "0.7.2"
 windows-registry = "0.6.0"
-windows-core = "0.61.2"
-windows = { version = "0.61.3", features = [
+windows-core = "0.62.2"
+windows = { version = "0.62.2", features = [
 	"Win32_Devices_FunctionDiscovery",
 	"Win32_Foundation",
 	"Win32_Media_Audio",
