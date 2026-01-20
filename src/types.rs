@@ -51,6 +51,7 @@ pub enum DeviceSettingType {
     OpenVolumeMixer,
     CheckForUpdates,
     PerformUpdate,
+    OpenGitHubRepo,
 }
 
 #[derive(Debug)]

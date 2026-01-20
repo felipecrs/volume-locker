@@ -1,7 +1,8 @@
 use crate::audio::AudioBackend;
 use crate::config::PersistentState;
+use crate::consts::GITHUB_REPO_URL;
 use crate::platform::{
-    open_device_properties, open_device_settings, open_devices_list, open_sound_settings,
+    open_device_properties, open_device_settings, open_devices_list, open_sound_settings, open_url,
     open_volume_mixer,
 };
 use crate::types::{DeviceRole, DeviceSettingType, DeviceSettings, DeviceType, MenuItemDeviceInfo};
@@ -196,13 +197,31 @@ pub fn rebuild_tray_menu(
     tray_menu.append(auto_update_check_item).unwrap();
     tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
 
+    let github_item = MenuItem::new("GitHub...", true, None);
+    menu_id_to_device.insert(
+        github_item.id().clone(),
+        MenuItemDeviceInfo {
+            device_id: String::new(),
+            setting_type: DeviceSettingType::OpenGitHubRepo,
+            name: "GitHub...".to_string(),
+            device_type: DeviceType::Output,
+        },
+    );
+    tray_menu.append(&github_item).unwrap();
+
     // Add update menu item
     let (label, setting_type) = match update_info {
-        Some(_) => ("Update", DeviceSettingType::PerformUpdate),
-        None => ("Check for Updates", DeviceSettingType::CheckForUpdates),
+        Some(info) => (
+            format!("Update to {}...", info.latest_version),
+            DeviceSettingType::PerformUpdate,
+        ),
+        None => (
+            "Check for updates".to_string(),
+            DeviceSettingType::CheckForUpdates,
+        ),
     };
 
-    let update_item = MenuItem::new(label, true, None);
+    let update_item = MenuItem::new(&label, true, None);
     menu_id_to_device.insert(
         update_item.id().clone(),
         MenuItemDeviceInfo {
@@ -800,6 +819,9 @@ pub fn handle_menu_event(
             if let Some(info) = update_info {
                 update_action = UpdateAction::Perform(info.clone());
             }
+        }
+        DeviceSettingType::OpenGitHubRepo => {
+            open_url(GITHUB_REPO_URL);
         }
     }
 
