@@ -46,6 +46,8 @@ pub enum DeviceSettingType {
     SetTemporaryPriority,
     OpenDevicesList,
     OpenDeviceProperties,
+    OpenSoundSettings,
+    OpenDeviceSettings,
 }
 
 #[derive(Debug)]
