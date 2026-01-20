@@ -99,3 +99,10 @@ pub fn open_volume_mixer() {
         .arg("ms-settings:apps-volume")
         .spawn();
 }
+
+pub fn open_url(url: &str) {
+    let _ = Command::new("rundll32.exe")
+        .arg("url.dll,FileProtocolHandler")
+        .arg(url)
+        .spawn();
+}
