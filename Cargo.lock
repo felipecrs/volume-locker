@@ -166,15 +166,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
-name = "com-policy-config"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3569e09e4a248dfac1340ca4dc8f1b0a4b414bfc6a6f597aa7963daadc3ef24c"
-dependencies = [
- "windows",
-]
-
-[[package]]
 name = "combine"
 version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2371,7 +2362,6 @@ name = "volume-locker"
 version = "0.0.0-development"
 dependencies = [
  "auto-launch",
- "com-policy-config",
  "faccess",
  "log",
  "regex-lite",
