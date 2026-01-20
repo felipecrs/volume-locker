@@ -1,4 +1,4 @@
-use super::{AudioBackend, AudioDevice, AudioResult};
+use super::{AudioBackend, AudioDevice, AudioResult, windows_com_policy_config};
 use crate::types::{DeviceRole, DeviceType};
 use regex_lite::Regex;
 use std::ffi::OsStr;
@@ -322,9 +322,9 @@ pub fn set_volume(endpoint: &IAudioEndpointVolume, new_volume: f32) -> Result<()
 }
 
 fn set_default_device(device_id: &str, role: ERole) -> Result<()> {
-    let policy_config: com_policy_config::IPolicyConfig = unsafe {
+    let policy_config: windows_com_policy_config::IPolicyConfig = unsafe {
         CoCreateInstance(
-            &com_policy_config::PolicyConfigClient,
+            &windows_com_policy_config::PolicyConfigClient,
             None,
             CLSCTX_INPROC_SERVER,
         )?

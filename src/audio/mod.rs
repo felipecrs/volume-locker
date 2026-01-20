@@ -2,6 +2,9 @@ use crate::types::{DeviceRole, DeviceType};
 
 pub type AudioResult<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+#[cfg(target_os = "windows")]
+mod windows_com_policy_config;
+
 pub trait AudioBackend {
     fn get_devices(&self, device_type: DeviceType) -> AudioResult<Vec<Box<dyn AudioDevice>>>;
     fn get_device_by_id(&self, id: &str) -> AudioResult<Box<dyn AudioDevice>>;
