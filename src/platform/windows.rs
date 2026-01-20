@@ -63,13 +63,32 @@ pub fn open_devices_list(device_type: DeviceType) {
         DeviceType::Input => "1",
     };
 
-    let _ = Command::new("control")
+    let _ = Command::new("rundll32.exe")
+        .arg("shell32.dll,Control_RunDLL")
         .arg(format!("mmsys.cpl,,{}", tab_index))
         .spawn();
 }
 
 pub fn open_device_properties(device_id: &str) {
-    let _ = Command::new("control")
+    let _ = Command::new("rundll32.exe")
+        .arg("shell32.dll,Control_RunDLL")
         .arg(format!("mmsys.cpl,,{}", device_id))
+        .spawn();
+}
+
+pub fn open_sound_settings() {
+    let _ = Command::new("rundll32.exe")
+        .arg("url.dll,FileProtocolHandler")
+        .arg("ms-settings:sound")
+        .spawn();
+}
+
+pub fn open_device_settings(device_id: &str) {
+    let _ = Command::new("rundll32.exe")
+        .arg("url.dll,FileProtocolHandler")
+        .arg(format!(
+            "ms-settings:sound-properties?endpointId={}",
+            device_id
+        ))
         .spawn();
 }

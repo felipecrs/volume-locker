@@ -1,6 +1,8 @@
 use crate::audio::AudioBackend;
 use crate::config::PersistentState;
-use crate::platform::{open_device_properties, open_devices_list};
+use crate::platform::{
+    open_device_properties, open_device_settings, open_devices_list, open_sound_settings,
+};
 use crate::types::{DeviceRole, DeviceSettingType, DeviceSettings, DeviceType, MenuItemDeviceInfo};
 use crate::utils::convert_float_to_percent;
 use std::collections::HashMap;
@@ -71,6 +73,20 @@ pub fn rebuild_tray_menu(
             &mut menu_id_to_device,
         );
     }
+
+    // Add Sound settings once after both device sections
+    let sound_settings_item = MenuItem::new("Sound settings...", true, None);
+    menu_id_to_device.insert(
+        sound_settings_item.id().clone(),
+        MenuItemDeviceInfo {
+            device_id: String::new(),
+            setting_type: DeviceSettingType::OpenSoundSettings,
+            name: "Sound settings...".to_string(),
+            device_type: DeviceType::Output, // Using Output as default, but it doesn't matter for this action
+        },
+    );
+    tray_menu.append(&sound_settings_item).unwrap();
+    tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
 
     for device_type in [DeviceType::Output, DeviceType::Input] {
         let temporary_priority = match device_type {
@@ -278,6 +294,18 @@ fn append_device_list_to_menu(
             },
         );
         submenu.append(&properties_item).unwrap();
+
+        let settings_item = MenuItem::new("Settings...", true, None);
+        menu_id_to_device.insert(
+            settings_item.id().clone(),
+            MenuItemDeviceInfo {
+                device_id: device_id.clone(),
+                setting_type: DeviceSettingType::OpenDeviceSettings,
+                name: name.clone(),
+                device_type,
+            },
+        );
+        submenu.append(&settings_item).unwrap();
 
         tray_menu.append(&submenu).unwrap();
     }
@@ -704,6 +732,12 @@ pub fn handle_menu_event(
         }
         DeviceSettingType::OpenDeviceProperties => {
             open_device_properties(&menu_info.device_id);
+        }
+        DeviceSettingType::OpenSoundSettings => {
+            open_sound_settings();
+        }
+        DeviceSettingType::OpenDeviceSettings => {
+            open_device_settings(&menu_info.device_id);
         }
     }
 
