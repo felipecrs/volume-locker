@@ -2,6 +2,7 @@ use crate::audio::AudioBackend;
 use crate::config::PersistentState;
 use crate::platform::{
     open_device_properties, open_device_settings, open_devices_list, open_sound_settings,
+    open_volume_mixer,
 };
 use crate::types::{DeviceRole, DeviceSettingType, DeviceSettings, DeviceType, MenuItemDeviceInfo};
 use crate::utils::convert_float_to_percent;
@@ -82,10 +83,22 @@ pub fn rebuild_tray_menu(
             device_id: String::new(),
             setting_type: DeviceSettingType::OpenSoundSettings,
             name: "Sound settings...".to_string(),
-            device_type: DeviceType::Output, // Using Output as default, but it doesn't matter for this action
+            device_type: DeviceType::Output, // DeviceType is not relevant here
         },
     );
     tray_menu.append(&sound_settings_item).unwrap();
+
+    let volume_mixer_item = MenuItem::new("Volume mixer...", true, None);
+    menu_id_to_device.insert(
+        volume_mixer_item.id().clone(),
+        MenuItemDeviceInfo {
+            device_id: String::new(),
+            setting_type: DeviceSettingType::OpenVolumeMixer,
+            name: "Volume mixer...".to_string(),
+            device_type: DeviceType::Output, // DeviceType is not relevant here
+        },
+    );
+    tray_menu.append(&volume_mixer_item).unwrap();
     tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
 
     for device_type in [DeviceType::Output, DeviceType::Input] {
@@ -738,6 +751,9 @@ pub fn handle_menu_event(
         }
         DeviceSettingType::OpenDeviceSettings => {
             open_device_settings(&menu_info.device_id);
+        }
+        DeviceSettingType::OpenVolumeMixer => {
+            open_volume_mixer();
         }
     }
 
