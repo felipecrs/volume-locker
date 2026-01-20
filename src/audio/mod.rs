@@ -37,6 +37,7 @@ pub use self::windows::WindowsAudioBackend as AudioBackendImpl;
 
 use crate::config::PersistentState;
 use crate::types::DeviceSettings;
+use crate::ui::TemporaryPriorities;
 use crate::utils::send_notification_debounced;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -165,21 +166,20 @@ pub fn enforce_priorities(
     backend: &impl AudioBackend,
     state: &PersistentState,
     last_notification_times: &mut HashMap<String, Instant>,
-    temporary_priority_output: &Option<String>,
-    temporary_priority_input: &Option<String>,
+    temporary_priorities: &TemporaryPriorities,
 ) {
     enforce_priority_for_type(
         backend,
         state,
         DeviceType::Output,
-        temporary_priority_output,
+        &temporary_priorities.output,
         last_notification_times,
     );
     enforce_priority_for_type(
         backend,
         state,
         DeviceType::Input,
-        temporary_priority_input,
+        &temporary_priorities.input,
         last_notification_times,
     );
 }

@@ -5,3 +5,8 @@ pub const STATE_FILE_NAME: &str = "VolumeLockerState.json";
 pub const LOG_FILE_NAME: &str = "VolumeLocker.log";
 pub const PNG_ICON_BYTES: &[u8] = include_bytes!("../icons/volume-locked.png");
 pub const PNG_ICON_FILE_NAME: &str = "VolumeLocker.png";
+
+pub const GITHUB_REPO_URL: &str = "https://github.com/felipecrs/volume-locker";
+pub const GITHUB_RELEASE_ASSET: &str = "VolumeLocker.exe";
+pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const UPDATE_SCRIPT: &str = include_str!("../scripts/update.ps1");

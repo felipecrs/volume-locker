@@ -49,6 +49,8 @@ pub enum DeviceSettingType {
     OpenSoundSettings,
     OpenDeviceSettings,
     OpenVolumeMixer,
+    CheckForUpdates,
+    PerformUpdate,
 }
 
 #[derive(Debug)]
