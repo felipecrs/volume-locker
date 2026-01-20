@@ -1,6 +1,6 @@
 use crate::audio::AudioBackend;
 use crate::config::PersistentState;
-use crate::platform::open_sound_settings;
+use crate::platform::{open_device_properties, open_devices_list};
 use crate::types::{DeviceRole, DeviceSettingType, DeviceSettings, DeviceType, MenuItemDeviceInfo};
 use crate::utils::convert_float_to_percent;
 use std::collections::HashMap;
@@ -265,6 +265,19 @@ fn append_device_list_to_menu(
         submenu.append(&PredefinedMenuItem::separator()).unwrap();
         submenu.append(&volume_notify_item).unwrap();
         submenu.append(&unmute_notify_item).unwrap();
+        submenu.append(&PredefinedMenuItem::separator()).unwrap();
+
+        let properties_item = MenuItem::new("Properties...", true, None);
+        menu_id_to_device.insert(
+            properties_item.id().clone(),
+            MenuItemDeviceInfo {
+                device_id: device_id.clone(),
+                setting_type: DeviceSettingType::OpenDeviceProperties,
+                name: name.clone(),
+                device_type,
+            },
+        );
+        submenu.append(&properties_item).unwrap();
 
         tray_menu.append(&submenu).unwrap();
     }
@@ -278,7 +291,7 @@ fn append_device_list_to_menu(
         properties_item.id().clone(),
         MenuItemDeviceInfo {
             device_id: String::new(),
-            setting_type: DeviceSettingType::OpenSoundSettings,
+            setting_type: DeviceSettingType::OpenDevicesList,
             name: properties_label.to_string(),
             device_type,
         },
@@ -686,8 +699,11 @@ pub fn handle_menu_event(
                 devices_changed = true;
             }
         }
-        DeviceSettingType::OpenSoundSettings => {
-            open_sound_settings(menu_info.device_type);
+        DeviceSettingType::OpenDevicesList => {
+            open_devices_list(menu_info.device_type);
+        }
+        DeviceSettingType::OpenDeviceProperties => {
+            open_device_properties(&menu_info.device_id);
         }
     }
 

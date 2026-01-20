@@ -44,7 +44,8 @@ pub enum DeviceSettingType {
     PriorityRestoreNotify,
     SwitchCommunicationDevice,
     SetTemporaryPriority,
-    OpenSoundSettings,
+    OpenDevicesList,
+    OpenDeviceProperties,
 }
 
 #[derive(Debug)]
