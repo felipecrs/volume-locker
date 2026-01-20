@@ -92,3 +92,10 @@ pub fn open_device_settings(device_id: &str) {
         ))
         .spawn();
 }
+
+pub fn open_volume_mixer() {
+    let _ = Command::new("rundll32.exe")
+        .arg("url.dll,FileProtocolHandler")
+        .arg("ms-settings:apps-volume")
+        .spawn();
+}
