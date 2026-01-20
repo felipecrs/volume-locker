@@ -26,6 +26,8 @@ single-instance = "0.3.3"
 log = "0.4.28"
 simplelog = "0.12.2"
 regex-lite = "0.1.7"
+semver = "1.0.27"
+ureq = { version = "3.1.4", default-features = false, features = ["native-tls"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 tauri-winrt-notification = "0.7.2"

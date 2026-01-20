@@ -9,6 +9,7 @@ mod consts;
 mod platform;
 mod types;
 mod ui;
+mod update;
 mod utils;
 
 use crate::audio::{
@@ -19,7 +20,8 @@ use crate::config::{load_state, save_state};
 use crate::consts::{APP_NAME, APP_UID, LOG_FILE_NAME};
 use crate::platform::{NotificationDuration, init_platform, send_notification};
 use crate::types::{MenuItemDeviceInfo, UserEvent, VolumeChangedEvent};
-use crate::ui::{handle_menu_event, rebuild_tray_menu};
+use crate::ui::{TemporaryPriorities, handle_menu_event, rebuild_tray_menu};
+use crate::update::UpdateInfo;
 use crate::utils::{
     convert_float_to_percent, convert_percent_to_float, get_executable_directory,
     get_executable_path, send_notification_debounced,
@@ -116,6 +118,8 @@ fn main() {
     let input_devices_heading_item = MenuItem::new("Input devices", false, None);
     let auto_launch_check_item: CheckMenuItem =
         CheckMenuItem::new("Auto launch on startup", true, false, None);
+    let auto_update_check_item: CheckMenuItem =
+        CheckMenuItem::new("Check for updates on startup", true, false, None);
     let quit_item = MenuItem::new("Quit", true, None);
 
     let tray_menu = Menu::new();
@@ -146,13 +150,17 @@ fn main() {
 
     let mut last_notification_times: HashMap<String, Instant> = HashMap::new();
 
-    let mut temporary_priority_output: Option<String> = None;
-    let mut temporary_priority_input: Option<String> = None;
+    let mut temporary_priorities = TemporaryPriorities {
+        output: None,
+        input: None,
+    };
 
     let main_proxy = event_loop.create_proxy();
 
     let mut persistent_state = load_state();
     log::info!("Loaded: {persistent_state:?}");
+
+    let mut update_info: Option<UpdateInfo> = None;
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -169,6 +177,11 @@ fn main() {
                         .build()
                         .expect("Failed to build tray icon"),
                 );
+
+                if persistent_state.auto_update_check {
+                    update_info = update::check(false);
+                }
+
                 let _ = main_proxy.send_event(UserEvent::DevicesChanged);
             }
 
@@ -180,6 +193,9 @@ fn main() {
                     } else {
                         auto_launch.disable().unwrap();
                     }
+                } else if event.id == auto_update_check_item.id() {
+                    persistent_state.auto_update_check = auto_update_check_item.is_checked();
+                    let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
                 } else if event.id == quit_item.id() {
                     tray_icon.take();
                     *control_flow = ControlFlow::Exit;
@@ -190,8 +206,8 @@ fn main() {
                         &tray_menu,
                         &mut persistent_state,
                         &backend,
-                        &mut temporary_priority_output,
-                        &mut temporary_priority_input,
+                        &mut temporary_priorities,
+                        &update_info,
                     );
 
                     if result.devices_changed {
@@ -200,6 +216,12 @@ fn main() {
 
                     if result.should_save {
                         let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
+                    }
+
+                    match result.update_action {
+                        ui::UpdateAction::Perform(info) => update::perform(&info),
+                        ui::UpdateAction::Check => update_info = update::check(true),
+                        ui::UpdateAction::None => {}
                     }
                 }
             }
@@ -211,13 +233,14 @@ fn main() {
                     &tray_menu,
                     &backend,
                     &mut persistent_state,
-                    &temporary_priority_output,
-                    &temporary_priority_input,
+                    &temporary_priorities,
                     auto_launch.is_enabled().unwrap(),
                     &auto_launch_check_item,
+                    &auto_update_check_item,
                     &quit_item,
                     &output_devices_heading_item,
                     &input_devices_heading_item,
+                    &update_info,
                 );
             }
 
@@ -315,8 +338,7 @@ fn main() {
                     &backend,
                     &persistent_state,
                     &mut last_notification_times,
-                    &temporary_priority_output,
-                    &temporary_priority_input,
+                    &temporary_priorities,
                 );
 
                 watched_devices.clear();

@@ -5,11 +5,23 @@ use crate::platform::{
     open_volume_mixer,
 };
 use crate::types::{DeviceRole, DeviceSettingType, DeviceSettings, DeviceType, MenuItemDeviceInfo};
+use crate::update::UpdateInfo;
 use crate::utils::convert_float_to_percent;
 use std::collections::HashMap;
 use tray_icon::menu::{
     CheckMenuItem, Menu, MenuId, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu,
 };
+
+pub enum UpdateAction {
+    None,
+    Check,
+    Perform(UpdateInfo),
+}
+
+pub struct TemporaryPriorities {
+    pub output: Option<String>,
+    pub input: Option<String>,
+}
 
 pub fn to_label(
     name: &str,
@@ -47,13 +59,14 @@ pub fn rebuild_tray_menu(
     tray_menu: &Menu,
     backend: &impl AudioBackend,
     persistent_state: &mut PersistentState,
-    temporary_priority_output: &Option<String>,
-    temporary_priority_input: &Option<String>,
+    temporary_priorities: &TemporaryPriorities,
     auto_launch_enabled: bool,
     auto_launch_check_item: &CheckMenuItem,
+    auto_update_check_item: &CheckMenuItem,
     quit_item: &MenuItem,
     output_devices_heading_item: &MenuItem,
     input_devices_heading_item: &MenuItem,
+    update_info: &Option<UpdateInfo>,
 ) -> HashMap<MenuId, MenuItemDeviceInfo> {
     // Clear the menu
     for _ in 0..tray_menu.items().len() {
@@ -103,8 +116,8 @@ pub fn rebuild_tray_menu(
 
     for device_type in [DeviceType::Output, DeviceType::Input] {
         let temporary_priority = match device_type {
-            DeviceType::Output => temporary_priority_output,
-            DeviceType::Input => temporary_priority_input,
+            DeviceType::Output => &temporary_priorities.output,
+            DeviceType::Input => &temporary_priorities.input,
         };
         append_priority_list_to_menu(
             tray_menu,
@@ -132,8 +145,8 @@ pub fn rebuild_tray_menu(
         }
 
         let temp_id_opt = match device_type {
-            DeviceType::Output => temporary_priority_output.as_ref(),
-            DeviceType::Input => temporary_priority_input.as_ref(),
+            DeviceType::Output => temporary_priorities.output.as_ref(),
+            DeviceType::Input => temporary_priorities.input.as_ref(),
         };
 
         let label_prefix = match device_type {
@@ -178,7 +191,30 @@ pub fn rebuild_tray_menu(
     // Refresh check items
     auto_launch_check_item.set_checked(auto_launch_enabled);
     tray_menu.append(auto_launch_check_item).unwrap();
+
+    auto_update_check_item.set_checked(persistent_state.auto_update_check);
+    tray_menu.append(auto_update_check_item).unwrap();
     tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
+
+    // Add update menu item
+    let (label, setting_type) = match update_info {
+        Some(_) => ("Update", DeviceSettingType::PerformUpdate),
+        None => ("Check for Updates", DeviceSettingType::CheckForUpdates),
+    };
+
+    let update_item = MenuItem::new(label, true, None);
+    menu_id_to_device.insert(
+        update_item.id().clone(),
+        MenuItemDeviceInfo {
+            device_id: String::new(),
+            setting_type,
+            name: label.to_string(),
+            device_type: DeviceType::Output,
+        },
+    );
+    tray_menu.append(&update_item).unwrap();
+    tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
+
     tray_menu.append(quit_item).unwrap();
 
     menu_id_to_device
@@ -526,6 +562,7 @@ fn append_priority_list_to_menu(
 pub struct MenuEventResult {
     pub should_save: bool,
     pub devices_changed: bool,
+    pub update_action: UpdateAction,
 }
 
 pub fn handle_menu_event(
@@ -534,11 +571,12 @@ pub fn handle_menu_event(
     tray_menu: &Menu,
     persistent_state: &mut PersistentState,
     backend: &impl AudioBackend,
-    temporary_priority_output: &mut Option<String>,
-    temporary_priority_input: &mut Option<String>,
+    temporary_priorities: &mut TemporaryPriorities,
+    update_info: &Option<UpdateInfo>,
 ) -> MenuEventResult {
     let mut should_save = false;
     let mut devices_changed = false;
+    let mut update_action = UpdateAction::None;
 
     match menu_info.setting_type {
         DeviceSettingType::VolumeLock
@@ -723,14 +761,14 @@ pub fn handle_menu_event(
 
                 match menu_info.device_type {
                     DeviceType::Output => {
-                        *temporary_priority_output = if is_checked {
+                        temporary_priorities.output = if is_checked {
                             Some(menu_info.device_id.clone())
                         } else {
                             None
                         };
                     }
                     DeviceType::Input => {
-                        *temporary_priority_input = if is_checked {
+                        temporary_priorities.input = if is_checked {
                             Some(menu_info.device_id.clone())
                         } else {
                             None
@@ -755,10 +793,19 @@ pub fn handle_menu_event(
         DeviceSettingType::OpenVolumeMixer => {
             open_volume_mixer();
         }
+        DeviceSettingType::CheckForUpdates => {
+            update_action = UpdateAction::Check;
+        }
+        DeviceSettingType::PerformUpdate => {
+            if let Some(info) = update_info {
+                update_action = UpdateAction::Perform(info.clone());
+            }
+        }
     }
 
     MenuEventResult {
         should_save,
         devices_changed,
+        update_action,
     }
 }
