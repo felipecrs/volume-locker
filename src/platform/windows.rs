@@ -57,7 +57,7 @@ fn setup_app_aumid(executable_directory: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn open_sound_settings(device_type: DeviceType) {
+pub fn open_devices_list(device_type: DeviceType) {
     let tab_index = match device_type {
         DeviceType::Output => "0",
         DeviceType::Input => "1",
@@ -65,5 +65,11 @@ pub fn open_sound_settings(device_type: DeviceType) {
 
     let _ = Command::new("control")
         .arg(format!("mmsys.cpl,,{}", tab_index))
+        .spawn();
+}
+
+pub fn open_device_properties(device_id: &str) {
+    let _ = Command::new("control")
+        .arg(format!("mmsys.cpl,,{}", device_id))
         .spawn();
 }
