@@ -6,7 +6,22 @@ use std::fs::File;
 use std::io;
 use std::os::windows::process::CommandExt;
 use std::process::Command;
-use ureq::ResponseExt;
+use ureq::config::Config;
+use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
+use ureq::{Agent, ResponseExt};
+
+fn create_agent() -> Agent {
+    let config = Config::builder()
+        .tls_config(
+            TlsConfig::builder()
+                .provider(TlsProvider::NativeTls)
+                .root_certs(RootCerts::PlatformVerifier)
+                .build(),
+        )
+        .build();
+
+    config.new_agent()
+}
 
 #[derive(Debug, Clone)]
 pub struct UpdateInfo {
@@ -18,8 +33,9 @@ pub struct UpdateInfo {
 fn check_for_updates() -> Result<Option<UpdateInfo>, Box<dyn std::error::Error>> {
     log::info!("Checking for updates...");
 
+    let agent = create_agent();
     let releases_url = format!("{}/releases/latest", GITHUB_REPO_URL);
-    let response = ureq::head(&releases_url).call()?;
+    let response = agent.head(&releases_url).call()?;
     let release_url = response.get_uri().to_string();
 
     // Extract version from URL like: https://github.com/felipecrs/volume-locker/releases/tag/v1.2.3
@@ -118,7 +134,8 @@ fn try_perform(update_info: &UpdateInfo) -> Result<(), Box<dyn std::error::Error
     log::info!("Downloading from {}", update_info.download_url);
 
     // Download the update
-    let mut response = ureq::get(&update_info.download_url).call()?;
+    let agent = create_agent();
+    let mut response = agent.get(&update_info.download_url).call()?;
 
     // Write to temporary file
     let mut file = File::create(&temp_download)?;

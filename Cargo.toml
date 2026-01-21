@@ -28,7 +28,7 @@ simplelog = "0.12.2"
 regex-lite = "0.1.7"
 semver = "1.0.27"
 ureq = { version = "3.1.4", default-features = false, features = [
-	"rustls"
+	"native-tls"
 ] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
