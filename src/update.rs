@@ -1,13 +1,12 @@
-use crate::consts::{
-    CURRENT_VERSION, DEVELOPMENT_VERSION, GITHUB_RELEASE_ASSET, GITHUB_REPO_URL, UPDATE_SCRIPT,
-};
+use crate::consts::{CURRENT_VERSION, DEVELOPMENT_VERSION, GITHUB_RELEASE_ASSET, GITHUB_REPO_URL};
 use crate::platform::{NotificationDuration, send_notification};
 use crate::utils::get_executable_path;
 use semver::Version;
+use std::fs::File;
+use std::io;
+use std::os::windows::process::CommandExt;
 use std::process::Command;
 use ureq::ResponseExt;
-use ureq::config::Config;
-use ureq::tls::{TlsConfig, TlsProvider};
 
 #[derive(Debug, Clone)]
 pub struct UpdateInfo {
@@ -19,18 +18,8 @@ pub struct UpdateInfo {
 fn check_for_updates() -> Result<Option<UpdateInfo>, Box<dyn std::error::Error>> {
     log::info!("Checking for updates...");
 
-    // Configure agent with native-tls
-    let config = Config::builder()
-        .tls_config(
-            TlsConfig::builder()
-                .provider(TlsProvider::NativeTls)
-                .build(),
-        )
-        .build();
-
-    let agent = config.new_agent();
     let releases_url = format!("{}/releases/latest", GITHUB_REPO_URL);
-    let response = agent.head(&releases_url).call()?;
+    let response = ureq::head(&releases_url).call()?;
     let release_url = response.get_uri().to_string();
 
     // Extract version from URL like: https://github.com/felipecrs/volume-locker/releases/tag/v1.2.3
@@ -107,35 +96,50 @@ pub fn check(manual_request: bool) -> Option<UpdateInfo> {
 pub fn perform(update_info: &UpdateInfo) {
     log::info!("Starting update to {}", update_info.latest_version);
 
-    let exe_path = get_executable_path();
-    let Some(exe_path_str) = exe_path.to_str() else {
+    if let Err(e) = try_perform(update_info) {
+        log::error!("Update failed: {}", e);
         let _ = send_notification(
             "Update Failed",
-            "Failed to get executable path.",
+            "Please download the update manually from GitHub.",
             NotificationDuration::Long,
         );
-        return;
-    };
+    }
+}
 
+fn try_perform(update_info: &UpdateInfo) -> Result<(), Box<dyn std::error::Error>> {
     // Open release notes
     let _ = Command::new("rundll32")
         .args(["url.dll,FileProtocolHandler", &update_info.release_url])
         .spawn();
 
-    // Wait for browser to open before PowerShell window
-    std::thread::sleep(std::time::Duration::from_secs(2));
+    let exe_path = get_executable_path().to_str().unwrap().to_string();
+    let temp_download = format!("{}.download", exe_path);
 
-    let _ = Command::new("powershell")
+    log::info!("Downloading from {}", update_info.download_url);
+
+    // Download the update
+    let mut response = ureq::get(&update_info.download_url).call()?;
+
+    // Write to temporary file
+    let mut file = File::create(&temp_download)?;
+    let mut reader = response.body_mut().as_reader();
+    io::copy(&mut reader, &mut file)?;
+    drop(file);
+
+    log::info!("Download complete, launching post-update script");
+
+    // Launch PowerShell script to complete the update (no window)
+    Command::new("powershell.exe")
         .args([
             "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
             "-Command",
-            UPDATE_SCRIPT,
+            "Start-Sleep -Seconds 2; Move-Item -Path $env:VL_TEMP_PATH -Destination $env:VL_EXE_PATH -Force; Start-Process $env:VL_EXE_PATH",
         ])
-        .env("VL_DOWNLOAD_URL", &update_info.download_url)
-        .env("VL_EXE_PATH", exe_path_str)
-        .spawn();
+        .env("VL_TEMP_PATH", &temp_download)
+        .env("VL_EXE_PATH", exe_path)
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .spawn()?;
 
-    log::info!("Update script launched successfully.");
+    log::info!("Post-update script launched, exiting application...");
+    std::process::exit(0);
 }

@@ -10,4 +10,3 @@ pub const GITHUB_REPO_URL: &str = "https://github.com/felipecrs/volume-locker";
 pub const GITHUB_RELEASE_ASSET: &str = "VolumeLocker.exe";
 pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const DEVELOPMENT_VERSION: &str = "0.0.0-development";
-pub const UPDATE_SCRIPT: &str = include_str!("../scripts/update.ps1");
