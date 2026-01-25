@@ -2,8 +2,8 @@ use crate::audio::AudioBackend;
 use crate::config::PersistentState;
 use crate::consts::GITHUB_REPO_URL;
 use crate::platform::{
-    open_device_properties, open_device_settings, open_devices_list, open_sound_settings, open_url,
-    open_volume_mixer,
+    open_app_directory, open_device_properties, open_device_settings, open_devices_list,
+    open_sound_settings, open_url, open_volume_mixer,
 };
 use crate::types::{DeviceRole, DeviceSettingType, DeviceSettings, DeviceType, MenuItemDeviceInfo};
 use crate::update::UpdateInfo;
@@ -208,6 +208,18 @@ pub fn rebuild_tray_menu(
         },
     );
     tray_menu.append(&github_item).unwrap();
+
+    let executable_dir_item = MenuItem::new("Open app folder...", true, None);
+    menu_id_to_device.insert(
+        executable_dir_item.id().clone(),
+        MenuItemDeviceInfo {
+            device_id: String::new(),
+            setting_type: DeviceSettingType::OpenAppDirectory,
+            name: "Open app folder...".to_string(),
+            device_type: DeviceType::Output,
+        },
+    );
+    tray_menu.append(&executable_dir_item).unwrap();
 
     // Add update menu item
     let (label, setting_type) = match update_info {
@@ -822,6 +834,9 @@ pub fn handle_menu_event(
         }
         DeviceSettingType::OpenGitHubRepo => {
             open_url(GITHUB_REPO_URL);
+        }
+        DeviceSettingType::OpenAppDirectory => {
+            open_app_directory();
         }
     }
 

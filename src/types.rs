@@ -52,6 +52,7 @@ pub enum DeviceSettingType {
     CheckForUpdates,
     PerformUpdate,
     OpenGitHubRepo,
+    OpenAppDirectory,
 }
 
 #[derive(Debug)]
