@@ -1,4 +1,4 @@
-use crate::consts::{CURRENT_VERSION, DEVELOPMENT_VERSION, GITHUB_RELEASE_ASSET, GITHUB_REPO_URL};
+use crate::consts::{CURRENT_VERSION, GITHUB_RELEASE_ASSET, GITHUB_REPO_URL};
 use crate::platform::{NotificationDuration, send_notification};
 use crate::utils::get_executable_path;
 use semver::Version;
@@ -70,8 +70,7 @@ pub fn check(manual_request: bool) -> Option<UpdateInfo> {
     match check_for_updates() {
         Ok(Some(info)) => {
             log::info!("Update available: {}", info.latest_version);
-            // Don't notify on initial check if running development version
-            if manual_request || CURRENT_VERSION != DEVELOPMENT_VERSION {
+            if manual_request {
                 let _ = send_notification(
                     "Update Available",
                     &format!(
