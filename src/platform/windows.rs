@@ -106,3 +106,8 @@ pub fn open_url(url: &str) {
         .arg(url)
         .spawn();
 }
+
+pub fn open_app_directory() {
+    let app_dir = crate::utils::get_executable_directory();
+    let _ = Command::new("explorer.exe").arg(app_dir).spawn();
+}
