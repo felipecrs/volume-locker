@@ -3,16 +3,14 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-pub fn get_executable_directory() -> PathBuf {
-    std::env::current_exe()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .to_path_buf()
+pub fn get_executable_path() -> PathBuf {
+    let exe_path = std::env::current_exe().unwrap();
+    // Resolves symbolic links (e.g., when installed via winget)
+    std::fs::canonicalize(&exe_path).unwrap_or(exe_path)
 }
 
-pub fn get_executable_path() -> PathBuf {
-    std::env::current_exe().unwrap()
+pub fn get_executable_directory() -> PathBuf {
+    get_executable_path().parent().unwrap().to_path_buf()
 }
 
 pub fn send_notification_debounced(
