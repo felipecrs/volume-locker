@@ -18,22 +18,22 @@ path = "src/main.rs"
 [dependencies]
 auto-launch = "0.6.0"
 faccess = "0.2.4"
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.143"
-tao = "0.34.3"
-tray-icon = "0.21.1"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+tao = "0.34.5"
+tray-icon = "0.21.3"
 single-instance = "0.3.3"
-log = "0.4.28"
+log = "0.4.29"
 simplelog = "0.12.2"
-regex-lite = "0.1.7"
+regex-lite = "0.1.9"
 semver = "1.0.27"
-ureq = { version = "3.1.4", default-features = false, features = [
+ureq = { version = "3.2.0", default-features = false, features = [
 	"native-tls"
 ] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 tauri-winrt-notification = "0.7.2"
-windows-registry = "0.6.0"
+windows-registry = "0.6.1"
 windows-core = "0.62.2"
 windows = { version = "0.62.2", features = [
 	"Win32_Devices_FunctionDiscovery",
@@ -46,10 +46,10 @@ windows = { version = "0.62.2", features = [
 	"Win32_UI_Shell_PropertiesSystem",
 	"Devices_Custom",
 ] }
-widestring = "1.2.0"
+widestring = "1.2.1"
 
 [target.'cfg(target_os = "windows")'.build-dependencies]
-winresource = "0.1.20"
+winresource = "0.1.30"
 
 [profile.release]
 opt-level = 3
