@@ -4,13 +4,28 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 pub fn get_executable_path() -> PathBuf {
-    let exe_path = std::env::current_exe().unwrap();
+    let exe_path = std::env::current_exe().expect("failed to determine current executable path");
     // Resolves symbolic links (e.g., when installed via winget)
     std::fs::canonicalize(&exe_path).unwrap_or(exe_path)
 }
 
 pub fn get_executable_directory() -> PathBuf {
-    get_executable_path().parent().unwrap().to_path_buf()
+    get_executable_path()
+        .parent()
+        .expect("executable path has no parent directory")
+        .to_path_buf()
+}
+
+pub fn get_executable_path_str() -> String {
+    get_executable_path()
+        .to_str()
+        .expect("executable path is not valid UTF-8")
+        .to_string()
+}
+
+pub fn log_and_notify_error(title: &str, message: &str) {
+    log::error!("{message}");
+    let _ = send_notification(title, message, NotificationDuration::Long);
 }
 
 pub fn send_notification_debounced(

@@ -1,4 +1,4 @@
-use super::{AudioBackend, AudioDevice, AudioResult, windows_com_policy_config};
+use super::{AudioBackend, AudioDevice, windows_com_policy_config};
 use crate::types::{DeviceRole, DeviceType};
 use regex_lite::Regex;
 use std::ffi::OsStr;
@@ -26,7 +26,7 @@ pub struct WindowsAudioBackend {
 }
 
 impl WindowsAudioBackend {
-    pub fn new() -> AudioResult<Self> {
+    pub fn new() -> anyhow::Result<Self> {
         let enumerator = create_device_enumerator()?;
         Ok(Self {
             enumerator,
@@ -46,7 +46,7 @@ pub struct WindowsAudioDevice {
 }
 
 impl WindowsAudioDevice {
-    pub fn new(device: IMMDevice) -> AudioResult<Self> {
+    pub fn new(device: IMMDevice) -> anyhow::Result<Self> {
         let endpoint = get_audio_endpoint(&device)?;
         let id = get_device_id(&device)?;
         let name = get_device_name(&device)?;
@@ -61,7 +61,7 @@ impl WindowsAudioDevice {
 }
 
 impl AudioBackend for WindowsAudioBackend {
-    fn get_devices(&self, device_type: DeviceType) -> AudioResult<Vec<Box<dyn AudioDevice>>> {
+    fn get_devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>> {
         let endpoint_type = match device_type {
             DeviceType::Output => eRender,
             DeviceType::Input => eCapture,
@@ -77,7 +77,7 @@ impl AudioBackend for WindowsAudioBackend {
         Ok(devices)
     }
 
-    fn get_device_by_id(&self, id: &str) -> AudioResult<Box<dyn AudioDevice>> {
+    fn get_device_by_id(&self, id: &str) -> anyhow::Result<Box<dyn AudioDevice>> {
         let device = get_device_by_id(&self.enumerator, id)?;
         Ok(Box::new(WindowsAudioDevice::new(device)?))
     }
@@ -86,7 +86,7 @@ impl AudioBackend for WindowsAudioBackend {
         &self,
         device_type: DeviceType,
         role: DeviceRole,
-    ) -> AudioResult<Box<dyn AudioDevice>> {
+    ) -> anyhow::Result<Box<dyn AudioDevice>> {
         let flow = match device_type {
             DeviceType::Output => eRender,
             DeviceType::Input => eCapture,
@@ -100,7 +100,7 @@ impl AudioBackend for WindowsAudioBackend {
         Ok(Box::new(WindowsAudioDevice::new(device)?))
     }
 
-    fn set_default_device(&self, device_id: &str, role: DeviceRole) -> AudioResult<()> {
+    fn set_default_device(&self, device_id: &str, role: DeviceRole) -> anyhow::Result<()> {
         let role = match role {
             DeviceRole::Console => eConsole,
             DeviceRole::Multimedia => eMultimedia,
@@ -113,7 +113,7 @@ impl AudioBackend for WindowsAudioBackend {
     fn register_device_change_callback(
         &mut self,
         callback: Box<dyn Fn() + Send + Sync>,
-    ) -> AudioResult<()> {
+    ) -> anyhow::Result<()> {
         let cb: IMMNotificationClient = AudioDevicesChangedCallback { callback }.into();
         register_notification_callback(&self.enumerator, &cb)?;
         self.device_change_callback = Some(cb);
@@ -130,28 +130,28 @@ impl AudioDevice for WindowsAudioDevice {
         self.name.clone()
     }
 
-    fn volume(&self) -> AudioResult<f32> {
+    fn volume(&self) -> anyhow::Result<f32> {
         Ok(get_volume(&self.endpoint)?)
     }
 
-    fn set_volume(&self, volume: f32) -> AudioResult<()> {
+    fn set_volume(&self, volume: f32) -> anyhow::Result<()> {
         Ok(set_volume(&self.endpoint, volume)?)
     }
 
-    fn is_muted(&self) -> AudioResult<bool> {
+    fn is_muted(&self) -> anyhow::Result<bool> {
         Ok(get_mute(&self.endpoint)?)
     }
 
-    fn set_mute(&self, muted: bool) -> AudioResult<()> {
+    fn set_mute(&self, muted: bool) -> anyhow::Result<()> {
         Ok(set_mute(&self.endpoint, muted)?)
     }
 
-    fn is_active(&self) -> AudioResult<bool> {
+    fn is_active(&self) -> anyhow::Result<bool> {
         let state = get_device_state(&self.device)?;
         Ok(state == DEVICE_STATE_ACTIVE)
     }
 
-    fn watch_volume(&self, callback: Box<dyn Fn(Option<f32>) + Send + Sync>) -> AudioResult<()> {
+    fn watch_volume(&self, callback: Box<dyn Fn(Option<f32>) + Send + Sync>) -> anyhow::Result<()> {
         let cb: IAudioEndpointVolumeCallback = VolumeChangeCallback { callback }.into();
         register_control_change_notify(&self.endpoint, &cb)?;
         Ok(())

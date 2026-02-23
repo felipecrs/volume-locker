@@ -1,36 +1,34 @@
 use crate::types::{DeviceRole, DeviceType};
 
-pub type AudioResult<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
-
 #[cfg(target_os = "windows")]
 mod windows_com_policy_config;
 
 pub trait AudioBackend {
-    fn get_devices(&self, device_type: DeviceType) -> AudioResult<Vec<Box<dyn AudioDevice>>>;
-    fn get_device_by_id(&self, id: &str) -> AudioResult<Box<dyn AudioDevice>>;
+    fn get_devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>>;
+    fn get_device_by_id(&self, id: &str) -> anyhow::Result<Box<dyn AudioDevice>>;
     fn get_default_device(
         &self,
         device_type: DeviceType,
         role: DeviceRole,
-    ) -> AudioResult<Box<dyn AudioDevice>>;
-    fn set_default_device(&self, device_id: &str, role: DeviceRole) -> AudioResult<()>;
+    ) -> anyhow::Result<Box<dyn AudioDevice>>;
+    fn set_default_device(&self, device_id: &str, role: DeviceRole) -> anyhow::Result<()>;
 
     fn register_device_change_callback(
         &mut self,
         callback: Box<dyn Fn() + Send + Sync>,
-    ) -> AudioResult<()>;
+    ) -> anyhow::Result<()>;
 }
 
 pub trait AudioDevice {
     fn id(&self) -> String;
     fn name(&self) -> String;
-    fn volume(&self) -> AudioResult<f32>;
-    fn set_volume(&self, volume: f32) -> AudioResult<()>;
-    fn is_muted(&self) -> AudioResult<bool>;
-    fn set_mute(&self, muted: bool) -> AudioResult<()>;
-    fn is_active(&self) -> AudioResult<bool>;
+    fn volume(&self) -> anyhow::Result<f32>;
+    fn set_volume(&self, volume: f32) -> anyhow::Result<()>;
+    fn is_muted(&self) -> anyhow::Result<bool>;
+    fn set_mute(&self, muted: bool) -> anyhow::Result<()>;
+    fn is_active(&self) -> anyhow::Result<bool>;
 
-    fn watch_volume(&self, callback: Box<dyn Fn(Option<f32>) + Send + Sync>) -> AudioResult<()>;
+    fn watch_volume(&self, callback: Box<dyn Fn(Option<f32>) + Send + Sync>) -> anyhow::Result<()>;
 }
 
 #[cfg(target_os = "windows")]
@@ -118,17 +116,14 @@ fn find_device_by_name_and_type(
     backend: &impl AudioBackend,
     target_name: &str,
     device_type: DeviceType,
-) -> AudioResult<String> {
+) -> anyhow::Result<String> {
     let devices = backend.get_devices(device_type)?;
     for device in devices {
         if device.name() == target_name {
             return Ok(device.id());
         }
     }
-    Err(Box::new(std::io::Error::new(
-        std::io::ErrorKind::NotFound,
-        "Device not found",
-    )))
+    anyhow::bail!("Device not found: {target_name}")
 }
 
 pub fn check_and_unmute_device(
@@ -194,79 +189,73 @@ fn enforce_priority_for_type(
     temporary_priority: &Option<String>,
     last_notification_times: &mut HashMap<String, Instant>,
 ) {
-    let mut priority_list = state.get_priority_list(device_type).clone();
+    let mut priority_list = state.get_priority_list(device_type).to_vec();
     if let Some(temp_id) = temporary_priority {
         priority_list.insert(0, temp_id.clone());
     }
 
-    if let Some(target_id) = find_highest_priority_active_device(backend, &priority_list) {
-        let mut switched = false;
+    let Some(target_id) = find_highest_priority_active_device(backend, &priority_list) else {
+        return;
+    };
 
-        // Check Console/Multimedia
-        let is_console_correct = if let Ok(default_device) =
-            backend.get_default_device(device_type, DeviceRole::Console)
-        {
-            default_device.id() == target_id
-        } else {
-            false
+    let mut switched = false;
+
+    let is_console_correct = backend
+        .get_default_device(device_type, DeviceRole::Console)
+        .map(|d| d.id() == target_id)
+        .unwrap_or(false);
+
+    if !is_console_correct {
+        let type_str = match device_type {
+            DeviceType::Output => "output",
+            DeviceType::Input => "input",
         };
+        log::info!(
+            "Enforcing {} priority: Switching to {}",
+            type_str,
+            target_id
+        );
+        let _ = backend.set_default_device(&target_id, DeviceRole::Console);
+        let _ = backend.set_default_device(&target_id, DeviceRole::Multimedia);
+        switched = true;
+    }
 
-        if !is_console_correct {
+    if state.get_switch_communication_device(device_type) {
+        let is_comm_correct = backend
+            .get_default_device(device_type, DeviceRole::Communications)
+            .map(|d| d.id() == target_id)
+            .unwrap_or(false);
+
+        if !is_comm_correct {
             let type_str = match device_type {
                 DeviceType::Output => "output",
                 DeviceType::Input => "input",
             };
             log::info!(
-                "Enforcing {} priority: Switching to {}",
+                "Enforcing {} priority (Communication): Switching to {}",
                 type_str,
                 target_id
             );
-            let _ = backend.set_default_device(&target_id, DeviceRole::Console);
-            let _ = backend.set_default_device(&target_id, DeviceRole::Multimedia);
+            let _ = backend.set_default_device(&target_id, DeviceRole::Communications);
             switched = true;
         }
+    }
 
-        // Check Communications
-        if state.get_switch_communication_device(device_type) {
-            let is_comm_correct = if let Ok(default_device) =
-                backend.get_default_device(device_type, DeviceRole::Communications)
-            {
-                default_device.id() == target_id
-            } else {
-                false
-            };
-
-            if !is_comm_correct {
-                let type_str = match device_type {
-                    DeviceType::Output => "output",
-                    DeviceType::Input => "input",
-                };
-                log::info!(
-                    "Enforcing {} priority (Communication): Switching to {}",
-                    type_str,
-                    target_id
-                );
-                let _ = backend.set_default_device(&target_id, DeviceRole::Communications);
-                switched = true;
-            }
-        }
-
-        if switched && state.get_notify_on_priority_restore(device_type) {
-            let device_name = match backend.get_device_by_id(&target_id) {
-                Ok(d) => d.name(),
-                Err(_) => "Unknown Device".to_string(),
-            };
-            let title = match device_type {
-                DeviceType::Output => "Default Output Device Restored",
-                DeviceType::Input => "Default Input Device Restored",
-            };
-            send_notification_debounced(
-                &format!("priority_restore_{}", target_id),
-                title,
-                &format!("Switched to {} based on priority list.", device_name),
-                last_notification_times,
-            );
-        }
+    if switched && state.get_notify_on_priority_restore(device_type) {
+        let device_name = backend
+            .get_device_by_id(&target_id)
+            .map(|d| d.name())
+            .unwrap_or_else(|_| "Unknown Device".to_string());
+        let title = match device_type {
+            DeviceType::Output => "Default Output Device Restored",
+            DeviceType::Input => "Default Input Device Restored",
+        };
+        send_notification_debounced(
+            &format!("priority_restore_{}", target_id),
+            title,
+            &format!("Switched to {} based on priority list.", device_name),
+            last_notification_times,
+        );
     }
 }
 
@@ -274,12 +263,11 @@ fn find_highest_priority_active_device(
     backend: &impl AudioBackend,
     priority_list: &[String],
 ) -> Option<String> {
-    for device_id in priority_list {
-        if let Ok(device) = backend.get_device_by_id(device_id)
-            && let Ok(true) = device.is_active()
-        {
-            return Some(device_id.clone());
-        }
-    }
-    None
+    priority_list.iter().find_map(|device_id| {
+        backend
+            .get_device_by_id(device_id)
+            .ok()
+            .filter(|d| d.is_active().unwrap_or(false))
+            .map(|_| device_id.clone())
+    })
 }

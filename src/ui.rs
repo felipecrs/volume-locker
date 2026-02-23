@@ -7,7 +7,7 @@ use crate::platform::{
 };
 use crate::types::{DeviceRole, DeviceSettingType, DeviceSettings, DeviceType, MenuItemDeviceInfo};
 use crate::update::UpdateInfo;
-use crate::utils::convert_float_to_percent;
+use crate::utils::{convert_float_to_percent, log_and_notify_error};
 use std::collections::HashMap;
 use tray_icon::menu::{
     CheckMenuItem, Menu, MenuId, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu,
@@ -68,7 +68,7 @@ pub fn rebuild_tray_menu(
     output_devices_heading_item: &MenuItem,
     input_devices_heading_item: &MenuItem,
     update_info: &Option<UpdateInfo>,
-) -> HashMap<MenuId, MenuItemDeviceInfo> {
+) -> anyhow::Result<HashMap<MenuId, MenuItemDeviceInfo>> {
     // Clear the menu
     for _ in 0..tray_menu.items().len() {
         tray_menu.remove_at(0);
@@ -86,7 +86,7 @@ pub fn rebuild_tray_menu(
             backend,
             persistent_state,
             &mut menu_id_to_device,
-        );
+        )?;
     }
 
     // Add Sound settings once after both device sections
@@ -100,7 +100,7 @@ pub fn rebuild_tray_menu(
             device_type: DeviceType::Output, // DeviceType is not relevant here
         },
     );
-    tray_menu.append(&sound_settings_item).unwrap();
+    tray_menu.append(&sound_settings_item)?;
 
     let volume_mixer_item = MenuItem::new("Volume mixer...", true, None);
     menu_id_to_device.insert(
@@ -112,8 +112,8 @@ pub fn rebuild_tray_menu(
             device_type: DeviceType::Output, // DeviceType is not relevant here
         },
     );
-    tray_menu.append(&volume_mixer_item).unwrap();
-    tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
+    tray_menu.append(&volume_mixer_item)?;
+    tray_menu.append(&PredefinedMenuItem::separator())?;
 
     for device_type in [DeviceType::Output, DeviceType::Input] {
         let temporary_priority = match device_type {
@@ -127,16 +127,14 @@ pub fn rebuild_tray_menu(
             persistent_state,
             temporary_priority,
             &mut menu_id_to_device,
-        );
+        )?;
     }
 
-    tray_menu
-        .append(&MenuItem::new(
-            "Temporary default device priority",
-            false,
-            None,
-        ))
-        .unwrap();
+    tray_menu.append(&MenuItem::new(
+        "Temporary default device priority",
+        false,
+        None,
+    ))?;
 
     for device_type in [DeviceType::Output, DeviceType::Input] {
         let devices = backend.get_devices(device_type).unwrap_or_default();
@@ -183,19 +181,19 @@ pub fn rebuild_tray_menu(
                     device_type,
                 },
             );
-            submenu.append(&item).unwrap();
+            submenu.append(&item)?;
         }
-        tray_menu.append(&submenu).unwrap();
+        tray_menu.append(&submenu)?;
     }
-    tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
+    tray_menu.append(&PredefinedMenuItem::separator())?;
 
     // Refresh check items
     auto_launch_check_item.set_checked(auto_launch_enabled);
-    tray_menu.append(auto_launch_check_item).unwrap();
+    tray_menu.append(auto_launch_check_item)?;
 
     auto_update_check_item.set_checked(persistent_state.auto_update_check);
-    tray_menu.append(auto_update_check_item).unwrap();
-    tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
+    tray_menu.append(auto_update_check_item)?;
+    tray_menu.append(&PredefinedMenuItem::separator())?;
 
     let github_item = MenuItem::new("GitHub...", true, None);
     menu_id_to_device.insert(
@@ -207,7 +205,7 @@ pub fn rebuild_tray_menu(
             device_type: DeviceType::Output,
         },
     );
-    tray_menu.append(&github_item).unwrap();
+    tray_menu.append(&github_item)?;
 
     let executable_dir_item = MenuItem::new("Open app folder...", true, None);
     menu_id_to_device.insert(
@@ -219,7 +217,7 @@ pub fn rebuild_tray_menu(
             device_type: DeviceType::Output,
         },
     );
-    tray_menu.append(&executable_dir_item).unwrap();
+    tray_menu.append(&executable_dir_item)?;
 
     // Add update menu item
     let (label, setting_type) = match update_info {
@@ -243,12 +241,12 @@ pub fn rebuild_tray_menu(
             device_type: DeviceType::Output,
         },
     );
-    tray_menu.append(&update_item).unwrap();
-    tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
+    tray_menu.append(&update_item)?;
+    tray_menu.append(&PredefinedMenuItem::separator())?;
 
-    tray_menu.append(quit_item).unwrap();
+    tray_menu.append(quit_item)?;
 
-    menu_id_to_device
+    Ok(menu_id_to_device)
 }
 
 fn append_device_list_to_menu(
@@ -258,8 +256,8 @@ fn append_device_list_to_menu(
     backend: &impl AudioBackend,
     persistent_state: &mut PersistentState,
     menu_id_to_device: &mut HashMap<MenuId, MenuItemDeviceInfo>,
-) {
-    tray_menu.append(heading_item).unwrap();
+) -> anyhow::Result<()> {
+    tray_menu.append(heading_item)?;
 
     let devices = backend.get_devices(device_type).unwrap_or_default();
 
@@ -277,8 +275,7 @@ fn append_device_list_to_menu(
         let is_muted = device.is_muted().unwrap_or(false);
         let is_default = default_device_id
             .as_ref()
-            .map(|id| id == &device_id)
-            .unwrap_or(false);
+            .is_some_and(|id| id == &device_id);
 
         let (is_volume_locked, notify_on_volume_lock, is_unmute_locked, notify_on_unmute_lock) =
             if let Some(settings) = persistent_state.devices.get(&device_id) {
@@ -356,12 +353,12 @@ fn append_device_list_to_menu(
             settings.device_type = device_type;
         }
 
-        submenu.append(&volume_lock_item).unwrap();
-        submenu.append(&unmute_lock_item).unwrap();
-        submenu.append(&PredefinedMenuItem::separator()).unwrap();
-        submenu.append(&volume_notify_item).unwrap();
-        submenu.append(&unmute_notify_item).unwrap();
-        submenu.append(&PredefinedMenuItem::separator()).unwrap();
+        submenu.append(&volume_lock_item)?;
+        submenu.append(&unmute_lock_item)?;
+        submenu.append(&PredefinedMenuItem::separator())?;
+        submenu.append(&volume_notify_item)?;
+        submenu.append(&unmute_notify_item)?;
+        submenu.append(&PredefinedMenuItem::separator())?;
 
         let properties_item = MenuItem::new("Properties...", true, None);
         menu_id_to_device.insert(
@@ -373,7 +370,7 @@ fn append_device_list_to_menu(
                 device_type,
             },
         );
-        submenu.append(&properties_item).unwrap();
+        submenu.append(&properties_item)?;
 
         let settings_item = MenuItem::new("Settings...", true, None);
         menu_id_to_device.insert(
@@ -385,9 +382,9 @@ fn append_device_list_to_menu(
                 device_type,
             },
         );
-        submenu.append(&settings_item).unwrap();
+        submenu.append(&settings_item)?;
 
-        tray_menu.append(&submenu).unwrap();
+        tray_menu.append(&submenu)?;
     }
 
     let properties_label = match device_type {
@@ -404,9 +401,11 @@ fn append_device_list_to_menu(
             device_type,
         },
     );
-    tray_menu.append(&properties_item).unwrap();
+    tray_menu.append(&properties_item)?;
 
-    tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
+    tray_menu.append(&PredefinedMenuItem::separator())?;
+
+    Ok(())
 }
 
 fn append_priority_list_to_menu(
@@ -416,7 +415,7 @@ fn append_priority_list_to_menu(
     persistent_state: &mut PersistentState,
     temporary_priority: &Option<String>,
     menu_id_to_device: &mut HashMap<MenuId, MenuItemDeviceInfo>,
-) {
+) -> anyhow::Result<()> {
     let priority_list = persistent_state.get_priority_list(device_type);
     let priority_label = match device_type {
         DeviceType::Output => "Default output device priority",
@@ -424,7 +423,7 @@ fn append_priority_list_to_menu(
     };
 
     let priority_header = MenuItem::new(priority_label, false, None);
-    tray_menu.append(&priority_header).unwrap();
+    tray_menu.append(&priority_header)?;
 
     // Need available devices for "Add device"
     let devices = backend.get_devices(device_type).unwrap_or_default();
@@ -458,7 +457,7 @@ fn append_priority_list_to_menu(
                 },
             );
         }
-        priority_submenu.append(&move_up_item).unwrap();
+        priority_submenu.append(&move_up_item)?;
 
         let move_down_item = MenuItem::new("Move down", index < priority_list.len() - 1, None);
         if index < priority_list.len() - 1 {
@@ -472,10 +471,8 @@ fn append_priority_list_to_menu(
                 },
             );
         }
-        priority_submenu.append(&move_down_item).unwrap();
-        priority_submenu
-            .append(&PredefinedMenuItem::separator())
-            .unwrap();
+        priority_submenu.append(&move_down_item)?;
+        priority_submenu.append(&PredefinedMenuItem::separator())?;
 
         let move_to_top_item = MenuItem::new("Move to top", index > 0, None);
         if index > 0 {
@@ -489,7 +486,7 @@ fn append_priority_list_to_menu(
                 },
             );
         }
-        priority_submenu.append(&move_to_top_item).unwrap();
+        priority_submenu.append(&move_to_top_item)?;
 
         let move_to_bottom_item =
             MenuItem::new("Move to bottom", index < priority_list.len() - 1, None);
@@ -504,10 +501,8 @@ fn append_priority_list_to_menu(
                 },
             );
         }
-        priority_submenu.append(&move_to_bottom_item).unwrap();
-        priority_submenu
-            .append(&PredefinedMenuItem::separator())
-            .unwrap();
+        priority_submenu.append(&move_to_bottom_item)?;
+        priority_submenu.append(&PredefinedMenuItem::separator())?;
 
         let remove_priority_item = MenuItem::new("Remove device", true, None);
         menu_id_to_device.insert(
@@ -519,9 +514,9 @@ fn append_priority_list_to_menu(
                 device_type,
             },
         );
-        priority_submenu.append(&remove_priority_item).unwrap();
+        priority_submenu.append(&remove_priority_item)?;
 
-        tray_menu.append(&priority_submenu).unwrap();
+        tray_menu.append(&priority_submenu)?;
     }
 
     let mut devices_to_add = Vec::new();
@@ -543,9 +538,9 @@ fn append_priority_list_to_menu(
                 device_type,
             },
         );
-        add_device_submenu.append(&item).unwrap();
+        add_device_submenu.append(&item)?;
     }
-    tray_menu.append(&add_device_submenu).unwrap();
+    tray_menu.append(&add_device_submenu)?;
 
     let notify_on_restore = persistent_state.get_notify_on_priority_restore(device_type);
 
@@ -565,7 +560,7 @@ fn append_priority_list_to_menu(
             device_type,
         },
     );
-    tray_menu.append(&notify_item).unwrap();
+    tray_menu.append(&notify_item)?;
 
     let switch_communication = persistent_state.get_switch_communication_device(device_type);
 
@@ -585,9 +580,11 @@ fn append_priority_list_to_menu(
             device_type,
         },
     );
-    tray_menu.append(&switch_comm_item).unwrap();
+    tray_menu.append(&switch_comm_item)?;
 
-    tray_menu.append(&PredefinedMenuItem::separator()).unwrap();
+    tray_menu.append(&PredefinedMenuItem::separator())?;
+
+    Ok(())
 }
 
 pub struct MenuEventResult {
@@ -643,9 +640,12 @@ pub fn handle_menu_event(
                                     device_settings.volume_percent = convert_float_to_percent(vol);
                                     device_settings.is_volume_locked = true;
                                 } else {
-                                    log::error!(
-                                        "Failed to get volume for device {}, cannot lock.",
-                                        menu_info.name
+                                    log_and_notify_error(
+                                        "Failed to Lock Volume",
+                                        &format!(
+                                            "Failed to get volume for device {}, cannot lock.",
+                                            menu_info.name
+                                        ),
                                     );
                                     device_settings.is_volume_locked = false;
                                 }

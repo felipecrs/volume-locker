@@ -16,6 +16,7 @@ name = "VolumeLocker"
 path = "src/main.rs"
 
 [dependencies]
+anyhow = "1.0.102"
 auto-launch = "0.6.0"
 faccess = "0.2.4"
 serde = { version = "1.0.228", features = ["derive"] }
