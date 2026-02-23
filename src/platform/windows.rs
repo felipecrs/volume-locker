@@ -10,10 +10,12 @@ use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 use windows::core::{HSTRING, Result};
 use windows_registry::CURRENT_USER;
 
-pub fn init_platform(executable_directory: &Path) {
-    unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).unwrap() };
-    // Set AppUserModelID so toast notifications show correct app name and icon
-    let _ = setup_app_aumid(executable_directory);
+pub fn init_platform(executable_directory: &Path) -> anyhow::Result<()> {
+    unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok()? };
+    if let Err(e) = setup_app_aumid(executable_directory) {
+        log::warn!("Failed to set up app AUMID: {e}");
+    }
+    Ok(())
 }
 
 pub fn send_notification(
@@ -35,10 +37,9 @@ pub fn send_notification(
 }
 
 fn setup_app_aumid(executable_directory: &Path) -> Result<()> {
-    // Create registry keys for the AppUserModelID
     let registry_path = format!(r"SOFTWARE\Classes\AppUserModelId\{APP_AUMID}");
     let _ = CURRENT_USER.remove_tree(registry_path.clone());
-    let key = CURRENT_USER.create(registry_path.clone()).unwrap();
+    let key = CURRENT_USER.create(&registry_path)?;
     let _ = key.set_string("DisplayName", APP_NAME);
 
     // Write the icon file to the executable directory and use it as the icon
@@ -108,6 +109,7 @@ pub fn open_url(url: &str) {
 }
 
 pub fn open_app_directory() {
-    let app_dir = crate::utils::get_executable_directory();
-    let _ = Command::new("explorer.exe").arg(app_dir).spawn();
+    let _ = Command::new("explorer.exe")
+        .arg(crate::utils::get_executable_directory())
+        .spawn();
 }

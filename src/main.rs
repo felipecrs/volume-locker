@@ -24,8 +24,9 @@ use crate::ui::{TemporaryPriorities, handle_menu_event, rebuild_tray_menu};
 use crate::update::UpdateInfo;
 use crate::utils::{
     convert_float_to_percent, convert_percent_to_float, get_executable_directory,
-    get_executable_path, send_notification_debounced,
+    get_executable_path_str, log_and_notify_error, send_notification_debounced,
 };
+use anyhow::Context;
 use auto_launch::AutoLaunchBuilder;
 use faccess::PathExt;
 use simplelog::*;
@@ -43,9 +44,17 @@ use tray_icon::{
 };
 
 fn main() {
+    if let Err(e) = run() {
+        eprintln!("Fatal error: {e:#}");
+        log::error!("Fatal error: {e:#}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> anyhow::Result<()> {
     let executable_directory = get_executable_directory();
 
-    init_platform(&executable_directory);
+    init_platform(&executable_directory)?;
 
     if !executable_directory.writable() {
         let error_title = "Volume Locker Directory Not Writable";
@@ -68,7 +77,7 @@ fn main() {
         WriteLogger::new(
             LevelFilter::Info,
             Config::default(),
-            File::create(&log_path).expect("Failed to create log file"),
+            File::create(&log_path).context("failed to create log file")?,
         ),
         #[cfg(debug_assertions)]
         TermLogger::new(
@@ -79,7 +88,7 @@ fn main() {
         ),
     ];
 
-    CombinedLogger::init(loggers).expect("Failed to init logger");
+    CombinedLogger::init(loggers).context("failed to init logger")?;
 
     // Set panic hook to log panic info before exiting
     std::panic::set_hook(Box::new(|panic_info| {
@@ -87,7 +96,7 @@ fn main() {
     }));
 
     // Only allow one instance of the application to run at a time
-    let instance = SingleInstance::new(APP_UID).expect("Failed to create single instance");
+    let instance = SingleInstance::new(APP_UID).context("failed to create single instance")?;
     if !instance.is_single() {
         log::error!("Another instance is already running.");
         std::process::exit(1);
@@ -107,12 +116,12 @@ fn main() {
     }));
     MenuEvent::receiver();
 
-    let app_path = get_executable_path().to_str().unwrap().to_string();
+    let app_path = get_executable_path_str();
     let auto_launch = AutoLaunchBuilder::new()
         .set_app_name(APP_NAME)
         .set_app_path(&app_path)
         .build()
-        .expect("Failed to build auto launch");
+        .context("failed to build auto launch")?;
 
     let output_devices_heading_item = MenuItem::new("Output devices", false, None);
     let input_devices_heading_item = MenuItem::new("Input devices", false, None);
@@ -127,24 +136,26 @@ fn main() {
     // the menu will not be shown on first click
     tray_menu
         .append(&quit_item)
-        .expect("Failed to append quit item");
+        .context("failed to append initial quit item")?;
 
     let mut tray_icon = None;
 
-    let unlocked_icon = tray_icon::Icon::from_resource_name("volume-unlocked-icon", None).unwrap();
-    let locked_icon = tray_icon::Icon::from_resource_name("volume-locked-icon", None).unwrap();
+    let unlocked_icon = tray_icon::Icon::from_resource_name("volume-unlocked-icon", None)
+        .context("failed to load unlocked icon")?;
+    let locked_icon = tray_icon::Icon::from_resource_name("volume-locked-icon", None)
+        .context("failed to load locked icon")?;
 
     let mut menu_id_to_device: HashMap<MenuId, MenuItemDeviceInfo> = HashMap::new();
 
     #[cfg(target_os = "windows")]
-    let mut backend = AudioBackendImpl::new().expect("Failed to initialize audio backend");
+    let mut backend = AudioBackendImpl::new().context("failed to initialize audio backend")?;
 
     let proxy = event_loop.create_proxy();
     backend
         .register_device_change_callback(Box::new(move || {
             let _ = proxy.send_event(UserEvent::DevicesChanged);
         }))
-        .expect("Failed to register device change callback");
+        .context("failed to register device change callback")?;
 
     let mut watched_devices: Vec<Box<dyn AudioDevice>> = Vec::new();
 
@@ -168,15 +179,16 @@ fn main() {
         match event {
             Event::NewEvents(tao::event::StartCause::Init) => {
                 let tooltip = format!("Volume Locker v{}", env!("CARGO_PKG_VERSION"));
-                tray_icon = Some(
-                    TrayIconBuilder::new()
-                        .with_menu(Box::new(tray_menu.clone()))
-                        .with_tooltip(&tooltip)
-                        .with_icon(unlocked_icon.clone())
-                        .with_id(APP_UID)
-                        .build()
-                        .expect("Failed to build tray icon"),
-                );
+                match TrayIconBuilder::new()
+                    .with_menu(Box::new(tray_menu.clone()))
+                    .with_tooltip(&tooltip)
+                    .with_icon(unlocked_icon.clone())
+                    .with_id(APP_UID)
+                    .build()
+                {
+                    Ok(icon) => tray_icon = Some(icon),
+                    Err(e) => log::error!("Failed to build tray icon: {e}"),
+                }
 
                 if persistent_state.auto_update_check {
                     update_info = update::check(false);
@@ -188,10 +200,16 @@ fn main() {
             Event::UserEvent(UserEvent::Menu(event)) => {
                 if event.id == auto_launch_check_item.id() {
                     let checked = auto_launch_check_item.is_checked();
-                    if checked {
-                        auto_launch.enable().unwrap();
+                    let result = if checked {
+                        auto_launch.enable()
                     } else {
-                        auto_launch.disable().unwrap();
+                        auto_launch.disable()
+                    };
+                    if let Err(e) = result {
+                        log_and_notify_error(
+                            "Failed to Toggle Auto Launch",
+                            &format!("Failed to toggle auto launch: {e}"),
+                        );
                     }
                 } else if event.id == auto_update_check_item.id() {
                     persistent_state.auto_update_check = auto_update_check_item.is_checked();
@@ -229,19 +247,27 @@ fn main() {
             Event::UserEvent(UserEvent::TrayIcon(TrayIconEvent::Click { button, .. }))
                 if button == MouseButton::Right || button == MouseButton::Left =>
             {
-                menu_id_to_device = rebuild_tray_menu(
+                match rebuild_tray_menu(
                     &tray_menu,
                     &backend,
                     &mut persistent_state,
                     &temporary_priorities,
-                    auto_launch.is_enabled().unwrap(),
+                    auto_launch.is_enabled().unwrap_or(false),
                     &auto_launch_check_item,
                     &auto_update_check_item,
                     &quit_item,
                     &output_devices_heading_item,
                     &input_devices_heading_item,
                     &update_info,
-                );
+                ) {
+                    Ok(map) => menu_id_to_device = map,
+                    Err(e) => {
+                        log_and_notify_error(
+                            "Failed to Rebuild Tray Menu",
+                            &format!("Failed to rebuild tray menu: {e}"),
+                        );
+                    }
+                }
             }
 
             Event::UserEvent(UserEvent::VolumeChanged(event)) => {

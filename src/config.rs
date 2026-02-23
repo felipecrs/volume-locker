@@ -28,7 +28,7 @@ impl PersistentState {
         }
     }
 
-    pub fn get_priority_list(&self, device_type: DeviceType) -> &Vec<String> {
+    pub fn get_priority_list(&self, device_type: DeviceType) -> &[String] {
         match device_type {
             DeviceType::Output => &self.output_priority_list,
             DeviceType::Input => &self.input_priority_list,
@@ -84,14 +84,18 @@ fn get_state_file_path() -> PathBuf {
 }
 
 pub fn save_state(state: &PersistentState) {
-    if let Ok(json) = serde_json::to_string_pretty(state) {
-        let _ = fs::write(get_state_file_path(), json);
+    match serde_json::to_string_pretty(state) {
+        Ok(json) => {
+            if let Err(e) = fs::write(get_state_file_path(), json) {
+                log::error!("Failed to write state file: {e}");
+            }
+        }
+        Err(e) => log::error!("Failed to serialize state: {e}"),
     }
 }
 
 pub fn load_state() -> PersistentState {
-    let state_path = get_state_file_path();
-    fs::read_to_string(state_path)
+    fs::read_to_string(get_state_file_path())
         .ok()
         .and_then(|data| serde_json::from_str(&data).ok())
         .unwrap_or_default()

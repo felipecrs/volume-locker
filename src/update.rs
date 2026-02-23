@@ -1,6 +1,7 @@
 use crate::consts::{CURRENT_VERSION, GITHUB_RELEASE_ASSET, GITHUB_REPO_URL};
 use crate::platform::{NotificationDuration, send_notification};
-use crate::utils::get_executable_path;
+use crate::utils::{get_executable_path_str, log_and_notify_error};
+use anyhow::Context;
 use semver::Version;
 use std::fs::File;
 use std::io;
@@ -30,7 +31,7 @@ pub struct UpdateInfo {
     pub release_url: String,
 }
 
-fn check_for_updates() -> Result<Option<UpdateInfo>, Box<dyn std::error::Error>> {
+fn check_for_updates() -> anyhow::Result<Option<UpdateInfo>> {
     log::info!("Checking for updates...");
 
     let agent = create_agent();
@@ -42,7 +43,7 @@ fn check_for_updates() -> Result<Option<UpdateInfo>, Box<dyn std::error::Error>>
     let latest_tag = release_url
         .rsplit('/')
         .next()
-        .ok_or("Could not extract version from redirect URL")?;
+        .context("could not extract version from redirect URL")?;
 
     let latest_version = latest_tag.trim_start_matches('v');
 
@@ -94,13 +95,13 @@ pub fn check(manual_request: bool) -> Option<UpdateInfo> {
             None
         }
         Err(e) => {
-            log::error!("Failed to check for updates: {}", e);
             if manual_request {
-                let _ = send_notification(
+                log_and_notify_error(
                     "Update Check Failed",
-                    "Failed to check for updates. Please check your internet connection.",
-                    NotificationDuration::Long,
+                    &format!("Failed to check for updates: {e}"),
                 );
+            } else {
+                log::error!("Failed to check for updates: {e}");
             }
             None
         }
@@ -112,23 +113,18 @@ pub fn perform(update_info: &UpdateInfo) {
     log::info!("Starting update to {}", update_info.latest_version);
 
     if let Err(e) = try_perform(update_info) {
-        log::error!("Update failed: {}", e);
-        let _ = send_notification(
-            "Update Failed",
-            "Please download the update manually from GitHub.",
-            NotificationDuration::Long,
-        );
+        log_and_notify_error("Update Failed", &format!("Update failed: {e}"));
     }
 }
 
-fn try_perform(update_info: &UpdateInfo) -> Result<(), Box<dyn std::error::Error>> {
+fn try_perform(update_info: &UpdateInfo) -> anyhow::Result<()> {
     // Open release notes
     let _ = Command::new("rundll32")
         .args(["url.dll,FileProtocolHandler", &update_info.release_url])
         .spawn();
 
-    let exe_path = get_executable_path().to_str().unwrap().to_string();
-    let temp_download = format!("{}.download", exe_path);
+    let exe_str = get_executable_path_str();
+    let temp_download = format!("{}.download", exe_str);
 
     log::info!("Downloading from {}", update_info.download_url);
 
@@ -152,7 +148,7 @@ fn try_perform(update_info: &UpdateInfo) -> Result<(), Box<dyn std::error::Error
             "Start-Sleep -Seconds 2; Move-Item -Path $env:VL_TEMP_PATH -Destination $env:VL_EXE_PATH -Force; Start-Process $env:VL_EXE_PATH",
         ])
         .env("VL_TEMP_PATH", &temp_download)
-        .env("VL_EXE_PATH", exe_path)
+        .env("VL_EXE_PATH", exe_str)
         .creation_flags(0x08000000) // CREATE_NO_WINDOW
         .spawn()?;
 
