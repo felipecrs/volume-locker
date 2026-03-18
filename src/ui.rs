@@ -187,12 +187,31 @@ pub fn rebuild_tray_menu(
     }
     tray_menu.append(&PredefinedMenuItem::separator())?;
 
+    // Preferences section
+    tray_menu.append(&MenuItem::new("Preferences", false, None))?;
+
     // Refresh check items
     auto_launch_check_item.set_checked(auto_launch_enabled);
     tray_menu.append(auto_launch_check_item)?;
 
     auto_update_check_item.set_checked(persistent_state.auto_update_check);
     tray_menu.append(auto_update_check_item)?;
+    tray_menu.append(&PredefinedMenuItem::separator())?;
+
+    // Troubleshooting section
+    tray_menu.append(&MenuItem::new("Troubleshooting", false, None))?;
+
+    let executable_dir_item = MenuItem::new("Open app folder...", true, None);
+    menu_id_to_device.insert(
+        executable_dir_item.id().clone(),
+        MenuItemDeviceInfo {
+            device_id: String::new(),
+            setting_type: DeviceSettingType::OpenAppDirectory,
+            name: "Open app folder...".to_string(),
+            device_type: DeviceType::Output,
+        },
+    );
+    tray_menu.append(&executable_dir_item)?;
     tray_menu.append(&PredefinedMenuItem::separator())?;
 
     let github_item = MenuItem::new("GitHub...", true, None);
@@ -206,18 +225,6 @@ pub fn rebuild_tray_menu(
         },
     );
     tray_menu.append(&github_item)?;
-
-    let executable_dir_item = MenuItem::new("Open app folder...", true, None);
-    menu_id_to_device.insert(
-        executable_dir_item.id().clone(),
-        MenuItemDeviceInfo {
-            device_id: String::new(),
-            setting_type: DeviceSettingType::OpenAppDirectory,
-            name: "Open app folder...".to_string(),
-            device_type: DeviceType::Output,
-        },
-    );
-    tray_menu.append(&executable_dir_item)?;
 
     // Add update menu item
     let (label, setting_type) = match update_info {

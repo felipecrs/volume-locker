@@ -128,7 +128,7 @@ fn run() -> anyhow::Result<()> {
     let auto_launch_check_item: CheckMenuItem =
         CheckMenuItem::new("Auto launch on startup", true, false, None);
     let auto_update_check_item: CheckMenuItem =
-        CheckMenuItem::new("Check for updates on startup", true, false, None);
+        CheckMenuItem::new("Check for updates on launch", true, false, None);
     let quit_item = MenuItem::new("Quit", true, None);
 
     let tray_menu = Menu::new();
