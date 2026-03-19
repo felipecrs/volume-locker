@@ -75,6 +75,7 @@ pub fn rebuild_tray_menu(
     }
     let mut menu_id_to_device: HashMap<MenuId, MenuItemDeviceInfo> = HashMap::new();
 
+    // Devices section
     for (heading_item, device_type) in [
         (output_devices_heading_item, DeviceType::Output),
         (input_devices_heading_item, DeviceType::Input),
@@ -89,7 +90,7 @@ pub fn rebuild_tray_menu(
         )?;
     }
 
-    // Add Sound settings once after both device sections
+    // Sound shortcuts section
     let sound_settings_item = MenuItem::new("Sound settings...", true, None);
     menu_id_to_device.insert(
         sound_settings_item.id().clone(),
@@ -115,6 +116,7 @@ pub fn rebuild_tray_menu(
     tray_menu.append(&volume_mixer_item)?;
     tray_menu.append(&PredefinedMenuItem::separator())?;
 
+    // Default device priority section
     for device_type in [DeviceType::Output, DeviceType::Input] {
         let temporary_priority = match device_type {
             DeviceType::Output => &temporary_priorities.output,
@@ -130,6 +132,7 @@ pub fn rebuild_tray_menu(
         )?;
     }
 
+    // Temporary priority section
     tray_menu.append(&MenuItem::new(
         "Temporary default device priority",
         false,
@@ -190,7 +193,6 @@ pub fn rebuild_tray_menu(
     // Preferences section
     tray_menu.append(&MenuItem::new("Preferences", false, None))?;
 
-    // Refresh check items
     auto_launch_check_item.set_checked(auto_launch_enabled);
     tray_menu.append(auto_launch_check_item)?;
 
@@ -212,6 +214,8 @@ pub fn rebuild_tray_menu(
         },
     );
     tray_menu.append(&executable_dir_item)?;
+
+    // Update section
     tray_menu.append(&PredefinedMenuItem::separator())?;
 
     let github_item = MenuItem::new("GitHub...", true, None);
@@ -226,7 +230,6 @@ pub fn rebuild_tray_menu(
     );
     tray_menu.append(&github_item)?;
 
-    // Add update menu item
     let (label, setting_type) = match update_info {
         Some(info) => (
             format!("Update to {}...", info.latest_version),
@@ -249,6 +252,8 @@ pub fn rebuild_tray_menu(
         },
     );
     tray_menu.append(&update_item)?;
+
+    // Quit section
     tray_menu.append(&PredefinedMenuItem::separator())?;
 
     tray_menu.append(quit_item)?;

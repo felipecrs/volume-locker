@@ -42,7 +42,7 @@ fn setup_app_aumid(executable_directory: &Path) -> Result<()> {
     let key = CURRENT_USER.create(&registry_path)?;
     let _ = key.set_string("DisplayName", APP_NAME);
 
-    // Write the icon file to the executable directory and use it as the icon
+    // We need an icon file for the AUMID to work properly
     let png_path = executable_directory.join(PNG_ICON_FILE_NAME);
     if let Err(e) = fs::write(&png_path, PNG_ICON_BYTES) {
         log::warn!("Failed to write {PNG_ICON_FILE_NAME} icon: {e}");

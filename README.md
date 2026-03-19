@@ -18,7 +18,7 @@ https://github.com/user-attachments/assets/b7e47898-ee9f-42b4-a804-f107beac4e98
 
 ## Getting Started
 
-Simply grab the executable from the [releases page](https://github.com/felipecrs/volume-locker/releases), place it somewhere like `C:\Apps\Volume Locker\Volume Locker.exe` and run it.
+Simply grab the executable from the [releases page](https://github.com/felipecrs/volume-locker/releases), place it somewhere like `C:\Apps\Volume Locker\VolumeLocker.exe` and run it.
 
 Or you can copy and paste this into _Windows PowerShell_, and execute:
 
@@ -86,4 +86,3 @@ Special thanks to:
 - [tauri-apps/tray-icon](https://github.com/tauri-apps/tray-icon) for the tray icon implementation.
 - [GitHub Copilot](https://github.com/copilot/) for assisting with the code structure, syntax, and feature implementation.
 - [@jmb](https://github.com/jmb) for the [great icon design](https://github.com/Templarian/MaterialDesign/issues/7714).
-
