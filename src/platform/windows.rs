@@ -1,10 +1,8 @@
 use crate::consts::{APP_AUMID, APP_NAME, PNG_ICON_BYTES, PNG_ICON_FILE_NAME};
-use crate::platform::NotificationDuration;
 use crate::types::DeviceType;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use tauri_winrt_notification::Toast;
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
 use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 use windows::core::{HSTRING, Result};
@@ -16,24 +14,6 @@ pub fn init_platform(executable_directory: &Path) -> anyhow::Result<()> {
         log::warn!("Failed to set up app AUMID: {e}");
     }
     Ok(())
-}
-
-pub fn send_notification(
-    title: &str,
-    message: &str,
-    duration: NotificationDuration,
-) -> std::result::Result<(), String> {
-    let duration = match duration {
-        NotificationDuration::Short => tauri_winrt_notification::Duration::Short,
-        NotificationDuration::Long => tauri_winrt_notification::Duration::Long,
-    };
-
-    Toast::new(APP_AUMID)
-        .title(title)
-        .text1(message)
-        .duration(duration)
-        .show()
-        .map_err(|e| e.to_string())
 }
 
 fn setup_app_aumid(executable_directory: &Path) -> Result<()> {
@@ -102,14 +82,9 @@ pub fn open_volume_mixer() {
 }
 
 pub fn open_url(url: &str) {
-    let _ = Command::new("rundll32.exe")
-        .arg("url.dll,FileProtocolHandler")
-        .arg(url)
-        .spawn();
+    let _ = open::that_detached(url);
 }
 
 pub fn open_app_directory() {
-    let _ = Command::new("explorer.exe")
-        .arg(crate::utils::get_executable_directory())
-        .spawn();
+    let _ = open::that_detached(crate::utils::get_executable_directory());
 }
