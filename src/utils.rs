@@ -54,3 +54,13 @@ pub fn convert_float_to_percent(volume: f32) -> f32 {
 pub fn convert_percent_to_float(volume: f32) -> f32 {
     volume / 100.0
 }
+
+/// Open a path in the system file explorer.
+pub fn open_path(path: &std::path::Path) {
+    let _ = open::that_detached(path);
+}
+
+/// Open a URL in the default browser.
+pub fn open_url(url: &str) {
+    let _ = open::that_detached(url);
+}

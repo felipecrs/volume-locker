@@ -17,7 +17,7 @@ use crate::audio::{
     get_unmute_notification_details, migrate_device_ids,
 };
 use crate::config::{load_state, save_state};
-use crate::consts::{APP_NAME, APP_UID, LOG_FILE_NAME};
+use crate::consts::{APP_NAME, APP_UID, CURRENT_VERSION, LOG_FILE_NAME};
 use crate::platform::{NotificationDuration, init_platform, send_notification};
 use crate::types::{MenuItemDeviceInfo, UserEvent, VolumeChangedEvent};
 use crate::ui::{TemporaryPriorities, handle_menu_event, rebuild_tray_menu};
@@ -127,7 +127,7 @@ fn run() -> anyhow::Result<()> {
     let input_devices_heading_item = MenuItem::new("Input devices", false, None);
     let auto_launch_check_item: CheckMenuItem =
         CheckMenuItem::new("Auto-launch on startup", true, false, None);
-    let auto_update_check_item: CheckMenuItem =
+    let check_updates_on_launch_item: CheckMenuItem =
         CheckMenuItem::new("Check for updates on launch", true, false, None);
     let quit_item = MenuItem::new("Quit", true, None);
 
@@ -187,7 +187,7 @@ fn run() -> anyhow::Result<()> {
 
         match event {
             Event::NewEvents(tao::event::StartCause::Init) => {
-                let tooltip = format!("Volume Locker v{}", env!("CARGO_PKG_VERSION"));
+                let tooltip = format!("{APP_NAME} v{CURRENT_VERSION}");
                 match TrayIconBuilder::new()
                     .with_menu(Box::new(tray_menu.clone()))
                     .with_tooltip(&tooltip)
@@ -199,7 +199,7 @@ fn run() -> anyhow::Result<()> {
                     Err(e) => log::error!("Failed to build tray icon: {e}"),
                 }
 
-                if persistent_state.auto_update_check {
+                if persistent_state.check_updates_on_launch {
                     update_info = update::check(false);
                 }
 
@@ -220,8 +220,8 @@ fn run() -> anyhow::Result<()> {
                             &format!("Failed to toggle auto-launch: {e}"),
                         );
                     }
-                } else if event.id == auto_update_check_item.id() {
-                    persistent_state.auto_update_check = auto_update_check_item.is_checked();
+                } else if event.id == check_updates_on_launch_item.id() {
+                    persistent_state.check_updates_on_launch = check_updates_on_launch_item.is_checked();
                     let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
                 } else if event.id == quit_item.id() {
                     tray_icon.take();
@@ -263,7 +263,7 @@ fn run() -> anyhow::Result<()> {
                     &temporary_priorities,
                     auto_launch.is_enabled().unwrap_or(false),
                     &auto_launch_check_item,
-                    &auto_update_check_item,
+                    &check_updates_on_launch_item,
                     &quit_item,
                     &output_devices_heading_item,
                     &input_devices_heading_item,

@@ -9,6 +9,11 @@ mod windows;
 #[cfg(target_os = "windows")]
 pub use self::windows::*;
 
+#[cfg(not(target_os = "windows"))]
+pub fn init_platform(_executable_directory: &std::path::Path) -> anyhow::Result<()> {
+    Ok(())
+}
+
 pub fn send_notification(
     title: &str,
     message: &str,

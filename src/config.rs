@@ -18,7 +18,7 @@ pub struct PersistentState {
     pub notify_on_priority_restore_input: bool,
     pub switch_communication_device_output: bool,
     pub switch_communication_device_input: bool,
-    pub auto_update_check: bool,
+    pub check_updates_on_launch: bool,
 }
 
 impl PersistentState {
@@ -75,7 +75,7 @@ impl Default for PersistentState {
             notify_on_priority_restore_input: false,
             switch_communication_device_output: true,
             switch_communication_device_input: true,
-            auto_update_check: true,
+            check_updates_on_launch: true,
         }
     }
 }

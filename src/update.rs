@@ -35,7 +35,7 @@ fn check_for_updates() -> anyhow::Result<Option<UpdateInfo>> {
     log::info!("Checking for updates...");
 
     let agent = create_agent();
-    let releases_url = format!("{}/releases/latest", GITHUB_REPO_URL);
+    let releases_url = format!("{GITHUB_REPO_URL}/releases/latest");
     let response = agent.head(&releases_url).call()?;
     let release_url = response.get_uri().to_string();
 
@@ -47,15 +47,14 @@ fn check_for_updates() -> anyhow::Result<Option<UpdateInfo>> {
 
     let latest_version = latest_tag.trim_start_matches('v');
 
-    log::info!("Current: {}, Latest: {}", CURRENT_VERSION, latest_version);
+    log::info!("Current: {CURRENT_VERSION}, Latest: {latest_version}");
 
     // Compare versions - if parsing fails, assume no update available
     if Version::parse(latest_version).ok() > Version::parse(CURRENT_VERSION).ok() {
         Ok(Some(UpdateInfo {
             latest_version: latest_version.to_string(),
             download_url: format!(
-                "{}/releases/download/{}/{}",
-                GITHUB_REPO_URL, latest_tag, GITHUB_RELEASE_ASSET
+                "{GITHUB_REPO_URL}/releases/download/{latest_tag}/{GITHUB_RELEASE_ASSET}"
             ),
             release_url,
         }))
@@ -64,13 +63,13 @@ fn check_for_updates() -> anyhow::Result<Option<UpdateInfo>> {
     }
 }
 
-/// Checks for updates and optionally notifies the user
-/// If `manual_request` is true, shows notifications for all outcomes
-/// If `manual_request` is false, only shows notification when update is available
+/// Checks for updates and optionally notifies the user.
+/// If `manual_request` is true, shows notifications for all outcomes.
+/// If `manual_request` is false, only shows notification when update is available.
 pub fn check(manual_request: bool) -> Option<UpdateInfo> {
     match check_for_updates() {
         Ok(Some(info)) => {
-            log::info!("Update available: {}", info.latest_version);
+            log::info!("Update available: v{}", info.latest_version);
             if manual_request {
                 let _ = send_notification(
                     "Update Available",
@@ -108,7 +107,7 @@ pub fn check(manual_request: bool) -> Option<UpdateInfo> {
     }
 }
 
-/// Performs the update or shows error notification on failure
+/// Performs the update or shows error notification on failure.
 pub fn perform(update_info: &UpdateInfo) {
     log::info!("Starting update to {}", update_info.latest_version);
 
@@ -122,7 +121,7 @@ fn try_perform(update_info: &UpdateInfo) -> anyhow::Result<()> {
     let _ = open::that_detached(&update_info.release_url);
 
     let exe_str = get_executable_path_str();
-    let temp_download = format!("{}.download", exe_str);
+    let temp_download = format!("{exe_str}.download");
 
     log::info!("Downloading from {}", update_info.download_url);
 

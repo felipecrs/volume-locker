@@ -2,12 +2,12 @@ use crate::audio::AudioBackend;
 use crate::config::PersistentState;
 use crate::consts::GITHUB_REPO_URL;
 use crate::platform::{
-    open_app_directory, open_device_properties, open_device_settings, open_devices_list,
-    open_sound_settings, open_url, open_volume_mixer,
+    open_device_properties, open_device_settings, open_devices_list,
+    open_sound_settings, open_volume_mixer,
 };
 use crate::types::{DeviceRole, DeviceSettingType, DeviceSettings, DeviceType, MenuItemDeviceInfo};
 use crate::update::UpdateInfo;
-use crate::utils::{convert_float_to_percent, log_and_notify_error};
+use crate::utils::{convert_float_to_percent, get_executable_directory, log_and_notify_error, open_path, open_url};
 use std::collections::HashMap;
 use tray_icon::menu::{
     CheckMenuItem, Menu, MenuId, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu,
@@ -63,7 +63,7 @@ pub fn rebuild_tray_menu(
     temporary_priorities: &TemporaryPriorities,
     auto_launch_enabled: bool,
     auto_launch_check_item: &CheckMenuItem,
-    auto_update_check_item: &CheckMenuItem,
+    check_updates_on_launch_item: &CheckMenuItem,
     quit_item: &MenuItem,
     output_devices_heading_item: &MenuItem,
     input_devices_heading_item: &MenuItem,
@@ -196,8 +196,8 @@ pub fn rebuild_tray_menu(
     auto_launch_check_item.set_checked(auto_launch_enabled);
     tray_menu.append(auto_launch_check_item)?;
 
-    auto_update_check_item.set_checked(persistent_state.auto_update_check);
-    tray_menu.append(auto_update_check_item)?;
+    check_updates_on_launch_item.set_checked(persistent_state.check_updates_on_launch);
+    tray_menu.append(check_updates_on_launch_item)?;
     tray_menu.append(&PredefinedMenuItem::separator())?;
 
     // Troubleshooting section
@@ -848,7 +848,7 @@ pub fn handle_menu_event(
             open_url(GITHUB_REPO_URL);
         }
         DeviceSettingType::OpenAppDirectory => {
-            open_app_directory();
+            open_path(&get_executable_directory());
         }
     }
 

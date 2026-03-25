@@ -80,11 +80,3 @@ pub fn open_volume_mixer() {
         .arg("ms-settings:apps-volume")
         .spawn();
 }
-
-pub fn open_url(url: &str) {
-    let _ = open::that_detached(url);
-}
-
-pub fn open_app_directory() {
-    let _ = open::that_detached(crate::utils::get_executable_directory());
-}
