@@ -2,6 +2,7 @@ use crate::consts::STATE_FILE_NAME;
 use crate::types::DeviceSettings;
 use crate::types::DeviceType;
 use crate::utils::get_executable_directory;
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -84,19 +85,53 @@ fn get_state_file_path() -> PathBuf {
 }
 
 pub fn save_state(state: &PersistentState) {
-    match serde_json::to_string_pretty(state) {
-        Ok(json) => {
-            if let Err(e) = fs::write(get_state_file_path(), json) {
-                log::error!("Failed to write state file: {e}");
-            }
+    let path = get_state_file_path();
+    let tmp_path = path.with_extension("json.tmp");
+
+    let json = match serde_json::to_string_pretty(state) {
+        Ok(json) => json,
+        Err(e) => {
+            log::error!("Failed to serialize state: {e}");
+            return;
         }
-        Err(e) => log::error!("Failed to serialize state: {e}"),
+    };
+
+    // Write to a temporary file first, then atomically rename to the target.
+    // This prevents corruption if the process is interrupted mid-write.
+    if let Err(e) = fs::write(&tmp_path, &json) {
+        log::error!(
+            "Failed to write temporary state file '{}': {e}",
+            tmp_path.display()
+        );
+        return;
+    }
+
+    if let Err(e) = fs::rename(&tmp_path, &path) {
+        log::error!(
+            "Failed to rename temporary state file '{}' to '{}': {e}",
+            tmp_path.display(),
+            path.display()
+        );
+        // Try to clean up the temporary file
+        let _ = fs::remove_file(&tmp_path);
     }
 }
 
-pub fn load_state() -> PersistentState {
-    fs::read_to_string(get_state_file_path())
-        .ok()
-        .and_then(|data| serde_json::from_str(&data).ok())
-        .unwrap_or_default()
+pub fn load_state() -> anyhow::Result<PersistentState> {
+    let path = get_state_file_path();
+
+    let data = match fs::read_to_string(&path) {
+        Ok(data) => data,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // First run or file was deleted intentionally — use defaults
+            return Ok(PersistentState::default());
+        }
+        Err(e) => {
+            return Err(anyhow::anyhow!(e))
+                .with_context(|| format!("Failed to read state file '{}'", path.display()));
+        }
+    };
+
+    serde_json::from_str(&data)
+        .with_context(|| format!("Failed to parse state file '{}'", path.display()))
 }
