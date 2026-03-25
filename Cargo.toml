@@ -28,7 +28,7 @@ log = "0.4.29"
 simplelog = "0.12.2"
 regex-lite = "0.1.9"
 semver = "1.0.27"
-ureq = { version = "3.2.0", default-features = false, features = [
+ureq = { version = "3.3.0", default-features = false, features = [
 	"native-tls",
 ] }
 notify-rust = "4.12.0"
