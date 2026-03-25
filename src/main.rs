@@ -121,12 +121,12 @@ fn run() -> anyhow::Result<()> {
         .set_app_name(APP_NAME)
         .set_app_path(&app_path)
         .build()
-        .context("failed to build auto launch")?;
+        .context("failed to build auto-launch")?;
 
     let output_devices_heading_item = MenuItem::new("Output devices", false, None);
     let input_devices_heading_item = MenuItem::new("Input devices", false, None);
     let auto_launch_check_item: CheckMenuItem =
-        CheckMenuItem::new("Auto launch on startup", true, false, None);
+        CheckMenuItem::new("Auto-launch on startup", true, false, None);
     let auto_update_check_item: CheckMenuItem =
         CheckMenuItem::new("Check for updates on launch", true, false, None);
     let quit_item = MenuItem::new("Quit", true, None);
@@ -216,8 +216,8 @@ fn run() -> anyhow::Result<()> {
                     };
                     if let Err(e) = result {
                         log_and_notify_error(
-                            "Failed to Toggle Auto Launch",
-                            &format!("Failed to toggle auto launch: {e}"),
+                            "Failed to Toggle Auto-Launch",
+                            &format!("Failed to toggle auto-launch: {e}"),
                         );
                     }
                 } else if event.id == auto_update_check_item.id() {
