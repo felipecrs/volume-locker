@@ -119,9 +119,7 @@ pub fn perform(update_info: &UpdateInfo) {
 
 fn try_perform(update_info: &UpdateInfo) -> anyhow::Result<()> {
     // Open release notes
-    let _ = Command::new("rundll32")
-        .args(["url.dll,FileProtocolHandler", &update_info.release_url])
-        .spawn();
+    let _ = open::that_detached(&update_info.release_url);
 
     let exe_str = get_executable_path_str();
     let temp_download = format!("{}.download", exe_str);
