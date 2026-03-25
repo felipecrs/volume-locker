@@ -168,7 +168,16 @@ fn run() -> anyhow::Result<()> {
 
     let main_proxy = event_loop.create_proxy();
 
-    let mut persistent_state = load_state();
+    let mut persistent_state = match load_state() {
+        Ok(state) => state,
+        Err(e) => {
+            let message = format!(
+                "{e}\n\nExiting to prevent overwriting your preferences. Please check the state file."
+            );
+            log_and_notify_error("Failed to Load Preferences", &message);
+            std::process::exit(1);
+        }
+    };
     log::info!("Loaded: {persistent_state:?}");
 
     let mut update_info: Option<UpdateInfo> = None;
