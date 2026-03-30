@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 pub fn get_executable_path() -> PathBuf {
     let exe_path = std::env::current_exe().expect("failed to determine current executable path");
     // Resolves symbolic links (e.g., when installed via winget)
-    std::fs::canonicalize(&exe_path).unwrap_or(exe_path)
+    dunce::canonicalize(&exe_path).unwrap_or(exe_path)
 }
 
 pub fn get_executable_directory() -> PathBuf {

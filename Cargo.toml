@@ -18,6 +18,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0.102"
 auto-launch = "0.6.0"
+dunce = "1.0.5"
 faccess = "0.2.4"
 log = "0.4.29"
 notify-rust = "4.12.0"
