@@ -2,12 +2,14 @@ use crate::audio::AudioBackend;
 use crate::config::PersistentState;
 use crate::consts::GITHUB_REPO_URL;
 use crate::platform::{
-    open_device_properties, open_device_settings, open_devices_list,
-    open_sound_settings, open_volume_mixer,
+    open_device_properties, open_device_settings, open_devices_list, open_sound_settings,
+    open_volume_mixer,
 };
 use crate::types::{DeviceRole, DeviceSettingType, DeviceSettings, DeviceType, MenuItemDeviceInfo};
 use crate::update::UpdateInfo;
-use crate::utils::{convert_float_to_percent, get_executable_directory, log_and_notify_error, open_path, open_url};
+use crate::utils::{
+    convert_float_to_percent, get_executable_directory, log_and_notify_error, open_path, open_url,
+};
 use std::collections::HashMap;
 use tray_icon::menu::{
     CheckMenuItem, Menu, MenuId, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu,
