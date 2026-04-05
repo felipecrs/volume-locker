@@ -193,6 +193,8 @@ fn run() -> anyhow::Result<()> {
                     .with_tooltip(&tooltip)
                     .with_icon(unlocked_icon.clone())
                     .with_id(APP_UID)
+                    .with_menu_on_left_click(false)
+                    .with_menu_on_right_click(false)
                     .build()
                 {
                     Ok(icon) => tray_icon = Some(icon),
@@ -269,7 +271,12 @@ fn run() -> anyhow::Result<()> {
                     &input_devices_heading_item,
                     &update_info,
                 ) {
-                    Ok(map) => menu_id_to_device = map,
+                    Ok(map) => {
+                        menu_id_to_device = map;
+                        if let Some(tray_icon) = &tray_icon {
+                            tray_icon.show_menu();
+                        }
+                    }
                     Err(e) => {
                         log_and_notify_error(
                             "Failed to Rebuild Tray Menu",
