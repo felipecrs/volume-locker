@@ -190,6 +190,8 @@ impl IPolicyConfig {
     }
 }
 
+// SAFETY: IPolicyConfig vtable layout matches the COM ABI defined by Windows.
+// IID is the documented interface GUID for IPolicyConfig.
 unsafe impl Interface for IPolicyConfig {
     type Vtable = IPolicyConfig_Vtbl;
     const IID: GUID = GUID::from_u128(0xf8679f50_850a_41cf_9c72_430f290290c8);

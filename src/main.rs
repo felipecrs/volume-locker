@@ -16,11 +16,11 @@ use crate::audio::{
     AudioBackend, AudioBackendImpl, AudioDevice, check_and_unmute_device, enforce_priorities,
     get_unmute_notification_details, migrate_device_ids,
 };
-use crate::config::{load_state, save_state};
+use crate::config::{PersistentState, load_state, save_state};
 use crate::consts::{APP_NAME, APP_UID, CURRENT_VERSION, LOG_FILE_NAME};
 use crate::platform::{NotificationDuration, init_platform, send_notification};
-use crate::types::{MenuItemDeviceInfo, UserEvent, VolumeChangedEvent};
-use crate::ui::{TemporaryPriorities, handle_menu_event, rebuild_tray_menu};
+use crate::types::{MenuItemDeviceInfo, TemporaryPriorities, UserEvent, VolumeChangedEvent};
+use crate::ui::{TrayMenuItems, handle_menu_event, rebuild_tray_menu};
 use crate::update::UpdateInfo;
 use crate::utils::{
     convert_float_to_percent, convert_percent_to_float, get_executable_directory,
@@ -36,12 +36,235 @@ use std::fs::File;
 use std::time::Instant;
 use tao::{
     event::Event,
-    event_loop::{ControlFlow, EventLoopBuilder},
+    event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy},
 };
 use tray_icon::{
     MouseButton, TrayIconBuilder, TrayIconEvent,
     menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem},
 };
+
+struct AppState {
+    persistent_state: PersistentState,
+    menu_id_to_device: HashMap<MenuId, MenuItemDeviceInfo>,
+    watched_devices: Vec<Box<dyn AudioDevice>>,
+    last_notification_times: HashMap<String, Instant>,
+    temporary_priorities: TemporaryPriorities,
+    update_info: Option<UpdateInfo>,
+    tray_icon: Option<tray_icon::TrayIcon>,
+    backend: AudioBackendImpl,
+}
+
+impl AppState {
+    fn handle_volume_changed(&mut self, event: VolumeChangedEvent) {
+        let VolumeChangedEvent {
+            device_id,
+            new_volume,
+        } = event;
+
+        let device_settings = match self.persistent_state.devices.get_mut(&device_id) {
+            Some(s) => s,
+            None => return,
+        };
+
+        let device = match self.backend.get_device_by_id(&device_id) {
+            Ok(d) => d,
+            Err(e) => {
+                log::error!(
+                    "Failed to get device by id for {}: {}",
+                    device_settings.name,
+                    e
+                );
+                return;
+            }
+        };
+
+        let new_volume: f32 = match new_volume {
+            Some(v) => v,
+            None => match device.volume() {
+                Ok(v) => v,
+                Err(e) => {
+                    log::error!("Failed to get volume for {device_id}: {e}");
+                    return;
+                }
+            },
+        };
+        let new_volume_percent = convert_float_to_percent(new_volume);
+
+        if device_settings.is_volume_locked {
+            let target_volume_percent = device_settings.volume_percent;
+            if new_volume_percent != target_volume_percent {
+                let target_volume = convert_percent_to_float(target_volume_percent);
+                let device_name = device.name();
+
+                if let Err(e) = device.set_volume(target_volume) {
+                    log::error!(
+                        "Failed to set volume of {device_name} to {target_volume_percent}%: {e}"
+                    );
+                    return;
+                }
+                log::info!(
+                    "Restored volume of {device_name} from {new_volume_percent}% to {target_volume_percent}%"
+                );
+                if device_settings.notify_on_volume_lock {
+                    send_notification_debounced(
+                        &format!("volume_restore_{}", device_id),
+                        "Volume Restored",
+                        &format!(
+                            "The volume of {device_name} has been restored from {new_volume_percent}% to {target_volume_percent}%."
+                        ),
+                        &mut self.last_notification_times,
+                    );
+                }
+            }
+        }
+
+        if device_settings.is_unmute_locked {
+            let (notification_title, notification_suffix) =
+                get_unmute_notification_details(device_settings.device_type);
+
+            if let Err(e) = check_and_unmute_device(
+                device.as_ref(),
+                device_settings.notify_on_unmute_lock,
+                notification_title,
+                notification_suffix,
+                &mut self.last_notification_times,
+            ) {
+                log::error!("Failed to unmute {}: {e:#}", device_settings.name);
+            }
+        }
+    }
+
+    fn handle_devices_changed(
+        &mut self,
+        proxy: &EventLoopProxy<UserEvent>,
+        locked_icon: &tray_icon::Icon,
+        unlocked_icon: &tray_icon::Icon,
+    ) {
+        log::info!("Reloading list of watched devices...");
+
+        let migrations_occurred = migrate_device_ids(&self.backend, &mut self.persistent_state);
+
+        if migrations_occurred {
+            if let Err(e) = save_state(&self.persistent_state) {
+                log_and_notify_error(
+                    "Failed to Save State",
+                    &format!("Failed to save state after device migration: {e}"),
+                );
+            } else {
+                log::info!("Saved state after device migration");
+            }
+        }
+
+        enforce_priorities(
+            &self.backend,
+            &self.persistent_state,
+            &mut self.last_notification_times,
+            &self.temporary_priorities,
+        );
+
+        self.watched_devices.clear();
+        let mut some_locked = false;
+
+        for (device_id, device_settings) in self.persistent_state.devices.iter() {
+            if !device_settings.is_volume_locked && !device_settings.is_unmute_locked {
+                continue;
+            }
+
+            let device = match self.backend.get_device_by_id(device_id) {
+                Ok(device) => device,
+                Err(e) => {
+                    log::warn!(
+                        "Not watching volume of {} as failed to get its device by id: {}",
+                        device_settings.name,
+                        e
+                    );
+                    continue;
+                }
+            };
+
+            if let Ok(false) = device.is_active() {
+                log::info!(
+                    "Not watching volume of {} as it is not active",
+                    device_settings.name
+                );
+                continue;
+            }
+
+            let volume_proxy = proxy.clone();
+            let dev_id = device_id.clone();
+            if let Err(e) = device.watch_volume(Box::new(move |vol| {
+                let _ = volume_proxy.send_event(UserEvent::VolumeChanged(VolumeChangedEvent {
+                    device_id: dev_id.clone(),
+                    new_volume: vol,
+                }));
+            })) {
+                log::warn!(
+                    "Not watching volume of {} as failed to register for volume changes: {}",
+                    device_settings.name,
+                    e
+                );
+                continue;
+            }
+
+            if device_settings.is_unmute_locked {
+                let (notification_title, notification_suffix) =
+                    get_unmute_notification_details(device_settings.device_type);
+
+                if let Err(e) = check_and_unmute_device(
+                    device.as_ref(),
+                    device_settings.notify_on_unmute_lock,
+                    notification_title,
+                    notification_suffix,
+                    &mut self.last_notification_times,
+                ) {
+                    log::error!("Failed to unmute {}: {e:#}", device_settings.name);
+                }
+            }
+
+            self.watched_devices.push(device);
+
+            log::info!(
+                "Watching volume of {} (Locked: {}, Unmute: {})",
+                device_settings.name,
+                device_settings.is_volume_locked,
+                device_settings.is_unmute_locked
+            );
+
+            if let Err(e) = proxy.send_event(UserEvent::VolumeChanged(VolumeChangedEvent {
+                device_id: device_id.clone(),
+                new_volume: None,
+            })) {
+                log::warn!("Failed to send VolumeChanged event: {e}");
+            }
+
+            some_locked = true;
+        }
+
+        if let Some(tray_icon) = &self.tray_icon {
+            if some_locked {
+                if let Err(e) = tray_icon.set_icon(Some(locked_icon.clone())) {
+                    log::error!("Failed to update tray icon to locked: {e}");
+                }
+            } else if let Err(e) = tray_icon.set_icon(Some(unlocked_icon.clone())) {
+                log::error!("Failed to update tray icon to unlocked: {e}");
+            }
+        }
+    }
+
+    fn handle_configuration_changed(&mut self, proxy: &EventLoopProxy<UserEvent>) {
+        if let Err(e) = save_state(&self.persistent_state) {
+            log_and_notify_error(
+                "Failed to Save State",
+                &format!("Failed to save state: {e}"),
+            );
+        } else {
+            log::info!("Saved: {:?}", self.persistent_state);
+        }
+        if let Err(e) = proxy.send_event(UserEvent::DevicesChanged) {
+            log::warn!("Failed to send DevicesChanged event: {e}");
+        }
+    }
+}
 
 fn main() {
     if let Err(e) = run() {
@@ -52,7 +275,7 @@ fn main() {
 }
 
 fn run() -> anyhow::Result<()> {
-    let executable_directory = get_executable_directory();
+    let executable_directory = get_executable_directory()?;
 
     init_platform(&executable_directory)?;
 
@@ -90,7 +313,7 @@ fn run() -> anyhow::Result<()> {
 
     CombinedLogger::init(loggers).context("failed to init logger")?;
 
-    // Set panic hook to log panic info before exiting
+    // windows_subsystem = "windows" suppresses stderr, so log panics before exit
     std::panic::set_hook(Box::new(|panic_info| {
         log::error!("Panic occurred: {panic_info}");
     }));
@@ -106,17 +329,21 @@ fn run() -> anyhow::Result<()> {
 
     let proxy = event_loop.create_proxy();
     TrayIconEvent::set_event_handler(Some(move |event| {
-        let _ = proxy.send_event(UserEvent::TrayIcon(event));
+        if let Err(e) = proxy.send_event(UserEvent::TrayIcon(event)) {
+            log::warn!("Failed to send TrayIcon event: {e}");
+        }
     }));
     TrayIconEvent::receiver();
 
     let proxy = event_loop.create_proxy();
     MenuEvent::set_event_handler(Some(move |event| {
-        let _ = proxy.send_event(UserEvent::Menu(event));
+        if let Err(e) = proxy.send_event(UserEvent::Menu(event)) {
+            log::warn!("Failed to send Menu event: {e}");
+        }
     }));
     MenuEvent::receiver();
 
-    let app_path = get_executable_path_str();
+    let app_path = get_executable_path_str()?;
     let auto_launch = AutoLaunchBuilder::new()
         .set_app_name(APP_NAME)
         .set_app_path(&app_path)
@@ -138,14 +365,10 @@ fn run() -> anyhow::Result<()> {
         .append(&quit_item)
         .context("failed to append initial quit item")?;
 
-    let mut tray_icon = None;
-
     let unlocked_icon = tray_icon::Icon::from_resource_name("volume-unlocked-icon", None)
         .context("failed to load unlocked icon")?;
     let locked_icon = tray_icon::Icon::from_resource_name("volume-locked-icon", None)
         .context("failed to load locked icon")?;
-
-    let mut menu_id_to_device: HashMap<MenuId, MenuItemDeviceInfo> = HashMap::new();
 
     #[cfg(target_os = "windows")]
     let mut backend = AudioBackendImpl::new().context("failed to initialize audio backend")?;
@@ -153,22 +376,15 @@ fn run() -> anyhow::Result<()> {
     let proxy = event_loop.create_proxy();
     backend
         .register_device_change_callback(Box::new(move || {
-            let _ = proxy.send_event(UserEvent::DevicesChanged);
+            if let Err(e) = proxy.send_event(UserEvent::DevicesChanged) {
+                log::warn!("Failed to send DevicesChanged event: {e}");
+            }
         }))
         .context("failed to register device change callback")?;
 
-    let mut watched_devices: Vec<Box<dyn AudioDevice>> = Vec::new();
-
-    let mut last_notification_times: HashMap<String, Instant> = HashMap::new();
-
-    let mut temporary_priorities = TemporaryPriorities {
-        output: None,
-        input: None,
-    };
-
     let main_proxy = event_loop.create_proxy();
 
-    let mut persistent_state = match load_state() {
+    let persistent_state = match load_state() {
         Ok(state) => state,
         Err(e) => {
             let message = format!(
@@ -180,7 +396,19 @@ fn run() -> anyhow::Result<()> {
     };
     log::info!("Loaded: {persistent_state:?}");
 
-    let mut update_info: Option<UpdateInfo> = None;
+    let mut app = AppState {
+        persistent_state,
+        menu_id_to_device: HashMap::new(),
+        watched_devices: Vec::new(),
+        last_notification_times: HashMap::new(),
+        temporary_priorities: TemporaryPriorities {
+            output: None,
+            input: None,
+        },
+        update_info: None,
+        tray_icon: None,
+        backend,
+    };
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -197,12 +425,12 @@ fn run() -> anyhow::Result<()> {
                     .with_menu_on_right_click(false)
                     .build()
                 {
-                    Ok(icon) => tray_icon = Some(icon),
+                    Ok(icon) => app.tray_icon = Some(icon),
                     Err(e) => log::error!("Failed to build tray icon: {e}"),
                 }
 
-                if persistent_state.check_updates_on_launch {
-                    update_info = update::check(false);
+                if app.persistent_state.check_updates_on_launch {
+                    app.update_info = update::check(false);
                 }
 
                 let _ = main_proxy.send_event(UserEvent::DevicesChanged);
@@ -223,20 +451,21 @@ fn run() -> anyhow::Result<()> {
                         );
                     }
                 } else if event.id == check_updates_on_launch_item.id() {
-                    persistent_state.check_updates_on_launch = check_updates_on_launch_item.is_checked();
+                    app.persistent_state.check_updates_on_launch =
+                        check_updates_on_launch_item.is_checked();
                     let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
                 } else if event.id == quit_item.id() {
-                    tray_icon.take();
+                    app.tray_icon.take();
                     *control_flow = ControlFlow::Exit;
-                } else if let Some(menu_info) = menu_id_to_device.get(&event.id) {
+                } else if let Some(menu_info) = app.menu_id_to_device.get(&event.id) {
                     let result = handle_menu_event(
                         &event,
                         menu_info,
                         &tray_menu,
-                        &mut persistent_state,
-                        &backend,
-                        &mut temporary_priorities,
-                        &update_info,
+                        &mut app.persistent_state,
+                        &app.backend,
+                        &mut app.temporary_priorities,
+                        &app.update_info,
                     );
 
                     if result.devices_changed {
@@ -249,7 +478,7 @@ fn run() -> anyhow::Result<()> {
 
                     match result.update_action {
                         ui::UpdateAction::Perform(info) => update::perform(&info),
-                        ui::UpdateAction::Check => update_info = update::check(true),
+                        ui::UpdateAction::Check => app.update_info = update::check(true),
                         ui::UpdateAction::None => {}
                     }
                 }
@@ -260,20 +489,22 @@ fn run() -> anyhow::Result<()> {
             {
                 match rebuild_tray_menu(
                     &tray_menu,
-                    &backend,
-                    &mut persistent_state,
-                    &temporary_priorities,
+                    &app.backend,
+                    &mut app.persistent_state,
+                    &app.temporary_priorities,
                     auto_launch.is_enabled().unwrap_or(false),
-                    &auto_launch_check_item,
-                    &check_updates_on_launch_item,
-                    &quit_item,
-                    &output_devices_heading_item,
-                    &input_devices_heading_item,
-                    &update_info,
+                    &TrayMenuItems {
+                        auto_launch_check_item: &auto_launch_check_item,
+                        check_updates_on_launch_item: &check_updates_on_launch_item,
+                        quit_item: &quit_item,
+                        output_devices_heading_item: &output_devices_heading_item,
+                        input_devices_heading_item: &input_devices_heading_item,
+                    },
+                    &app.update_info,
                 ) {
                     Ok(map) => {
-                        menu_id_to_device = map;
-                        if let Some(tray_icon) = &tray_icon {
+                        app.menu_id_to_device = map;
+                        if let Some(tray_icon) = &app.tray_icon {
                             tray_icon.show_menu();
                         }
                     }
@@ -287,199 +518,15 @@ fn run() -> anyhow::Result<()> {
             }
 
             Event::UserEvent(UserEvent::VolumeChanged(event)) => {
-                let VolumeChangedEvent {
-                    device_id,
-                    new_volume,
-                } = event;
-
-                // We need to check if the device is in our managed list
-                if let Some(device_settings) = persistent_state.devices.get_mut(&device_id) {
-                    let device = match backend.get_device_by_id(&device_id) {
-                        Ok(d) => d,
-                        Err(e) => {
-                            log::error!(
-                                "Failed to get device by id for {}: {}",
-                                device_settings.name,
-                                e
-                            );
-                            return;
-                        }
-                    };
-
-                    let new_volume: f32 = match new_volume {
-                        Some(v) => v,
-                        None => match device.volume() {
-                            Ok(v) => v,
-                            Err(e) => {
-                                log::error!("Failed to get volume for {device_id}: {e}");
-                                return;
-                            }
-                        },
-                    };
-                    let new_volume_percent = convert_float_to_percent(new_volume);
-
-                    // Check volume lock
-                    if device_settings.is_volume_locked {
-                        let target_volume_percent = device_settings.volume_percent;
-                        if new_volume_percent != target_volume_percent {
-                            let target_volume = convert_percent_to_float(target_volume_percent);
-                            let device_name = device.name();
-
-                            if let Err(e) = device.set_volume(target_volume) {
-                                log::error!(
-                                    "Failed to set volume of {device_name} to {target_volume_percent}%: {e}"
-                                );
-                                return;
-                            }
-                            log::info!(
-                                "Restored volume of {device_name} from {new_volume_percent}% to {target_volume_percent}%"
-                            );
-                            if device_settings.notify_on_volume_lock {
-                                send_notification_debounced(
-                                    &format!("volume_restore_{}", device_id),
-                                    "Volume Restored",
-                                    &format!(
-                                        "The volume of {device_name} has been restored from {new_volume_percent}% to {target_volume_percent}%."
-                                    ),
-                                    &mut last_notification_times,
-                                );
-                            }
-                        }
-                    }
-
-                    // Check unmute lock
-                    if device_settings.is_unmute_locked {
-                        let device_name = device_settings.name.clone();
-                        let (notification_title, notification_suffix) =
-                            get_unmute_notification_details(device_settings.device_type);
-
-                        check_and_unmute_device(
-                            device.as_ref(),
-                            &device_name,
-                            device_settings.notify_on_unmute_lock,
-                            notification_title,
-                            notification_suffix,
-                            &mut last_notification_times,
-                        );
-                    }
-                }
+                app.handle_volume_changed(event);
             }
 
             Event::UserEvent(UserEvent::DevicesChanged) => {
-                log::info!("Reloading list of watched devices...");
-
-                // Migrate device IDs if they have changed, and save if any migrations occurred
-                let migrations_occurred = migrate_device_ids(&backend, &mut persistent_state);
-
-                if migrations_occurred {
-                    save_state(&persistent_state);
-                    log::info!("Saved state after device migration");
-                }
-
-                enforce_priorities(
-                    &backend,
-                    &persistent_state,
-                    &mut last_notification_times,
-                    &temporary_priorities,
-                );
-
-                watched_devices.clear();
-                let mut some_locked = false;
-
-                for (device_id, device_settings) in persistent_state.devices.iter() {
-                    // Only watch if at least one setting is enabled
-                    if !device_settings.is_volume_locked && !device_settings.is_unmute_locked {
-                        continue;
-                    }
-
-                    let device = match backend.get_device_by_id(device_id) {
-                        Ok(device) => device,
-                        Err(e) => {
-                            log::warn!(
-                                "Not watching volume of {} as failed to get its device by id: {}",
-                                device_settings.name,
-                                e
-                            );
-                            continue;
-                        }
-                    };
-
-                    if let Ok(false) = device.is_active() {
-                        log::info!(
-                            "Not watching volume of {} as it is not active",
-                            device_settings.name
-                        );
-                        continue;
-                    }
-
-                    let proxy = main_proxy.clone();
-                    let dev_id = device_id.clone();
-                    if let Err(e) = device.watch_volume(Box::new(move |vol| {
-                        let _ = proxy.send_event(UserEvent::VolumeChanged(
-                            VolumeChangedEvent {
-                                device_id: dev_id.clone(),
-                                new_volume: vol,
-                            },
-                        ));
-                    })) {
-                        log::warn!(
-                            "Not watching volume of {} as failed to register for volume changes: {}",
-                            device_settings.name,
-                            e
-                        );
-                        continue;
-                    }
-
-                    // Enforce unmute on refresh if enabled
-                    if device_settings.is_unmute_locked {
-                        let (notification_title, notification_suffix) =
-                            get_unmute_notification_details(device_settings.device_type);
-
-                        check_and_unmute_device(
-                            device.as_ref(),
-                            &device_settings.name,
-                            device_settings.notify_on_unmute_lock,
-                            notification_title,
-                            notification_suffix,
-                            &mut last_notification_times,
-                        );
-                    }
-
-                    watched_devices.push(device);
-
-                    log::info!(
-                        "Watching volume of {} (Locked: {}, Unmute: {})",
-                        device_settings.name,
-                        device_settings.is_volume_locked,
-                        device_settings.is_unmute_locked
-                    );
-
-                    let _ = main_proxy.send_event(UserEvent::VolumeChanged(
-                        VolumeChangedEvent {
-                            device_id: device_id.clone(),
-                            new_volume: None,
-                        },
-                    ));
-
-                    some_locked = true;
-                }
-
-                if let Some(tray_icon) = &tray_icon {
-                    if some_locked {
-                        if let Err(e) = tray_icon.set_icon(Some(locked_icon.clone())) {
-                            log::error!("Failed to update tray icon to locked: {e}");
-                        }
-                    } else if let Err(e) = tray_icon.set_icon(Some(unlocked_icon.clone())) {
-                        log::error!("Failed to update tray icon to unlocked: {e}");
-                    }
-                }
-
+                app.handle_devices_changed(&main_proxy, &locked_icon, &unlocked_icon);
             }
 
             Event::UserEvent(UserEvent::ConfigurationChanged) => {
-                save_state(&persistent_state);
-                log::info!("Saved: {persistent_state:?}");
-                let _ = main_proxy.send_event(UserEvent::DevicesChanged);
+                app.handle_configuration_changed(&main_proxy);
             }
 
             _ => {}

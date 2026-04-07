@@ -6,6 +6,8 @@ fn main() {
         res.set_icon_with_id("icons/volume-locked.ico", "volume-locked-icon");
         res.set_icon_with_id("icons/volume-unlocked.ico", "volume-unlocked-icon");
         res.set_language(0x0009); // English
-        res.compile().expect("failed to compile Windows resources");
+        if let Err(e) = res.compile() {
+            panic!("failed to compile Windows resources: {e}");
+        }
     }
 }

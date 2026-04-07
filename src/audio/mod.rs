@@ -36,120 +36,38 @@ mod windows;
 #[cfg(target_os = "windows")]
 pub use self::windows::WindowsAudioBackend as AudioBackendImpl;
 
-use crate::config::PersistentState;
-use crate::types::DeviceSettings;
-use crate::ui::TemporaryPriorities;
+mod migration;
+mod priority;
+
+pub use migration::migrate_device_ids;
+pub use priority::enforce_priorities;
+
 use crate::utils::send_notification_debounced;
 use std::collections::HashMap;
 use std::time::Instant;
 
-pub fn migrate_device_ids(
-    backend: &impl AudioBackend,
-    persistent_state: &mut PersistentState,
-) -> bool {
-    let mut devices_to_migrate: Vec<(String, DeviceSettings)> = Vec::new();
-    let mut devices_to_update: Vec<(String, DeviceSettings)> = Vec::new();
-
-    // Check which devices need migration
-    for (device_id, device_settings) in persistent_state.devices.iter() {
-        if let Ok(device) = backend.get_device_by_id(device_id) {
-            // Device exists, check if name has changed
-            let current_name = device.name();
-            if current_name != device_settings.name {
-                log::info!(
-                    "Device {} with ID {} had the name changed to {}",
-                    device_settings.name,
-                    device_id,
-                    current_name,
-                );
-                let mut updated_settings = device_settings.clone();
-                updated_settings.name = current_name;
-                devices_to_update.push((device_id.clone(), updated_settings));
-            }
-        } else {
-            devices_to_migrate.push((device_id.clone(), device_settings.clone()));
-        }
-    }
-
-    // Check if any migrations will occur
-    let migrations_occurred = !devices_to_update.is_empty() || !devices_to_migrate.is_empty();
-
-    // Apply the name updates
-    for (device_id, updated_settings) in devices_to_update {
-        persistent_state.devices.insert(device_id, updated_settings);
-    }
-
-    // Attempt to migrate each device
-    for (old_device_id, device_settings) in devices_to_migrate {
-        let device_name = device_settings.name.clone();
-        if let Ok(new_device_id) =
-            find_device_by_name_and_type(backend, &device_name, device_settings.device_type)
-        {
-            // Swap the old device with the new one
-            persistent_state.devices.remove(&old_device_id);
-            persistent_state
-                .devices
-                .insert(new_device_id.clone(), device_settings.clone());
-
-            // Update priority lists
-            let priority_list = match device_settings.device_type {
-                DeviceType::Output => &mut persistent_state.output_priority_list,
-                DeviceType::Input => &mut persistent_state.input_priority_list,
-            };
-
-            if let Some(pos) = priority_list.iter().position(|id| id == &old_device_id) {
-                priority_list[pos] = new_device_id.clone();
-            }
-
-            log::info!("Migrated device {device_name} from ID {old_device_id} to {new_device_id}");
-        } else {
-            log::warn!(
-                "Device {device_name} with ID {old_device_id} could not be found, keeping it in case it returns"
-            );
-        }
-    }
-
-    migrations_occurred
-}
-
-fn find_device_by_name_and_type(
-    backend: &impl AudioBackend,
-    target_name: &str,
-    device_type: DeviceType,
-) -> anyhow::Result<String> {
-    let devices = backend.get_devices(device_type)?;
-    for device in devices {
-        if device.name() == target_name {
-            return Ok(device.id());
-        }
-    }
-    anyhow::bail!("Device not found: {target_name}")
-}
-
 pub fn check_and_unmute_device(
     device: &dyn AudioDevice,
-    device_name: &str,
     notify: bool,
     notification_title: &str,
     notification_message_suffix: &str,
     last_notification_times: &mut HashMap<String, Instant>,
-) {
-    if let Ok(true) = device.is_muted() {
-        if let Err(e) = device.set_mute(false) {
-            log::error!("Failed to unmute {device_name}: {e}");
-        } else {
-            log::info!("Unmuted {device_name} due to lock settings");
-            if notify {
-                let message = format!("{device_name} {notification_message_suffix}");
-                send_notification_debounced(
-                    &format!("unmute_{}", device.id()),
-                    notification_title,
-                    &message,
-                    last_notification_times,
-                );
-            }
+) -> anyhow::Result<()> {
+    if device.is_muted()? {
+        device.set_mute(false)?;
+        let device_name = device.name();
+        log::info!("Unmuted {device_name} due to lock settings");
+        if notify {
+            let message = format!("{device_name} {notification_message_suffix}");
+            send_notification_debounced(
+                &format!("unmute_{}", device.id()),
+                notification_title,
+                &message,
+                last_notification_times,
+            );
         }
     }
+    Ok(())
 }
 
 pub fn get_unmute_notification_details(device_type: DeviceType) -> (&'static str, &'static str) {
@@ -160,114 +78,261 @@ pub fn get_unmute_notification_details(device_type: DeviceType) -> (&'static str
     (title, "was unmuted due to Keep unmuted setting.")
 }
 
-pub fn enforce_priorities(
-    backend: &impl AudioBackend,
-    state: &PersistentState,
-    last_notification_times: &mut HashMap<String, Instant>,
-    temporary_priorities: &TemporaryPriorities,
-) {
-    enforce_priority_for_type(
-        backend,
-        state,
-        DeviceType::Output,
-        &temporary_priorities.output,
-        last_notification_times,
-    );
-    enforce_priority_for_type(
-        backend,
-        state,
-        DeviceType::Input,
-        &temporary_priorities.input,
-        last_notification_times,
-    );
-}
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use crate::config::PersistentState;
+    use crate::types::{DeviceSettings, TemporaryPriorities};
+    use std::cell::RefCell;
+    use std::collections::HashMap;
 
-fn enforce_priority_for_type(
-    backend: &impl AudioBackend,
-    state: &PersistentState,
-    device_type: DeviceType,
-    temporary_priority: &Option<String>,
-    last_notification_times: &mut HashMap<String, Instant>,
-) {
-    let mut priority_list = state.get_priority_list(device_type).to_vec();
-    if let Some(temp_id) = temporary_priority {
-        priority_list.insert(0, temp_id.clone());
+    pub(crate) struct MockDevice {
+        pub(crate) id: String,
+        pub(crate) name: String,
+        pub(crate) active: bool,
+        pub(crate) device_type: DeviceType,
+        pub(crate) volume: RefCell<f32>,
+        pub(crate) muted: RefCell<bool>,
     }
 
-    let Some(target_id) = find_highest_priority_active_device(backend, &priority_list) else {
-        return;
-    };
-
-    let mut switched = false;
-
-    let is_console_correct = backend
-        .get_default_device(device_type, DeviceRole::Console)
-        .map(|d| d.id() == target_id)
-        .unwrap_or(false);
-
-    if !is_console_correct {
-        let type_str = match device_type {
-            DeviceType::Output => "output",
-            DeviceType::Input => "input",
-        };
-        log::info!(
-            "Enforcing {} priority: Switching to {}",
-            type_str,
-            target_id
-        );
-        let _ = backend.set_default_device(&target_id, DeviceRole::Console);
-        let _ = backend.set_default_device(&target_id, DeviceRole::Multimedia);
-        switched = true;
-    }
-
-    if state.get_switch_communication_device(device_type) {
-        let is_comm_correct = backend
-            .get_default_device(device_type, DeviceRole::Communications)
-            .map(|d| d.id() == target_id)
-            .unwrap_or(false);
-
-        if !is_comm_correct {
-            let type_str = match device_type {
-                DeviceType::Output => "output",
-                DeviceType::Input => "input",
-            };
-            log::info!(
-                "Enforcing {} priority (Communication): Switching to {}",
-                type_str,
-                target_id
-            );
-            let _ = backend.set_default_device(&target_id, DeviceRole::Communications);
-            switched = true;
+    impl MockDevice {
+        pub(crate) fn new(id: &str, name: &str, active: bool) -> Self {
+            Self {
+                id: id.to_string(),
+                name: name.to_string(),
+                active,
+                device_type: DeviceType::Output,
+                volume: RefCell::new(1.0),
+                muted: RefCell::new(false),
+            }
         }
     }
 
-    if switched && state.get_notify_on_priority_restore(device_type) {
-        let device_name = backend
-            .get_device_by_id(&target_id)
-            .map(|d| d.name())
-            .unwrap_or_else(|_| "Unknown Device".to_string());
-        let title = match device_type {
-            DeviceType::Output => "Default Output Device Restored",
-            DeviceType::Input => "Default Input Device Restored",
-        };
-        send_notification_debounced(
-            &format!("priority_restore_{}", target_id),
-            title,
-            &format!("Switched to {} based on priority list.", device_name),
-            last_notification_times,
-        );
+    impl AudioDevice for MockDevice {
+        fn id(&self) -> String {
+            self.id.clone()
+        }
+        fn name(&self) -> String {
+            self.name.clone()
+        }
+        fn volume(&self) -> anyhow::Result<f32> {
+            Ok(*self.volume.borrow())
+        }
+        fn set_volume(&self, volume: f32) -> anyhow::Result<()> {
+            *self.volume.borrow_mut() = volume;
+            Ok(())
+        }
+        fn is_muted(&self) -> anyhow::Result<bool> {
+            Ok(*self.muted.borrow())
+        }
+        fn set_mute(&self, muted: bool) -> anyhow::Result<()> {
+            *self.muted.borrow_mut() = muted;
+            Ok(())
+        }
+        fn is_active(&self) -> anyhow::Result<bool> {
+            Ok(self.active)
+        }
+        fn watch_volume(
+            &self,
+            _callback: Box<dyn Fn(Option<f32>) + Send + Sync>,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
     }
-}
 
-fn find_highest_priority_active_device(
-    backend: &impl AudioBackend,
-    priority_list: &[String],
-) -> Option<String> {
-    priority_list.iter().find_map(|device_id| {
-        backend
-            .get_device_by_id(device_id)
-            .ok()
-            .filter(|d| d.is_active().unwrap_or(false))
-            .map(|_| device_id.clone())
-    })
+    pub(crate) struct MockAudioBackend {
+        pub(crate) devices: Vec<MockDevice>,
+        pub(crate) default_console: RefCell<HashMap<DeviceType, String>>,
+        pub(crate) default_multimedia: RefCell<HashMap<DeviceType, String>>,
+        pub(crate) default_communications: RefCell<HashMap<DeviceType, String>>,
+    }
+
+    impl MockAudioBackend {
+        pub(crate) fn new(devices: Vec<MockDevice>) -> Self {
+            Self {
+                devices,
+                default_console: RefCell::new(HashMap::new()),
+                default_multimedia: RefCell::new(HashMap::new()),
+                default_communications: RefCell::new(HashMap::new()),
+            }
+        }
+
+        pub(crate) fn set_default(&self, device_id: &str, device_type: DeviceType) {
+            self.default_console
+                .borrow_mut()
+                .insert(device_type, device_id.to_string());
+            self.default_multimedia
+                .borrow_mut()
+                .insert(device_type, device_id.to_string());
+        }
+    }
+
+    impl AudioBackend for MockAudioBackend {
+        fn get_devices(
+            &self,
+            device_type: DeviceType,
+        ) -> anyhow::Result<Vec<Box<dyn AudioDevice>>> {
+            let _ = device_type;
+            Ok(self
+                .devices
+                .iter()
+                .map(|d| {
+                    Box::new(MockDevice::new(&d.id, &d.name, d.active)) as Box<dyn AudioDevice>
+                })
+                .collect())
+        }
+
+        fn get_device_by_id(&self, id: &str) -> anyhow::Result<Box<dyn AudioDevice>> {
+            self.devices
+                .iter()
+                .find(|d| d.id == id)
+                .map(|d| {
+                    Box::new(MockDevice::new(&d.id, &d.name, d.active)) as Box<dyn AudioDevice>
+                })
+                .ok_or_else(|| anyhow::anyhow!("Device not found: {id}"))
+        }
+
+        fn get_default_device(
+            &self,
+            device_type: DeviceType,
+            role: DeviceRole,
+        ) -> anyhow::Result<Box<dyn AudioDevice>> {
+            let map = match role {
+                DeviceRole::Console => self.default_console.borrow(),
+                DeviceRole::Multimedia => self.default_multimedia.borrow(),
+                DeviceRole::Communications => self.default_communications.borrow(),
+            };
+            let id = map
+                .get(&device_type)
+                .ok_or_else(|| anyhow::anyhow!("No default device"))?
+                .clone();
+            drop(map);
+            self.get_device_by_id(&id)
+        }
+
+        fn set_default_device(&self, device_id: &str, role: DeviceRole) -> anyhow::Result<()> {
+            let device_type = self
+                .devices
+                .iter()
+                .find(|d| d.id == device_id)
+                .map(|d| d.device_type)
+                .unwrap_or(DeviceType::Output);
+            match role {
+                DeviceRole::Console => {
+                    self.default_console
+                        .borrow_mut()
+                        .insert(device_type, device_id.to_string());
+                }
+                DeviceRole::Multimedia => {
+                    self.default_multimedia
+                        .borrow_mut()
+                        .insert(device_type, device_id.to_string());
+                }
+                DeviceRole::Communications => {
+                    self.default_communications
+                        .borrow_mut()
+                        .insert(device_type, device_id.to_string());
+                }
+            }
+            Ok(())
+        }
+
+        fn register_device_change_callback(
+            &mut self,
+            _callback: Box<dyn Fn() + Send + Sync>,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    pub(crate) fn make_device_settings(name: &str, device_type: DeviceType) -> DeviceSettings {
+        DeviceSettings {
+            is_volume_locked: false,
+            volume_percent: 50.0,
+            notify_on_volume_lock: false,
+            is_unmute_locked: false,
+            notify_on_unmute_lock: false,
+            device_type,
+            name: name.to_string(),
+        }
+    }
+
+    // --- check_and_unmute_device tests ---
+
+    #[test]
+    fn check_and_unmute_unmutes_muted_device() {
+        let device = MockDevice::new("dev1", "Speaker", true);
+        *device.muted.borrow_mut() = true;
+        let mut times = HashMap::new();
+
+        let result = check_and_unmute_device(&device, false, "Unmuted", "was unmuted", &mut times);
+        assert!(result.is_ok());
+        assert!(!*device.muted.borrow());
+    }
+
+    #[test]
+    fn check_and_unmute_leaves_unmuted_device() {
+        let device = MockDevice::new("dev1", "Speaker", true);
+        let mut times = HashMap::new();
+
+        let result = check_and_unmute_device(&device, false, "Unmuted", "was unmuted", &mut times);
+        assert!(result.is_ok());
+        assert!(!*device.muted.borrow());
+    }
+
+    // --- get_unmute_notification_details tests ---
+
+    #[test]
+    fn unmute_notification_details_output() {
+        let (title, suffix) = get_unmute_notification_details(DeviceType::Output);
+        assert_eq!(title, "Output Device Unmuted");
+        assert!(suffix.contains("unmuted"));
+    }
+
+    #[test]
+    fn unmute_notification_details_input() {
+        let (title, suffix) = get_unmute_notification_details(DeviceType::Input);
+        assert_eq!(title, "Input Device Unmuted");
+        assert!(suffix.contains("unmuted"));
+    }
+
+    // --- Integration test ---
+
+    #[test]
+    fn migrate_then_enforce_integration() {
+        let backend = MockAudioBackend::new(vec![
+            MockDevice::new("new_id", "Speakers", true),
+            MockDevice::new("other", "Headphones", true),
+        ]);
+        backend.set_default("other", DeviceType::Output);
+
+        let mut state = PersistentState::default();
+        state.devices.insert(
+            "old_id".to_string(),
+            make_device_settings("Speakers", DeviceType::Output),
+        );
+        state.output_priority_list = vec!["old_id".to_string()];
+
+        migrate_device_ids(&backend, &mut state);
+        assert!(state.devices.contains_key("new_id"));
+        assert!(!state.devices.contains_key("old_id"));
+        assert_eq!(state.output_priority_list, vec!["new_id"]);
+
+        let mut last_notification_times = HashMap::new();
+        let temp_priorities = TemporaryPriorities {
+            output: None,
+            input: None,
+        };
+        enforce_priorities(
+            &backend,
+            &state,
+            &mut last_notification_times,
+            &temp_priorities,
+        );
+
+        let default = backend
+            .get_default_device(DeviceType::Output, DeviceRole::Console)
+            .unwrap();
+        assert_eq!(default.id(), "new_id");
+    }
 }

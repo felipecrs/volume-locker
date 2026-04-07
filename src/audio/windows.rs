@@ -27,6 +27,7 @@ pub struct WindowsAudioBackend {
 
 impl WindowsAudioBackend {
     pub fn new() -> anyhow::Result<Self> {
+        // COM must already be initialized via init_platform() before calling this.
         let enumerator = create_device_enumerator()?;
         Ok(Self {
             enumerator,
@@ -96,6 +97,7 @@ impl AudioBackend for WindowsAudioBackend {
             DeviceRole::Multimedia => eMultimedia,
             DeviceRole::Communications => eCommunications,
         };
+        // SAFETY: enumerator is valid COM pointer initialized in new().
         let device = unsafe { self.enumerator.GetDefaultAudioEndpoint(flow, role)? };
         Ok(Box::new(WindowsAudioDevice::new(device)?))
     }
@@ -158,25 +160,29 @@ impl AudioDevice for WindowsAudioDevice {
     }
 }
 
-pub fn create_device_enumerator() -> Result<IMMDeviceEnumerator> {
+pub(crate) fn create_device_enumerator() -> Result<IMMDeviceEnumerator> {
+    // SAFETY: COM is initialized before this call; MMDeviceEnumerator is a well-known CLSID.
     unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_INPROC_SERVER) }
 }
 
-pub fn register_notification_callback(
+pub(crate) fn register_notification_callback(
     enumerator: &IMMDeviceEnumerator,
     callback: &IMMNotificationClient,
 ) -> Result<()> {
+    // SAFETY: enumerator and callback are valid COM pointers.
     unsafe { enumerator.RegisterEndpointNotificationCallback(callback) }
 }
 
-pub fn get_device_state(device: &IMMDevice) -> Result<DEVICE_STATE> {
+pub(crate) fn get_device_state(device: &IMMDevice) -> Result<DEVICE_STATE> {
+    // SAFETY: device is a valid IMMDevice pointer.
     unsafe { device.GetState() }
 }
 
-pub fn register_control_change_notify(
+pub(crate) fn register_control_change_notify(
     endpoint: &IAudioEndpointVolume,
     callback: &IAudioEndpointVolumeCallback,
 ) -> Result<()> {
+    // SAFETY: endpoint and callback are valid COM pointers.
     unsafe { endpoint.RegisterControlChangeNotify(callback) }
 }
 
@@ -226,34 +232,43 @@ impl IAudioEndpointVolumeCallback_Impl for VolumeChangeCallback_Impl {
         &self,
         pnotify: *mut AUDIO_VOLUME_NOTIFICATION_DATA,
     ) -> ::windows::core::Result<()> {
+        // SAFETY: pnotify is provided by the COM runtime and valid for this callback.
         let new_volume = unsafe { pnotify.as_ref().map(|p| p.fMasterVolume) };
         (self.callback)(new_volume);
         Ok(())
     }
 }
 
-pub fn enum_audio_endpoints(
+pub(crate) fn enum_audio_endpoints(
     enumerator: &IMMDeviceEnumerator,
     data_flow: EDataFlow,
     state_mask: DEVICE_STATE,
 ) -> Result<IMMDeviceCollection> {
+    // SAFETY: enumerator is a valid COM pointer.
     unsafe { enumerator.EnumAudioEndpoints(data_flow, state_mask) }
 }
 
-pub fn get_device_count(collection: &IMMDeviceCollection) -> Result<u32> {
+pub(crate) fn get_device_count(collection: &IMMDeviceCollection) -> Result<u32> {
+    // SAFETY: collection is a valid COM pointer.
     unsafe { collection.GetCount() }
 }
 
-pub fn get_device_at_index(collection: &IMMDeviceCollection, index: u32) -> Result<IMMDevice> {
+pub(crate) fn get_device_at_index(
+    collection: &IMMDeviceCollection,
+    index: u32,
+) -> Result<IMMDevice> {
+    // SAFETY: index is within bounds (caller verifies via GetCount).
     unsafe { collection.Item(index) }
 }
 
-pub fn get_audio_endpoint(device: &IMMDevice) -> Result<IAudioEndpointVolume> {
+pub(crate) fn get_audio_endpoint(device: &IMMDevice) -> Result<IAudioEndpointVolume> {
+    // SAFETY: device is a valid IMMDevice; Activate returns a COM interface pointer.
     let endpoint: IAudioEndpointVolume = unsafe { device.Activate(CLSCTX_INPROC_SERVER, None)? };
     Ok(endpoint)
 }
 
-pub fn get_device_name(device: &IMMDevice) -> Result<String> {
+pub(crate) fn get_device_name(device: &IMMDevice) -> Result<String> {
+    // SAFETY: device is a valid IMMDevice; property store operations are standard COM calls.
     let friendly_name = unsafe {
         let prop_store = device.OpenPropertyStore(STGM_READ)?;
         let friendly_name_prop = prop_store.GetValue(&PKEY_Device_FriendlyName)?;
@@ -287,12 +302,13 @@ fn clean_device_name(name: &str) -> String {
     }
 }
 
-pub fn get_device_id(device: &IMMDevice) -> Result<String> {
+pub(crate) fn get_device_id(device: &IMMDevice) -> Result<String> {
+    // SAFETY: device is a valid IMMDevice pointer.
     let dev_id = unsafe { device.GetId()?.to_string()? };
     Ok(dev_id)
 }
 
-pub fn get_device_by_id(
+pub(crate) fn get_device_by_id(
     device_enumerator: &IMMDeviceEnumerator,
     device_id: &str,
 ) -> Result<IMMDevice> {
@@ -300,28 +316,34 @@ pub fn get_device_by_id(
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
+    // SAFETY: wide is null-terminated and valid for the duration of this call.
     let device = unsafe { device_enumerator.GetDevice(PCWSTR(wide.as_ptr()))? };
     Ok(device)
 }
 
-pub fn get_volume(endpoint: &IAudioEndpointVolume) -> Result<f32> {
+pub(crate) fn get_volume(endpoint: &IAudioEndpointVolume) -> Result<f32> {
+    // SAFETY: endpoint is a valid IAudioEndpointVolume pointer.
     unsafe { endpoint.GetMasterVolumeLevelScalar() }
 }
 
-pub fn get_mute(endpoint: &IAudioEndpointVolume) -> Result<bool> {
+pub(crate) fn get_mute(endpoint: &IAudioEndpointVolume) -> Result<bool> {
+    // SAFETY: endpoint is a valid IAudioEndpointVolume pointer.
     let muted = unsafe { endpoint.GetMute()? };
     Ok(muted.as_bool())
 }
 
-pub fn set_mute(endpoint: &IAudioEndpointVolume, muted: bool) -> Result<()> {
+pub(crate) fn set_mute(endpoint: &IAudioEndpointVolume, muted: bool) -> Result<()> {
+    // SAFETY: endpoint is valid; null event context indicates no specific caller.
     unsafe { endpoint.SetMute(muted, std::ptr::null()) }
 }
 
-pub fn set_volume(endpoint: &IAudioEndpointVolume, new_volume: f32) -> Result<()> {
+pub(crate) fn set_volume(endpoint: &IAudioEndpointVolume, new_volume: f32) -> Result<()> {
+    // SAFETY: endpoint is valid; null event context indicates no specific caller.
     unsafe { endpoint.SetMasterVolumeLevelScalar(new_volume, std::ptr::null()) }
 }
 
 fn set_default_device(device_id: &str, role: ERole) -> Result<()> {
+    // SAFETY: COM is initialized; PolicyConfigClient is a known CLSID.
     let policy_config: windows_com_policy_config::IPolicyConfig = unsafe {
         CoCreateInstance(
             &windows_com_policy_config::PolicyConfigClient,
@@ -333,5 +355,41 @@ fn set_default_device(device_id: &str, role: ERole) -> Result<()> {
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
+    // SAFETY: wide is null-terminated and valid for the duration of this call.
     unsafe { policy_config.SetDefaultEndpoint(PCWSTR(wide.as_ptr()), role) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clean_device_name_standard_format() {
+        let result = clean_device_name("Speakers (Realtek High Definition Audio)");
+        assert_eq!(result, "Speakers (Realtek High Definition Audio)");
+    }
+
+    #[test]
+    fn clean_device_name_with_device_number() {
+        let result = clean_device_name("Speakers (2) (Realtek High Definition Audio)");
+        assert_eq!(result, "Speakers (Realtek High Definition Audio)");
+    }
+
+    #[test]
+    fn clean_device_name_with_numbered_prefix() {
+        let result = clean_device_name("2 - Speakers (Realtek Audio)");
+        assert_eq!(result, "Speakers (Realtek Audio)");
+    }
+
+    #[test]
+    fn clean_device_name_old_format_passthrough() {
+        let result = clean_device_name("My Audio Device");
+        assert_eq!(result, "My Audio Device");
+    }
+
+    #[test]
+    fn clean_device_name_with_port_numbers() {
+        let result = clean_device_name("Headphones (2- USB Audio Device)");
+        assert_eq!(result, "Headphones (USB Audio Device)");
+    }
 }

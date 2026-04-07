@@ -3,6 +3,8 @@ name = "volume-locker"
 version = "0.0.0-development"
 edition = "2024"
 build = "build.rs"
+categories = ["multimedia::audio"]
+keywords = ["audio", "volume", "windows", "tray"]
 
 [package.metadata.winresource]
 FileDescription = "Volume Locker"

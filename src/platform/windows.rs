@@ -9,6 +9,9 @@ use windows::core::{HSTRING, Result};
 use windows_registry::CURRENT_USER;
 
 pub fn init_platform(executable_directory: &Path) -> anyhow::Result<()> {
+    // Initialize COM for the process. Must be called before any COM usage,
+    // including WindowsAudioBackend::new().
+    // SAFETY: CoInitializeEx is safe to call; first call on this thread.
     unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok()? };
     if let Err(e) = setup_app_aumid(executable_directory) {
         log::warn!("Failed to set up app AUMID: {e}");
@@ -31,6 +34,7 @@ fn setup_app_aumid(executable_directory: &Path) -> Result<()> {
         let _ = key.set_hstring("IconUri", &png_path.as_path().into());
     }
 
+    // SAFETY: APP_AUMID is a valid static string; setting the AUMID is a standard shell API call.
     unsafe {
         let _ = SetCurrentProcessExplicitAppUserModelID(&HSTRING::from(APP_AUMID));
     }
@@ -38,45 +42,56 @@ fn setup_app_aumid(executable_directory: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn open_devices_list(device_type: DeviceType) {
+pub fn open_devices_list(device_type: DeviceType) -> anyhow::Result<()> {
     let tab_index = match device_type {
         DeviceType::Output => "0",
         DeviceType::Input => "1",
     };
 
-    let _ = Command::new("rundll32.exe")
+    Command::new("rundll32.exe")
         .arg("shell32.dll,Control_RunDLL")
         .arg(format!("mmsys.cpl,,{}", tab_index))
-        .spawn();
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| anyhow::anyhow!(e).context("failed to open devices list"))
 }
 
-pub fn open_device_properties(device_id: &str) {
-    let _ = Command::new("rundll32.exe")
+/// Opens the Sound control panel (mmsys.cpl) with device_id selecting the tab/device.
+pub fn open_device_properties(device_id: &str) -> anyhow::Result<()> {
+    Command::new("rundll32.exe")
         .arg("shell32.dll,Control_RunDLL")
         .arg(format!("mmsys.cpl,,{}", device_id))
-        .spawn();
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| anyhow::anyhow!(e).context("failed to open device properties"))
 }
 
-pub fn open_sound_settings() {
-    let _ = Command::new("rundll32.exe")
+pub fn open_sound_settings() -> anyhow::Result<()> {
+    Command::new("rundll32.exe")
         .arg("url.dll,FileProtocolHandler")
         .arg("ms-settings:sound")
-        .spawn();
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| anyhow::anyhow!(e).context("failed to open sound settings"))
 }
 
-pub fn open_device_settings(device_id: &str) {
-    let _ = Command::new("rundll32.exe")
+pub fn open_device_settings(device_id: &str) -> anyhow::Result<()> {
+    Command::new("rundll32.exe")
         .arg("url.dll,FileProtocolHandler")
         .arg(format!(
             "ms-settings:sound-properties?endpointId={}",
             device_id
         ))
-        .spawn();
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| anyhow::anyhow!(e).context("failed to open device settings"))
 }
 
-pub fn open_volume_mixer() {
-    let _ = Command::new("rundll32.exe")
+pub fn open_volume_mixer() -> anyhow::Result<()> {
+    Command::new("rundll32.exe")
         .arg("url.dll,FileProtocolHandler")
         .arg("ms-settings:apps-volume")
-        .spawn();
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| anyhow::anyhow!(e).context("failed to open volume mixer"))
 }
