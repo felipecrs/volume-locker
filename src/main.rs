@@ -39,7 +39,7 @@ use tao::{
     event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy},
 };
 use tray_icon::{
-    MouseButton, TrayIconBuilder, TrayIconEvent,
+    MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent,
     menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem},
 };
 
@@ -484,9 +484,11 @@ fn run() -> anyhow::Result<()> {
                 }
             }
 
-            Event::UserEvent(UserEvent::TrayIcon(TrayIconEvent::Click { button, .. }))
-                if button == MouseButton::Right || button == MouseButton::Left =>
-            {
+            Event::UserEvent(UserEvent::TrayIcon(TrayIconEvent::Click {
+                button,
+                button_state: MouseButtonState::Down,
+                ..
+            })) if button == MouseButton::Right || button == MouseButton::Left => {
                 match rebuild_tray_menu(
                     &tray_menu,
                     &app.backend,
