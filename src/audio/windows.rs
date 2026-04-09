@@ -1,5 +1,5 @@
 use super::{AudioBackend, AudioDevice, windows_com_policy_config};
-use crate::types::{DeviceRole, DeviceType};
+use crate::types::{DeviceId, DeviceRole, DeviceType};
 use regex_lite::Regex;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
@@ -77,7 +77,7 @@ impl AudioBackend for WindowsAudioBackend {
         Ok(devices)
     }
 
-    fn get_device_by_id(&self, id: &str) -> anyhow::Result<Box<dyn AudioDevice>> {
+    fn get_device_by_id(&self, id: &DeviceId) -> anyhow::Result<Box<dyn AudioDevice>> {
         let device = get_device_by_id(&self.enumerator, id)?;
         Ok(Box::new(WindowsAudioDevice::new(device)?))
     }
@@ -102,7 +102,7 @@ impl AudioBackend for WindowsAudioBackend {
         Ok(Box::new(WindowsAudioDevice::new(device)?))
     }
 
-    fn set_default_device(&self, device_id: &str, role: DeviceRole) -> anyhow::Result<()> {
+    fn set_default_device(&self, device_id: &DeviceId, role: DeviceRole) -> anyhow::Result<()> {
         let role = match role {
             DeviceRole::Console => eConsole,
             DeviceRole::Multimedia => eMultimedia,
@@ -124,8 +124,8 @@ impl AudioBackend for WindowsAudioBackend {
 }
 
 impl AudioDevice for WindowsAudioDevice {
-    fn id(&self) -> String {
-        self.id.clone()
+    fn id(&self) -> &str {
+        &self.id
     }
 
     fn name(&self) -> String {

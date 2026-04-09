@@ -106,11 +106,11 @@ fn register_menu_item(
 }
 
 fn lookup_device_name(
-    device_id: &str,
+    device_id: &DeviceId,
     persistent_state: &PersistentState,
     backend: &impl AudioBackend,
 ) -> String {
-    if let Some(settings) = persistent_state.devices.get(device_id) {
+    if let Some(settings) = persistent_state.devices.get::<str>(device_id) {
         settings.name.clone()
     } else {
         match backend.get_device_by_id(device_id) {
@@ -217,7 +217,7 @@ pub fn sync_device_names(backend: &impl AudioBackend, persistent_state: &mut Per
     for device_type in [DeviceType::Output, DeviceType::Input] {
         let devices = backend.get_devices(device_type).unwrap_or_default();
         for device in devices {
-            if let Some(settings) = persistent_state.devices.get_mut(device.id().as_str()) {
+            if let Some(settings) = persistent_state.devices.get_mut(device.id()) {
                 settings.name = device.name();
                 settings.device_type = device_type;
             }
@@ -240,7 +240,7 @@ fn append_device_list_to_menu(
     // Get default device ID for Console role to mark it
     let default_device_id = backend
         .get_default_device(device_type, DeviceRole::Console)
-        .map(|d| d.id())
+        .map(|d| d.id().to_string())
         .ok();
 
     for device in devices {
@@ -251,10 +251,10 @@ fn append_device_list_to_menu(
         let is_muted = device.is_muted().unwrap_or(false);
         let is_default = default_device_id
             .as_ref()
-            .is_some_and(|id| id == &device_id);
+            .is_some_and(|id| id == device_id);
 
         let (is_volume_locked, notify_on_volume_lock, is_unmute_locked, notify_on_unmute_lock) =
-            if let Some(settings) = persistent_state.devices.get(device_id.as_str()) {
+            if let Some(settings) = persistent_state.devices.get(device_id) {
                 (
                     settings.volume_lock.is_locked,
                     settings.volume_lock.notify,
@@ -391,7 +391,7 @@ fn append_temporary_priority_section(
                 MenuItemInfo {
                     name: name.clone(),
                     action: MenuAction::Device {
-                        device_id: id.clone().into(),
+                        device_id: (*id).into(),
                         device_type,
                         action: DeviceAction::SetTemporaryPriority,
                     },
@@ -497,7 +497,7 @@ fn append_priority_list_to_menu(
     let devices = backend.get_devices(device_type).unwrap_or_default();
     let mut available_devices = Vec::new();
     for device in devices {
-        available_devices.push((device.id(), device.name()));
+        available_devices.push((device.id().to_string(), device.name()));
     }
 
     for (index, device_id) in priority_list.iter().enumerate() {
@@ -681,7 +681,7 @@ fn device_settings_are_empty(settings: &DeviceSettings) -> bool {
 fn apply_device_lock_toggle(
     action: &DeviceAction,
     is_checked: bool,
-    device_id: &str,
+    device_id: &DeviceId,
     device_name: &str,
     device_type: DeviceType,
     persistent_state: &mut PersistentState,
@@ -689,7 +689,7 @@ fn apply_device_lock_toggle(
 ) -> bool {
     let device_settings = persistent_state
         .devices
-        .entry(DeviceId::from(device_id))
+        .entry(device_id.clone())
         .or_insert_with(|| DeviceSettings::new(device_name.to_string(), device_type));
 
     match action {

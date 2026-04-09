@@ -60,11 +60,13 @@ pub fn open_devices_list(device_type: DeviceType) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!(e).context("failed to open devices list"))
 }
 
-/// Opens the Sound control panel (mmsys.cpl) with device_id selecting the tab/device.
-pub fn open_device_properties(device_id: &str) -> anyhow::Result<()> {
+/// Opens the Sound control panel (mmsys.cpl). The `tab_selector` is passed as the
+/// page argument (e.g. "0" for Playback, "1" for Recording). Non-numeric values
+/// cause mmsys.cpl to open at the default tab.
+pub fn open_device_properties(tab_selector: &str) -> anyhow::Result<()> {
     Command::new("rundll32.exe")
         .arg("shell32.dll,Control_RunDLL")
-        .arg(format!("mmsys.cpl,,{}", device_id))
+        .arg(format!("mmsys.cpl,,{}", tab_selector))
         .spawn()
         .map(|_| ())
         .map_err(|e| anyhow::anyhow!(e).context("failed to open device properties"))

@@ -1,17 +1,17 @@
-use crate::types::{DeviceRole, DeviceType};
+use crate::types::{DeviceId, DeviceRole, DeviceType};
 
 #[cfg(target_os = "windows")]
 mod windows_com_policy_config;
 
 pub trait AudioBackend {
     fn get_devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>>;
-    fn get_device_by_id(&self, id: &str) -> anyhow::Result<Box<dyn AudioDevice>>;
+    fn get_device_by_id(&self, id: &DeviceId) -> anyhow::Result<Box<dyn AudioDevice>>;
     fn get_default_device(
         &self,
         device_type: DeviceType,
         role: DeviceRole,
     ) -> anyhow::Result<Box<dyn AudioDevice>>;
-    fn set_default_device(&self, device_id: &str, role: DeviceRole) -> anyhow::Result<()>;
+    fn set_default_device(&self, device_id: &DeviceId, role: DeviceRole) -> anyhow::Result<()>;
 
     fn register_device_change_callback(
         &mut self,
@@ -20,7 +20,7 @@ pub trait AudioBackend {
 }
 
 pub trait AudioDevice {
-    fn id(&self) -> String;
+    fn id(&self) -> &str;
     fn name(&self) -> String;
     fn volume(&self) -> anyhow::Result<f32>;
     fn set_volume(&self, volume: f32) -> anyhow::Result<()>;
@@ -109,8 +109,8 @@ pub(crate) mod tests {
     }
 
     impl AudioDevice for MockDevice {
-        fn id(&self) -> String {
-            self.id.clone()
+        fn id(&self) -> &str {
+            &self.id
         }
         fn name(&self) -> String {
             self.name.clone()
@@ -182,10 +182,10 @@ pub(crate) mod tests {
                 .collect())
         }
 
-        fn get_device_by_id(&self, id: &str) -> anyhow::Result<Box<dyn AudioDevice>> {
+        fn get_device_by_id(&self, id: &DeviceId) -> anyhow::Result<Box<dyn AudioDevice>> {
             self.devices
                 .iter()
-                .find(|d| d.id == id)
+                .find(|d| d.id == **id)
                 .map(|d| {
                     Box::new(MockDevice::new(&d.id, &d.name, d.active)) as Box<dyn AudioDevice>
                 })
@@ -207,14 +207,14 @@ pub(crate) mod tests {
                 .ok_or_else(|| anyhow::anyhow!("No default device"))?
                 .clone();
             drop(map);
-            self.get_device_by_id(&id)
+            self.get_device_by_id(&DeviceId::from(id))
         }
 
-        fn set_default_device(&self, device_id: &str, role: DeviceRole) -> anyhow::Result<()> {
+        fn set_default_device(&self, device_id: &DeviceId, role: DeviceRole) -> anyhow::Result<()> {
             let device_type = self
                 .devices
                 .iter()
-                .find(|d| d.id == device_id)
+                .find(|d| d.id == **device_id)
                 .map(|d| d.device_type)
                 .unwrap_or(DeviceType::Output);
             match role {
