@@ -7,11 +7,11 @@ use crate::platform::{
 };
 use crate::types::{
     AppAction, DeviceAction, DeviceId, DeviceRole, DeviceSettings, DeviceType, MenuAction,
-    MenuItemInfo, PreferenceAction, TemporaryPriorities,
+    MenuItemInfo, PreferenceAction, TemporaryPriorities, VolumePercent,
 };
 use crate::update::UpdateInfo;
 use crate::utils::{
-    convert_float_to_percent, get_executable_directory, log_and_notify_error, open_path, open_url,
+    get_executable_directory, log_and_notify_error, open_path, open_url,
 };
 use std::collections::HashMap;
 use tray_icon::menu::{
@@ -26,7 +26,7 @@ pub enum UpdateAction {
 
 pub struct DeviceDisplayInfo<'a> {
     pub name: &'a str,
-    pub volume_percent: f32,
+    pub volume_percent: VolumePercent,
     pub is_default: bool,
     pub is_locked: bool,
     pub is_muted: bool,
@@ -246,8 +246,8 @@ fn append_device_list_to_menu(
     for device in devices {
         let name = device.name();
         let device_id = device.id();
-        let volume = device.volume().unwrap_or(0.0);
-        let volume_percent = convert_float_to_percent(volume);
+        let volume = device.volume().unwrap_or(0.0.into());
+        let volume_percent = volume.to_percent();
         let is_muted = device.is_muted().unwrap_or(false);
         let is_default = default_device_id
             .as_ref()
@@ -698,7 +698,7 @@ fn apply_device_lock_toggle(
                 if let Ok(device) = backend.get_device_by_id(device_id)
                     && let Ok(vol) = device.volume()
                 {
-                    device_settings.volume_lock.target_percent = convert_float_to_percent(vol);
+                    device_settings.volume_lock.target_percent = vol.to_percent();
                     device_settings.volume_lock.is_locked = true;
                 } else {
                     log_and_notify_error(
@@ -957,14 +957,14 @@ pub fn handle_menu_event(
 mod tests {
     use super::{
         DeviceAction, DeviceDisplayInfo, DeviceId, DeviceSettings, DeviceType, PersistentState,
-        device_settings_are_empty, format_device_menu_label, handle_priority_event,
+        VolumePercent, device_settings_are_empty, format_device_menu_label, handle_priority_event,
     };
 
     #[test]
     fn to_label_basic() {
         let label = format_device_menu_label(&DeviceDisplayInfo {
             name: "Speakers",
-            volume_percent: 50.0,
+            volume_percent: VolumePercent::from(50.0),
             is_default: false,
             is_locked: false,
             is_muted: false,
@@ -976,7 +976,7 @@ mod tests {
     fn to_label_default_device() {
         let label = format_device_menu_label(&DeviceDisplayInfo {
             name: "Speakers",
-            volume_percent: 75.0,
+            volume_percent: VolumePercent::from(75.0),
             is_default: true,
             is_locked: false,
             is_muted: false,
@@ -988,7 +988,7 @@ mod tests {
     fn to_label_locked() {
         let label = format_device_menu_label(&DeviceDisplayInfo {
             name: "Speakers",
-            volume_percent: 100.0,
+            volume_percent: VolumePercent::from(100.0),
             is_default: false,
             is_locked: true,
             is_muted: false,
@@ -1000,7 +1000,7 @@ mod tests {
     fn to_label_muted() {
         let label = format_device_menu_label(&DeviceDisplayInfo {
             name: "Mic",
-            volume_percent: 0.0,
+            volume_percent: VolumePercent::from(0.0),
             is_default: false,
             is_locked: false,
             is_muted: true,
@@ -1012,7 +1012,7 @@ mod tests {
     fn to_label_all_indicators() {
         let label = format_device_menu_label(&DeviceDisplayInfo {
             name: "Headset",
-            volume_percent: 42.0,
+            volume_percent: VolumePercent::from(42.0),
             is_default: true,
             is_locked: true,
             is_muted: true,

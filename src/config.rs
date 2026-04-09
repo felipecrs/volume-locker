@@ -134,6 +134,7 @@ pub fn load_state() -> anyhow::Result<PersistentState> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::VolumePercent;
     use crate::types::{UnmuteLockPolicy, VolumeLockPolicy};
 
     #[test]
@@ -159,7 +160,7 @@ mod tests {
                 DeviceSettings {
                     volume_lock: VolumeLockPolicy {
                         is_locked: true,
-                        target_percent: 75.0,
+                        target_percent: VolumePercent::from(75.0),
                         notify: true,
                     },
                     unmute_lock: UnmuteLockPolicy::default(),
@@ -251,7 +252,7 @@ mod tests {
                 DeviceSettings {
                     volume_lock: VolumeLockPolicy {
                         is_locked: true,
-                        target_percent: 80.0,
+                        target_percent: VolumePercent::from(80.0),
                         notify: true,
                     },
                     unmute_lock: UnmuteLockPolicy {
@@ -303,7 +304,7 @@ mod tests {
             "dev1".into(),
             DeviceSettings {
                 volume_lock: VolumeLockPolicy {
-                    target_percent: 50.0,
+                    target_percent: VolumePercent::from(50.0),
                     ..VolumeLockPolicy::default()
                 },
                 ..DeviceSettings::new("Initial Device".into(), DeviceType::Output)
@@ -326,7 +327,7 @@ mod tests {
             .get_mut("dev1")
             .unwrap()
             .volume_lock
-            .target_percent = 75.0;
+            .target_percent = VolumePercent::from(75.0);
         loaded.output_priority_list.push("dev1".into());
 
         let json2 = serde_json::to_string_pretty(&loaded).unwrap();

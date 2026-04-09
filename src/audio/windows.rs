@@ -1,5 +1,5 @@
 use super::{AudioBackend, AudioDevice, windows_com_policy_config};
-use crate::types::{DeviceId, DeviceRole, DeviceType};
+use crate::types::{DeviceId, DeviceRole, DeviceType, VolumeScalar};
 use regex_lite::Regex;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
@@ -140,12 +140,12 @@ impl AudioDevice for WindowsAudioDevice {
         self.name.clone()
     }
 
-    fn volume(&self) -> anyhow::Result<f32> {
-        Ok(get_volume(&self.endpoint)?)
+    fn volume(&self) -> anyhow::Result<VolumeScalar> {
+        Ok(VolumeScalar::from(get_volume(&self.endpoint)?))
     }
 
-    fn set_volume(&self, volume: f32) -> anyhow::Result<()> {
-        Ok(set_volume(&self.endpoint, volume)?)
+    fn set_volume(&self, volume: VolumeScalar) -> anyhow::Result<()> {
+        Ok(set_volume(&self.endpoint, volume.as_f32())?)
     }
 
     fn is_muted(&self) -> anyhow::Result<bool> {
@@ -161,7 +161,7 @@ impl AudioDevice for WindowsAudioDevice {
         Ok(state == DEVICE_STATE_ACTIVE)
     }
 
-    fn watch_volume(&self, callback: Box<dyn Fn(Option<f32>) + Send + Sync>) -> anyhow::Result<()> {
+    fn watch_volume(&self, callback: Box<dyn Fn(Option<VolumeScalar>) + Send + Sync>) -> anyhow::Result<()> {
         let cb: IAudioEndpointVolumeCallback = VolumeChangeCallback { callback }.into();
         register_control_change_notify(&self.endpoint, &cb)?;
         Ok(())
@@ -235,7 +235,7 @@ impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
 
 #[implement(IAudioEndpointVolumeCallback)]
 pub struct VolumeChangeCallback {
-    pub callback: Box<dyn Fn(Option<f32>) + Send + Sync>,
+    pub callback: Box<dyn Fn(Option<VolumeScalar>) + Send + Sync>,
 }
 
 impl IAudioEndpointVolumeCallback_Impl for VolumeChangeCallback_Impl {
@@ -245,7 +245,7 @@ impl IAudioEndpointVolumeCallback_Impl for VolumeChangeCallback_Impl {
     ) -> ::windows::core::Result<()> {
         // SAFETY: pnotify is provided by the COM runtime and points to a valid
         // AUDIO_VOLUME_NOTIFICATION_DATA for the duration of this callback invocation.
-        let new_volume = unsafe { pnotify.as_ref().map(|p| p.fMasterVolume) };
+        let new_volume = unsafe { pnotify.as_ref().map(|p| VolumeScalar::from(p.fMasterVolume)) };
         (self.callback)(new_volume);
         Ok(())
     }

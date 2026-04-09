@@ -74,8 +74,8 @@ fn check_for_updates() -> anyhow::Result<Option<UpdateInfo>> {
 
 /// Checks for updates and optionally notifies the user.
 /// If `manual_request` is true, shows notifications for all outcomes.
-/// If `manual_request` is false, only shows notification when update is available.
-pub fn check(manual_request: bool) -> Option<UpdateInfo> {
+/// If `manual_request` is false, only logs errors without notifying.
+pub fn check(manual_request: bool) -> anyhow::Result<Option<UpdateInfo>> {
     match check_for_updates() {
         Ok(Some(info)) => {
             log::info!("Update available: v{}", info.latest_version);
@@ -89,7 +89,7 @@ pub fn check(manual_request: bool) -> Option<UpdateInfo> {
                     NotificationDuration::Long,
                 );
             }
-            Some(info)
+            Ok(Some(info))
         }
         Ok(None) => {
             log::info!("No updates available");
@@ -100,7 +100,7 @@ pub fn check(manual_request: bool) -> Option<UpdateInfo> {
                     NotificationDuration::Short,
                 );
             }
-            None
+            Ok(None)
         }
         Err(e) => {
             if manual_request {
@@ -111,7 +111,7 @@ pub fn check(manual_request: bool) -> Option<UpdateInfo> {
             } else {
                 log::error!("Failed to check for updates: {e:#}");
             }
-            None
+            Err(e)
         }
     }
 }

@@ -1,4 +1,4 @@
-use crate::types::{DeviceId, DeviceRole, DeviceType};
+use crate::types::{DeviceId, DeviceRole, DeviceType, VolumeScalar};
 
 #[cfg(target_os = "windows")]
 mod windows_com_policy_config;
@@ -22,13 +22,16 @@ pub trait AudioBackend {
 pub trait AudioDevice {
     fn id(&self) -> &DeviceId;
     fn name(&self) -> String;
-    fn volume(&self) -> anyhow::Result<f32>;
-    fn set_volume(&self, volume: f32) -> anyhow::Result<()>;
+    fn volume(&self) -> anyhow::Result<VolumeScalar>;
+    fn set_volume(&self, volume: VolumeScalar) -> anyhow::Result<()>;
     fn is_muted(&self) -> anyhow::Result<bool>;
     fn set_mute(&self, muted: bool) -> anyhow::Result<()>;
     fn is_active(&self) -> anyhow::Result<bool>;
 
-    fn watch_volume(&self, callback: Box<dyn Fn(Option<f32>) + Send + Sync>) -> anyhow::Result<()>;
+    fn watch_volume(
+        &self,
+        callback: Box<dyn Fn(Option<VolumeScalar>) + Send + Sync>,
+    ) -> anyhow::Result<()>;
 }
 
 #[cfg(target_os = "windows")]
@@ -82,7 +85,7 @@ pub fn get_unmute_notification_details(device_type: DeviceType) -> (&'static str
 pub(crate) mod tests {
     use super::*;
     use crate::config::PersistentState;
-    use crate::types::{DeviceId, DeviceSettings, TemporaryPriorities};
+    use crate::types::{DeviceId, DeviceSettings, TemporaryPriorities, VolumePercent, VolumeScalar};
     use std::cell::RefCell;
     use std::collections::HashMap;
 
@@ -115,11 +118,11 @@ pub(crate) mod tests {
         fn name(&self) -> String {
             self.name.clone()
         }
-        fn volume(&self) -> anyhow::Result<f32> {
-            Ok(*self.volume.borrow())
+        fn volume(&self) -> anyhow::Result<VolumeScalar> {
+            Ok(VolumeScalar::from(*self.volume.borrow()))
         }
-        fn set_volume(&self, volume: f32) -> anyhow::Result<()> {
-            *self.volume.borrow_mut() = volume;
+        fn set_volume(&self, volume: VolumeScalar) -> anyhow::Result<()> {
+            *self.volume.borrow_mut() = volume.as_f32();
             Ok(())
         }
         fn is_muted(&self) -> anyhow::Result<bool> {
@@ -134,7 +137,7 @@ pub(crate) mod tests {
         }
         fn watch_volume(
             &self,
-            _callback: Box<dyn Fn(Option<f32>) + Send + Sync>,
+            _callback: Box<dyn Fn(Option<VolumeScalar>) + Send + Sync>,
         ) -> anyhow::Result<()> {
             Ok(())
         }
@@ -248,7 +251,7 @@ pub(crate) mod tests {
     pub(crate) fn make_device_settings(name: &str, device_type: DeviceType) -> DeviceSettings {
         DeviceSettings {
             volume_lock: crate::types::VolumeLockPolicy {
-                target_percent: 50.0,
+                target_percent: VolumePercent::from(50.0),
                 ..Default::default()
             },
             ..DeviceSettings::new(name.to_string(), device_type)

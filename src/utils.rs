@@ -51,14 +51,6 @@ pub fn send_notification_debounced(
     }
 }
 
-pub fn convert_float_to_percent(volume: f32) -> f32 {
-    (volume * 100.0).round()
-}
-
-pub fn convert_percent_to_float(volume: f32) -> f32 {
-    volume / 100.0
-}
-
 /// Open a path in the system file explorer.
 pub fn open_path(path: &std::path::Path) -> anyhow::Result<()> {
     open::that_detached(path).context("failed to open path")
@@ -71,64 +63,64 @@ pub fn open_url(url: &str) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::types::{VolumePercent, VolumeScalar};
 
     #[test]
     fn convert_float_to_percent_zero() {
-        assert_eq!(convert_float_to_percent(0.0), 0.0);
+        assert_eq!(VolumeScalar::from(0.0).to_percent().as_f32(), 0.0);
     }
 
     #[test]
     fn convert_float_to_percent_full() {
-        assert_eq!(convert_float_to_percent(1.0), 100.0);
+        assert_eq!(VolumeScalar::from(1.0).to_percent().as_f32(), 100.0);
     }
 
     #[test]
     fn convert_float_to_percent_half() {
-        assert_eq!(convert_float_to_percent(0.5), 50.0);
+        assert_eq!(VolumeScalar::from(0.5).to_percent().as_f32(), 50.0);
     }
 
     #[test]
     fn convert_float_to_percent_rounds() {
-        assert_eq!(convert_float_to_percent(0.333), 33.0);
-        assert_eq!(convert_float_to_percent(0.335), 34.0);
+        assert_eq!(VolumeScalar::from(0.333).to_percent().as_f32(), 33.0);
+        assert_eq!(VolumeScalar::from(0.335).to_percent().as_f32(), 34.0);
     }
 
     #[test]
     fn convert_percent_to_float_zero() {
-        assert_eq!(convert_percent_to_float(0.0), 0.0);
+        assert_eq!(VolumePercent::from(0.0).to_scalar().as_f32(), 0.0);
     }
 
     #[test]
     fn convert_percent_to_float_full() {
-        assert_eq!(convert_percent_to_float(100.0), 1.0);
+        assert_eq!(VolumePercent::from(100.0).to_scalar().as_f32(), 1.0);
     }
 
     #[test]
     fn convert_percent_to_float_half() {
-        assert_eq!(convert_percent_to_float(50.0), 0.5);
+        assert_eq!(VolumePercent::from(50.0).to_scalar().as_f32(), 0.5);
     }
 
     #[test]
     fn roundtrip_float_percent() {
         let original = 0.75;
-        let percent = convert_float_to_percent(original);
-        let back = convert_percent_to_float(percent);
+        let percent = VolumeScalar::from(original).to_percent();
+        let back = percent.to_scalar().as_f32();
         assert_eq!(back, original);
     }
 
     #[test]
     fn convert_float_to_percent_over_100() {
-        assert_eq!(convert_float_to_percent(1.5), 150.0);
+        assert_eq!(VolumeScalar::from(1.5).to_percent().as_f32(), 150.0);
     }
 
     #[test]
     fn convert_percent_to_float_over_100() {
-        assert_eq!(convert_percent_to_float(200.0), 2.0);
+        assert_eq!(VolumePercent::from(200.0).to_scalar().as_f32(), 2.0);
     }
 
     #[test]
     fn convert_float_to_percent_negative() {
-        assert_eq!(convert_float_to_percent(-0.1), -10.0);
+        assert_eq!(VolumeScalar::from(-0.1).to_percent().as_f32(), -10.0);
     }
 }

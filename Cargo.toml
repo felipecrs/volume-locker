@@ -3,6 +3,7 @@ name = "volume-locker"
 version = "0.0.0-development"
 edition = "2024"
 license = "MIT"
+description = "A Windows tray application that locks audio device volumes and enforces device priority settings"
 build = "build.rs"
 repository = "https://github.com/felipecrs/volume-locker"
 categories = ["multimedia::audio"]

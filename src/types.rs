@@ -2,6 +2,59 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Borrow;
 use std::fmt;
 
+/// Volume level in the 0.0–1.0 range used by the Windows audio API.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct VolumeScalar(f32);
+
+impl VolumeScalar {
+    pub fn as_f32(self) -> f32 {
+        self.0
+    }
+
+    pub fn to_percent(self) -> VolumePercent {
+        VolumePercent((self.0 * 100.0).round())
+    }
+}
+
+impl From<f32> for VolumeScalar {
+    fn from(v: f32) -> Self {
+        Self(v)
+    }
+}
+
+/// Volume level expressed as a 0–100 percentage.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Default, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct VolumePercent(f32);
+
+impl VolumePercent {
+    pub fn as_f32(self) -> f32 {
+        self.0
+    }
+
+    pub fn to_scalar(self) -> VolumeScalar {
+        VolumeScalar(self.0 / 100.0)
+    }
+}
+
+impl fmt::Display for VolumePercent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<f32> for VolumePercent {
+    fn from(v: f32) -> Self {
+        Self(v)
+    }
+}
+
+impl PartialEq<f32> for VolumePercent {
+    fn eq(&self, other: &f32) -> bool {
+        self.0 == *other
+    }
+}
+
 /// A strongly-typed wrapper around a device identifier string.
 /// Prevents accidental confusion between device IDs and device names.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
@@ -79,17 +132,17 @@ pub struct VolumeLockPolicy {
         rename = "volume_percent",
         deserialize_with = "deserialize_clamped_percent"
     )]
-    pub target_percent: f32,
+    pub target_percent: VolumePercent,
     #[serde(default, rename = "notify_on_volume_lock")]
     pub notify: bool,
 }
 
-fn deserialize_clamped_percent<'de, D>(deserializer: D) -> Result<f32, D::Error>
+fn deserialize_clamped_percent<'de, D>(deserializer: D) -> Result<VolumePercent, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     let value: f32 = serde::Deserialize::deserialize(deserializer)?;
-    Ok(value.clamp(0.0, 100.0))
+    Ok(VolumePercent(value.clamp(0.0, 100.0)))
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -178,7 +231,7 @@ pub struct MenuItemInfo {
 #[derive(Debug)]
 pub struct VolumeChangedEvent {
     pub device_id: DeviceId,
-    pub new_volume: Option<f32>,
+    pub new_volume: Option<VolumeScalar>,
 }
 
 pub struct TemporaryPriorities {
@@ -244,11 +297,11 @@ mod tests {
 
     #[test]
     fn device_settings_full_roundtrip() {
-        use super::{UnmuteLockPolicy, VolumeLockPolicy};
+        use super::{UnmuteLockPolicy, VolumeLockPolicy, VolumePercent};
         let settings = DeviceSettings {
             volume_lock: VolumeLockPolicy {
                 is_locked: true,
-                target_percent: 75.0,
+                target_percent: VolumePercent::from(75.0),
                 notify: true,
             },
             unmute_lock: UnmuteLockPolicy {

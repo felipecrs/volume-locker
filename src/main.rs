@@ -19,14 +19,16 @@ use crate::audio::{
 use crate::config::{PersistentState, load_state, save_state};
 use crate::consts::{APP_NAME, APP_UID, CURRENT_VERSION, LOG_FILE_NAME};
 use crate::platform::{NotificationDuration, init_platform, send_notification};
-use crate::types::{DeviceId, MenuItemInfo, TemporaryPriorities, UserEvent, VolumeChangedEvent};
+use crate::types::{
+    DeviceId, MenuItemInfo, TemporaryPriorities, UserEvent, VolumeChangedEvent, VolumeScalar,
+};
 use crate::ui::{
     MenuContext, TrayMenuItems, handle_menu_event, rebuild_tray_menu, sync_device_names,
 };
 use crate::update::UpdateInfo;
 use crate::utils::{
-    convert_float_to_percent, convert_percent_to_float, get_executable_directory,
-    get_executable_path_str, log_and_notify_error, send_notification_debounced,
+    get_executable_directory, get_executable_path_str, log_and_notify_error,
+    send_notification_debounced,
 };
 use anyhow::Context;
 use auto_launch::AutoLaunch;
@@ -94,7 +96,7 @@ impl AppState {
             }
         };
 
-        let new_volume: f32 = match new_volume {
+        let new_volume: VolumeScalar = match new_volume {
             Some(v) => v,
             None => match device.volume() {
                 Ok(v) => v,
@@ -131,14 +133,7 @@ impl AppState {
         }
     }
 
-    fn handle_devices_changed(
-        &mut self,
-        proxy: &EventLoopProxy<UserEvent>,
-        locked_icon: &tray_icon::Icon,
-        unlocked_icon: &tray_icon::Icon,
-    ) {
-        log::info!("Reloading list of watched devices...");
-
+    fn migrate_device_ids_if_needed(&mut self) {
         let migrations_occurred = migrate_device_ids(&self.backend, &mut self.persistent_state);
 
         if migrations_occurred {
@@ -151,14 +146,9 @@ impl AppState {
                 log::info!("Saved state after device migration");
             }
         }
+    }
 
-        enforce_priorities(
-            &self.backend,
-            &self.persistent_state,
-            &mut self.last_notification_times,
-            &self.temporary_priorities,
-        );
-
+    fn rebuild_watched_devices(&mut self, proxy: &EventLoopProxy<UserEvent>) -> bool {
         self.watched_devices.clear();
         let mut some_locked = false;
 
@@ -237,15 +227,43 @@ impl AppState {
             some_locked = true;
         }
 
+        some_locked
+    }
+
+    fn update_tray_icon(
+        &self,
+        some_locked: bool,
+        locked_icon: &tray_icon::Icon,
+        unlocked_icon: &tray_icon::Icon,
+    ) {
         if let Some(tray_icon) = &self.tray_icon {
-            if some_locked {
-                if let Err(e) = tray_icon.set_icon(Some(locked_icon.clone())) {
-                    log::error!("Failed to update tray icon to locked: {e:#}");
-                }
-            } else if let Err(e) = tray_icon.set_icon(Some(unlocked_icon.clone())) {
-                log::error!("Failed to update tray icon to unlocked: {e:#}");
+            let icon = if some_locked { locked_icon } else { unlocked_icon };
+            if let Err(e) = tray_icon.set_icon(Some(icon.clone())) {
+                log::error!("Failed to update tray icon: {e:#}");
             }
         }
+    }
+
+    fn handle_devices_changed(
+        &mut self,
+        proxy: &EventLoopProxy<UserEvent>,
+        locked_icon: &tray_icon::Icon,
+        unlocked_icon: &tray_icon::Icon,
+    ) {
+        log::info!("Reloading list of watched devices...");
+
+        self.migrate_device_ids_if_needed();
+
+        enforce_priorities(
+            &self.backend,
+            &self.persistent_state,
+            &mut self.last_notification_times,
+            &self.temporary_priorities,
+        );
+
+        let some_locked = self.rebuild_watched_devices(proxy);
+
+        self.update_tray_icon(some_locked, locked_icon, unlocked_icon);
     }
 
     fn handle_configuration_changed(&mut self, proxy: &EventLoopProxy<UserEvent>) {
@@ -315,7 +333,7 @@ impl AppState {
                         *control_flow = ControlFlow::Exit;
                     }
                 }
-                ui::UpdateAction::Check => self.update_info = update::check(true),
+                ui::UpdateAction::Check => self.update_info = update::check(true).unwrap_or(None),
                 ui::UpdateAction::None => {}
             }
         }
@@ -361,16 +379,16 @@ fn enforce_volume_lock(
     device_id: &DeviceId,
     device: &dyn AudioDevice,
     settings: &types::DeviceSettings,
-    new_volume: f32,
+    new_volume: VolumeScalar,
     last_notification_times: &mut HashMap<String, Instant>,
 ) {
-    let new_volume_percent = convert_float_to_percent(new_volume);
+    let new_volume_percent = new_volume.to_percent();
     let target_volume_percent = settings.volume_lock.target_percent;
     if new_volume_percent == target_volume_percent {
         return;
     }
 
-    let target_volume = convert_percent_to_float(target_volume_percent);
+    let target_volume = target_volume_percent.to_scalar();
     let device_name = device.name();
 
     if let Err(e) = device.set_volume(target_volume) {
@@ -545,7 +563,7 @@ fn run() -> anyhow::Result<()> {
                 }
 
                 if app.persistent_state.check_updates_on_launch {
-                    app.update_info = update::check(false);
+                    app.update_info = update::check(false).unwrap_or(None);
                 }
 
                 let _ = main_proxy.send_event(UserEvent::DevicesChanged);
