@@ -8,13 +8,16 @@ mod windows;
 
 #[cfg(target_os = "windows")]
 pub use self::windows::{
-    init_platform, open_device_properties, open_device_settings, open_devices_list,
+    ComToken, init_platform, open_device_properties, open_device_settings, open_devices_list,
     open_sound_settings, open_volume_mixer,
 };
 
 #[cfg(not(target_os = "windows"))]
-pub fn init_platform(_executable_directory: &std::path::Path) -> anyhow::Result<()> {
-    Ok(())
+pub struct ComToken(());
+
+#[cfg(not(target_os = "windows"))]
+pub fn init_platform(_executable_directory: &std::path::Path) -> anyhow::Result<ComToken> {
+    Ok(ComToken(()))
 }
 
 pub fn send_notification(
@@ -41,7 +44,7 @@ pub fn send_notification(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::NotificationDuration;
 
     #[test]
     fn notification_duration_variants_exist() {

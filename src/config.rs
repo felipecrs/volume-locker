@@ -296,13 +296,8 @@ mod tests {
         state.devices.insert(
             "dev1".into(),
             DeviceSettings {
-                is_volume_locked: false,
                 volume_percent: 50.0,
-                notify_on_volume_lock: false,
-                is_unmute_locked: false,
-                notify_on_unmute_lock: false,
-                device_type: DeviceType::Output,
-                name: "Initial Device".into(),
+                ..DeviceSettings::new("Initial Device".into(), DeviceType::Output)
             },
         );
         let json = serde_json::to_string_pretty(&state).unwrap();

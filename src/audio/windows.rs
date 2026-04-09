@@ -26,8 +26,7 @@ pub struct WindowsAudioBackend {
 }
 
 impl WindowsAudioBackend {
-    pub fn new() -> anyhow::Result<Self> {
-        // COM must already be initialized via init_platform() before calling this.
+    pub fn new(_com_token: &crate::platform::ComToken) -> anyhow::Result<Self> {
         let enumerator = create_device_enumerator()?;
         Ok(Self {
             enumerator,
@@ -97,7 +96,8 @@ impl AudioBackend for WindowsAudioBackend {
             DeviceRole::Multimedia => eMultimedia,
             DeviceRole::Communications => eCommunications,
         };
-        // SAFETY: enumerator is valid COM pointer initialized in new().
+        // SAFETY: COM was initialized via CoInitializeEx (guaranteed by ComToken);
+        // enumerator is a valid COM pointer obtained from create_device_enumerator() in new().
         let device = unsafe { self.enumerator.GetDefaultAudioEndpoint(flow, role)? };
         Ok(Box::new(WindowsAudioDevice::new(device)?))
     }
@@ -161,7 +161,8 @@ impl AudioDevice for WindowsAudioDevice {
 }
 
 pub(crate) fn create_device_enumerator() -> Result<IMMDeviceEnumerator> {
-    // SAFETY: COM is initialized before this call; MMDeviceEnumerator is a well-known CLSID.
+    // SAFETY: COM is initialized via CoInitializeEx (enforced by ComToken at construction);
+    // MMDeviceEnumerator is a well-known COM CLSID that returns a valid interface pointer.
     unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_INPROC_SERVER) }
 }
 
@@ -169,12 +170,13 @@ pub(crate) fn register_notification_callback(
     enumerator: &IMMDeviceEnumerator,
     callback: &IMMNotificationClient,
 ) -> Result<()> {
-    // SAFETY: enumerator and callback are valid COM pointers.
+    // SAFETY: Both pointers are valid: enumerator from CoCreateInstance, callback from
+    // windows::core::implement. COM ref-counting keeps both alive for the registration duration.
     unsafe { enumerator.RegisterEndpointNotificationCallback(callback) }
 }
 
 pub(crate) fn get_device_state(device: &IMMDevice) -> Result<DEVICE_STATE> {
-    // SAFETY: device is a valid IMMDevice pointer.
+    // SAFETY: device obtained from IMMDeviceEnumerator methods which return valid COM pointers.
     unsafe { device.GetState() }
 }
 
@@ -182,7 +184,8 @@ pub(crate) fn register_control_change_notify(
     endpoint: &IAudioEndpointVolume,
     callback: &IAudioEndpointVolumeCallback,
 ) -> Result<()> {
-    // SAFETY: endpoint and callback are valid COM pointers.
+    // SAFETY: endpoint from IMMDevice::Activate, callback from windows::core::implement.
+    // COM ref-counting manages lifetimes; registration persists until the endpoint is dropped.
     unsafe { endpoint.RegisterControlChangeNotify(callback) }
 }
 
@@ -232,7 +235,8 @@ impl IAudioEndpointVolumeCallback_Impl for VolumeChangeCallback_Impl {
         &self,
         pnotify: *mut AUDIO_VOLUME_NOTIFICATION_DATA,
     ) -> ::windows::core::Result<()> {
-        // SAFETY: pnotify is provided by the COM runtime and valid for this callback.
+        // SAFETY: pnotify is provided by the COM runtime and points to a valid
+        // AUDIO_VOLUME_NOTIFICATION_DATA for the duration of this callback invocation.
         let new_volume = unsafe { pnotify.as_ref().map(|p| p.fMasterVolume) };
         (self.callback)(new_volume);
         Ok(())
@@ -244,12 +248,12 @@ pub(crate) fn enum_audio_endpoints(
     data_flow: EDataFlow,
     state_mask: DEVICE_STATE,
 ) -> Result<IMMDeviceCollection> {
-    // SAFETY: enumerator is a valid COM pointer.
+    // SAFETY: enumerator obtained from CoCreateInstance; COM manages the returned collection lifetime.
     unsafe { enumerator.EnumAudioEndpoints(data_flow, state_mask) }
 }
 
 pub(crate) fn get_device_count(collection: &IMMDeviceCollection) -> Result<u32> {
-    // SAFETY: collection is a valid COM pointer.
+    // SAFETY: collection obtained from EnumAudioEndpoints; COM manages lifetime.
     unsafe { collection.GetCount() }
 }
 
@@ -257,18 +261,20 @@ pub(crate) fn get_device_at_index(
     collection: &IMMDeviceCollection,
     index: u32,
 ) -> Result<IMMDevice> {
-    // SAFETY: index is within bounds (caller verifies via GetCount).
+    // SAFETY: index is within [0, GetCount()); caller is responsible for bounds checking.
     unsafe { collection.Item(index) }
 }
 
 pub(crate) fn get_audio_endpoint(device: &IMMDevice) -> Result<IAudioEndpointVolume> {
-    // SAFETY: device is a valid IMMDevice; Activate returns a COM interface pointer.
+    // SAFETY: device from IMMDeviceEnumerator methods; Activate returns a COM interface pointer
+    // that is ref-counted and valid for the lifetime of the returned wrapper.
     let endpoint: IAudioEndpointVolume = unsafe { device.Activate(CLSCTX_INPROC_SERVER, None)? };
     Ok(endpoint)
 }
 
 pub(crate) fn get_device_name(device: &IMMDevice) -> Result<String> {
-    // SAFETY: device is a valid IMMDevice; property store operations are standard COM calls.
+    // SAFETY: device from IMMDeviceEnumerator; property store operations are standard COM calls.
+    // PropVariantToStringAlloc returns an owned PWSTR that to_string()? converts and frees.
     let friendly_name = unsafe {
         let prop_store = device.OpenPropertyStore(STGM_READ)?;
         let friendly_name_prop = prop_store.GetValue(&PKEY_Device_FriendlyName)?;
@@ -303,7 +309,7 @@ fn clean_device_name(name: &str) -> String {
 }
 
 pub(crate) fn get_device_id(device: &IMMDevice) -> Result<String> {
-    // SAFETY: device is a valid IMMDevice pointer.
+    // SAFETY: device from IMMDeviceEnumerator; GetId returns an owned PWSTR that to_string frees.
     let dev_id = unsafe { device.GetId()?.to_string()? };
     Ok(dev_id)
 }
@@ -316,34 +322,36 @@ pub(crate) fn get_device_by_id(
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
-    // SAFETY: wide is null-terminated and valid for the duration of this call.
+    // SAFETY: wide is a null-terminated UTF-16 string on the stack, valid for this call.
+    // device_enumerator is a valid COM pointer from CoCreateInstance.
     let device = unsafe { device_enumerator.GetDevice(PCWSTR(wide.as_ptr()))? };
     Ok(device)
 }
 
 pub(crate) fn get_volume(endpoint: &IAudioEndpointVolume) -> Result<f32> {
-    // SAFETY: endpoint is a valid IAudioEndpointVolume pointer.
+    // SAFETY: endpoint obtained from IMMDevice::Activate; COM manages its lifetime.
     unsafe { endpoint.GetMasterVolumeLevelScalar() }
 }
 
 pub(crate) fn get_mute(endpoint: &IAudioEndpointVolume) -> Result<bool> {
-    // SAFETY: endpoint is a valid IAudioEndpointVolume pointer.
+    // SAFETY: endpoint obtained from IMMDevice::Activate; COM manages its lifetime.
     let muted = unsafe { endpoint.GetMute()? };
     Ok(muted.as_bool())
 }
 
 pub(crate) fn set_mute(endpoint: &IAudioEndpointVolume, muted: bool) -> Result<()> {
-    // SAFETY: endpoint is valid; null event context indicates no specific caller.
+    // SAFETY: endpoint from IMMDevice::Activate; null event context means no specific caller.
     unsafe { endpoint.SetMute(muted, std::ptr::null()) }
 }
 
 pub(crate) fn set_volume(endpoint: &IAudioEndpointVolume, new_volume: f32) -> Result<()> {
-    // SAFETY: endpoint is valid; null event context indicates no specific caller.
+    // SAFETY: endpoint from IMMDevice::Activate; null event context means no specific caller.
     unsafe { endpoint.SetMasterVolumeLevelScalar(new_volume, std::ptr::null()) }
 }
 
 fn set_default_device(device_id: &str, role: ERole) -> Result<()> {
-    // SAFETY: COM is initialized; PolicyConfigClient is a known CLSID.
+    // SAFETY: COM is initialized (enforced by ComToken); PolicyConfigClient is an
+    // undocumented but widely-used COM class for changing default audio endpoints.
     let policy_config: windows_com_policy_config::IPolicyConfig = unsafe {
         CoCreateInstance(
             &windows_com_policy_config::PolicyConfigClient,
@@ -355,13 +363,13 @@ fn set_default_device(device_id: &str, role: ERole) -> Result<()> {
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
-    // SAFETY: wide is null-terminated and valid for the duration of this call.
+    // SAFETY: wide is a null-terminated UTF-16 string on the stack, valid for this call.
     unsafe { policy_config.SetDefaultEndpoint(PCWSTR(wide.as_ptr()), role) }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::clean_device_name;
 
     #[test]
     fn clean_device_name_standard_format() {

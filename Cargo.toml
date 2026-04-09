@@ -3,6 +3,7 @@ name = "volume-locker"
 version = "0.0.0-development"
 edition = "2024"
 build = "build.rs"
+repository = "https://github.com/felipecrs/volume-locker"
 categories = ["multimedia::audio"]
 keywords = ["audio", "volume", "windows", "tray"]
 
@@ -51,7 +52,6 @@ windows = { version = "0.62.2", features = [
 	"Win32_UI_Shell_PropertiesSystem",
 	"Devices_Custom",
 ] }
-widestring = "1.2.1"
 
 [target.'cfg(target_os = "windows")'.build-dependencies]
 winresource = "0.1.31"

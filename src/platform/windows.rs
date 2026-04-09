@@ -8,7 +8,11 @@ use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 use windows::core::{HSTRING, Result};
 use windows_registry::CURRENT_USER;
 
-pub fn init_platform(executable_directory: &Path) -> anyhow::Result<()> {
+/// Witness type proving COM has been initialized on this thread.
+/// Only constructible via [`init_platform`], which calls `CoInitializeEx`.
+pub struct ComToken(());
+
+pub fn init_platform(executable_directory: &Path) -> anyhow::Result<ComToken> {
     // Initialize COM for the process. Must be called before any COM usage,
     // including WindowsAudioBackend::new().
     // SAFETY: CoInitializeEx is safe to call; first call on this thread.
@@ -16,7 +20,7 @@ pub fn init_platform(executable_directory: &Path) -> anyhow::Result<()> {
     if let Err(e) = setup_app_aumid(executable_directory) {
         log::warn!("Failed to set up app AUMID: {e}");
     }
-    Ok(())
+    Ok(ComToken(()))
 }
 
 fn setup_app_aumid(executable_directory: &Path) -> Result<()> {

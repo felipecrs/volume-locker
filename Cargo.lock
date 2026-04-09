@@ -2350,7 +2350,7 @@ dependencies = [
  "libc",
  "nix 0.23.2",
  "thiserror 1.0.69",
- "widestring 0.4.3",
+ "widestring",
  "winapi",
 ]
 
@@ -2882,7 +2882,6 @@ dependencies = [
  "tao",
  "tray-icon",
  "ureq",
- "widestring 1.2.1",
  "windows 0.62.2",
  "windows-core 0.62.2",
  "windows-registry",
@@ -3016,12 +3015,6 @@ name = "widestring"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c168940144dd21fd8046987c16a46a33d5fc84eec29ef9dcddc2ac9e31526b7c"
-
-[[package]]
-name = "widestring"
-version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72069c3113ab32ab29e5584db3c6ec55d416895e60715417b5b883a357c3e471"
 
 [[package]]
 name = "winapi"

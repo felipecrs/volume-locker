@@ -247,13 +247,8 @@ pub(crate) mod tests {
 
     pub(crate) fn make_device_settings(name: &str, device_type: DeviceType) -> DeviceSettings {
         DeviceSettings {
-            is_volume_locked: false,
             volume_percent: 50.0,
-            notify_on_volume_lock: false,
-            is_unmute_locked: false,
-            notify_on_unmute_lock: false,
-            device_type,
-            name: name.to_string(),
+            ..DeviceSettings::new(name.to_string(), device_type)
         }
     }
 

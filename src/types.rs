@@ -29,8 +29,22 @@ pub struct DeviceSettings {
     pub name: String,
 }
 
+impl DeviceSettings {
+    pub fn new(name: String, device_type: DeviceType) -> Self {
+        Self {
+            is_volume_locked: false,
+            volume_percent: 0.0,
+            notify_on_volume_lock: false,
+            is_unmute_locked: false,
+            notify_on_unmute_lock: false,
+            device_type,
+            name,
+        }
+    }
+}
+
 #[derive(Debug)]
-pub enum DeviceSettingType {
+pub enum DeviceAction {
     VolumeLock,
     VolumeLockNotify,
     UnmuteLock,
@@ -41,13 +55,21 @@ pub enum DeviceSettingType {
     MovePriorityDown,
     MovePriorityToTop,
     MovePriorityToBottom,
+    SetTemporaryPriority,
+    OpenProperties,
+    OpenSettings,
+}
+
+#[derive(Debug)]
+pub enum PreferenceAction {
     PriorityRestoreNotify,
     SwitchCommunicationDevice,
-    SetTemporaryPriority,
     OpenDevicesList,
-    OpenDeviceProperties,
+}
+
+#[derive(Debug)]
+pub enum AppAction {
     OpenSoundSettings,
-    OpenDeviceSettings,
     OpenVolumeMixer,
     CheckForUpdates,
     PerformUpdate,
@@ -56,11 +78,23 @@ pub enum DeviceSettingType {
 }
 
 #[derive(Debug)]
-pub struct MenuItemDeviceInfo {
-    pub device_id: Option<String>,
-    pub setting_type: DeviceSettingType,
+pub enum MenuAction {
+    Device {
+        device_id: String,
+        device_type: DeviceType,
+        action: DeviceAction,
+    },
+    Preference {
+        device_type: DeviceType,
+        action: PreferenceAction,
+    },
+    App(AppAction),
+}
+
+#[derive(Debug)]
+pub struct MenuItemInfo {
     pub name: String,
-    pub device_type: Option<DeviceType>,
+    pub action: MenuAction,
 }
 
 #[derive(Debug)]
@@ -85,7 +119,7 @@ pub enum UserEvent {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{DeviceRole, DeviceSettings, DeviceType};
 
     #[test]
     fn device_type_serialization_roundtrip() {

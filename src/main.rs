@@ -19,17 +19,23 @@ use crate::audio::{
 use crate::config::{PersistentState, load_state, save_state};
 use crate::consts::{APP_NAME, APP_UID, CURRENT_VERSION, LOG_FILE_NAME};
 use crate::platform::{NotificationDuration, init_platform, send_notification};
-use crate::types::{MenuItemDeviceInfo, TemporaryPriorities, UserEvent, VolumeChangedEvent};
-use crate::ui::{TrayMenuItems, handle_menu_event, rebuild_tray_menu};
+use crate::types::{MenuItemInfo, TemporaryPriorities, UserEvent, VolumeChangedEvent};
+use crate::ui::{
+    MenuContext, TrayMenuItems, handle_menu_event, rebuild_tray_menu, sync_device_names,
+};
 use crate::update::UpdateInfo;
 use crate::utils::{
     convert_float_to_percent, convert_percent_to_float, get_executable_directory,
     get_executable_path_str, log_and_notify_error, send_notification_debounced,
 };
 use anyhow::Context;
+use auto_launch::AutoLaunch;
 use auto_launch::AutoLaunchBuilder;
 use faccess::PathExt;
-use simplelog::*;
+use simplelog::{
+    ColorChoice, CombinedLogger, Config, LevelFilter, SharedLogger, TermLogger, TerminalMode,
+    WriteLogger,
+};
 use single_instance::SingleInstance;
 use std::collections::HashMap;
 use std::fs::File;
@@ -45,7 +51,7 @@ use tray_icon::{
 
 struct AppState {
     persistent_state: PersistentState,
-    menu_id_to_device: HashMap<MenuId, MenuItemDeviceInfo>,
+    menu_id_to_device: HashMap<MenuId, MenuItemInfo>,
     watched_devices: Vec<Box<dyn AudioDevice>>,
     last_notification_times: HashMap<String, Instant>,
     temporary_priorities: TemporaryPriorities,
@@ -264,20 +270,123 @@ impl AppState {
             log::warn!("Failed to send DevicesChanged event: {e}");
         }
     }
+
+    fn handle_menu_click(
+        &mut self,
+        event: &tray_icon::menu::MenuEvent,
+        auto_launch: &AutoLaunch,
+        auto_launch_check_item: &CheckMenuItem,
+        check_updates_on_launch_item: &CheckMenuItem,
+        quit_item: &MenuItem,
+        tray_menu: &Menu,
+        proxy: &EventLoopProxy<UserEvent>,
+        control_flow: &mut ControlFlow,
+    ) {
+        if event.id == auto_launch_check_item.id() {
+            let checked = auto_launch_check_item.is_checked();
+            let result = if checked {
+                auto_launch.enable()
+            } else {
+                auto_launch.disable()
+            };
+            if let Err(e) = result {
+                log_and_notify_error(
+                    "Failed to Toggle Auto-Launch",
+                    &format!("Failed to toggle auto-launch: {e}"),
+                );
+            }
+        } else if event.id == check_updates_on_launch_item.id() {
+            self.persistent_state.check_updates_on_launch =
+                check_updates_on_launch_item.is_checked();
+            let _ = proxy.send_event(UserEvent::ConfigurationChanged);
+        } else if event.id == quit_item.id() {
+            self.tray_icon.take();
+            *control_flow = ControlFlow::Exit;
+        } else if let Some(menu_info) = self.menu_id_to_device.get(&event.id) {
+            let result = handle_menu_event(
+                event,
+                menu_info,
+                tray_menu,
+                &mut self.persistent_state,
+                &self.backend,
+                &mut self.temporary_priorities,
+                &self.update_info,
+            );
+
+            if result.devices_changed {
+                let _ = proxy.send_event(UserEvent::DevicesChanged);
+            }
+
+            if result.should_save {
+                let _ = proxy.send_event(UserEvent::ConfigurationChanged);
+            }
+
+            match result.update_action {
+                ui::UpdateAction::Perform(info) => update::perform(&info),
+                ui::UpdateAction::Check => self.update_info = update::check(true),
+                ui::UpdateAction::None => {}
+            }
+        }
+    }
+
+    fn handle_tray_click(
+        &mut self,
+        tray_menu: &Menu,
+        auto_launch: &AutoLaunch,
+        auto_launch_check_item: &CheckMenuItem,
+        check_updates_on_launch_item: &CheckMenuItem,
+        quit_item: &MenuItem,
+        output_devices_heading_item: &MenuItem,
+        input_devices_heading_item: &MenuItem,
+    ) {
+        sync_device_names(&self.backend, &mut self.persistent_state);
+        let ctx = MenuContext {
+            backend: &self.backend,
+            persistent_state: &self.persistent_state,
+            temporary_priorities: &self.temporary_priorities,
+            auto_launch_enabled: auto_launch.is_enabled().unwrap_or(false),
+            update_info: &self.update_info,
+        };
+        match rebuild_tray_menu(
+            tray_menu,
+            &ctx,
+            &TrayMenuItems {
+                auto_launch_check_item,
+                check_updates_on_launch_item,
+                quit_item,
+                output_devices_heading_item,
+                input_devices_heading_item,
+            },
+        ) {
+            Ok(map) => {
+                self.menu_id_to_device = map;
+                if let Some(tray_icon) = &self.tray_icon {
+                    tray_icon.show_menu();
+                }
+            }
+            Err(e) => {
+                log_and_notify_error(
+                    "Failed to Rebuild Tray Menu",
+                    &format!("Failed to rebuild tray menu: {e}"),
+                );
+            }
+        }
+    }
 }
 
-fn main() {
+fn main() -> std::process::ExitCode {
     if let Err(e) = run() {
         eprintln!("Fatal error: {e:#}");
         log::error!("Fatal error: {e:#}");
-        std::process::exit(1);
+        return std::process::ExitCode::FAILURE;
     }
+    std::process::ExitCode::SUCCESS
 }
 
 fn run() -> anyhow::Result<()> {
     let executable_directory = get_executable_directory()?;
 
-    init_platform(&executable_directory)?;
+    let com_token = init_platform(&executable_directory)?;
 
     if !executable_directory.writable() {
         let error_title = "Volume Locker Directory Not Writable";
@@ -286,13 +395,9 @@ fn run() -> anyhow::Result<()> {
             executable_directory.display(),
         );
 
-        eprintln!("{error_title}: {error_message}");
+        let _ = send_notification(error_title, &error_message, NotificationDuration::Long);
 
-        if let Err(e) = send_notification(error_title, &error_message, NotificationDuration::Long) {
-            eprintln!("Failed to show {error_title} notification: {e}");
-        }
-
-        std::process::exit(1);
+        anyhow::bail!("{error_title}: {error_message}");
     }
 
     let log_path = executable_directory.join(LOG_FILE_NAME);
@@ -321,8 +426,7 @@ fn run() -> anyhow::Result<()> {
     // Only allow one instance of the application to run at a time
     let instance = SingleInstance::new(APP_UID).context("failed to create single instance")?;
     if !instance.is_single() {
-        log::error!("Another instance is already running.");
-        std::process::exit(1);
+        anyhow::bail!("Another instance is already running.");
     }
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
@@ -371,7 +475,8 @@ fn run() -> anyhow::Result<()> {
         .context("failed to load locked icon")?;
 
     #[cfg(target_os = "windows")]
-    let mut backend = AudioBackendImpl::new().context("failed to initialize audio backend")?;
+    let mut backend =
+        AudioBackendImpl::new(&com_token).context("failed to initialize audio backend")?;
 
     let proxy = event_loop.create_proxy();
     backend
@@ -384,16 +489,8 @@ fn run() -> anyhow::Result<()> {
 
     let main_proxy = event_loop.create_proxy();
 
-    let persistent_state = match load_state() {
-        Ok(state) => state,
-        Err(e) => {
-            let message = format!(
-                "{e}\n\nExiting to prevent overwriting your preferences. Please check the state file."
-            );
-            log_and_notify_error("Failed to Load Preferences", &message);
-            std::process::exit(1);
-        }
-    };
+    let persistent_state = load_state()
+        .context("failed to load preferences — exiting to prevent overwriting your preferences")?;
     log::info!("Loaded: {persistent_state:?}");
 
     let mut app = AppState {
@@ -437,51 +534,16 @@ fn run() -> anyhow::Result<()> {
             }
 
             Event::UserEvent(UserEvent::Menu(event)) => {
-                if event.id == auto_launch_check_item.id() {
-                    let checked = auto_launch_check_item.is_checked();
-                    let result = if checked {
-                        auto_launch.enable()
-                    } else {
-                        auto_launch.disable()
-                    };
-                    if let Err(e) = result {
-                        log_and_notify_error(
-                            "Failed to Toggle Auto-Launch",
-                            &format!("Failed to toggle auto-launch: {e}"),
-                        );
-                    }
-                } else if event.id == check_updates_on_launch_item.id() {
-                    app.persistent_state.check_updates_on_launch =
-                        check_updates_on_launch_item.is_checked();
-                    let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
-                } else if event.id == quit_item.id() {
-                    app.tray_icon.take();
-                    *control_flow = ControlFlow::Exit;
-                } else if let Some(menu_info) = app.menu_id_to_device.get(&event.id) {
-                    let result = handle_menu_event(
-                        &event,
-                        menu_info,
-                        &tray_menu,
-                        &mut app.persistent_state,
-                        &app.backend,
-                        &mut app.temporary_priorities,
-                        &app.update_info,
-                    );
-
-                    if result.devices_changed {
-                        let _ = main_proxy.send_event(UserEvent::DevicesChanged);
-                    }
-
-                    if result.should_save {
-                        let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
-                    }
-
-                    match result.update_action {
-                        ui::UpdateAction::Perform(info) => update::perform(&info),
-                        ui::UpdateAction::Check => app.update_info = update::check(true),
-                        ui::UpdateAction::None => {}
-                    }
-                }
+                app.handle_menu_click(
+                    &event,
+                    &auto_launch,
+                    &auto_launch_check_item,
+                    &check_updates_on_launch_item,
+                    &quit_item,
+                    &tray_menu,
+                    &main_proxy,
+                    control_flow,
+                );
             }
 
             Event::UserEvent(UserEvent::TrayIcon(TrayIconEvent::Click {
@@ -489,34 +551,15 @@ fn run() -> anyhow::Result<()> {
                 button_state: MouseButtonState::Down,
                 ..
             })) if button == MouseButton::Right || button == MouseButton::Left => {
-                match rebuild_tray_menu(
+                app.handle_tray_click(
                     &tray_menu,
-                    &app.backend,
-                    &mut app.persistent_state,
-                    &app.temporary_priorities,
-                    auto_launch.is_enabled().unwrap_or(false),
-                    &TrayMenuItems {
-                        auto_launch_check_item: &auto_launch_check_item,
-                        check_updates_on_launch_item: &check_updates_on_launch_item,
-                        quit_item: &quit_item,
-                        output_devices_heading_item: &output_devices_heading_item,
-                        input_devices_heading_item: &input_devices_heading_item,
-                    },
-                    &app.update_info,
-                ) {
-                    Ok(map) => {
-                        app.menu_id_to_device = map;
-                        if let Some(tray_icon) = &app.tray_icon {
-                            tray_icon.show_menu();
-                        }
-                    }
-                    Err(e) => {
-                        log_and_notify_error(
-                            "Failed to Rebuild Tray Menu",
-                            &format!("Failed to rebuild tray menu: {e}"),
-                        );
-                    }
-                }
+                    &auto_launch,
+                    &auto_launch_check_item,
+                    &check_updates_on_launch_item,
+                    &quit_item,
+                    &output_devices_heading_item,
+                    &input_devices_heading_item,
+                );
             }
 
             Event::UserEvent(UserEvent::VolumeChanged(event)) => {
