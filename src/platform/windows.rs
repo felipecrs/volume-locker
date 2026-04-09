@@ -18,7 +18,7 @@ pub fn init_platform(executable_directory: &Path) -> anyhow::Result<ComToken> {
     // SAFETY: CoInitializeEx is safe to call; first call on this thread.
     unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok()? };
     if let Err(e) = setup_app_aumid(executable_directory) {
-        log::warn!("Failed to set up app AUMID: {e}");
+        log::warn!("Failed to set up app AUMID: {e:#}");
     }
     Ok(ComToken(()))
 }
@@ -32,7 +32,7 @@ fn setup_app_aumid(executable_directory: &Path) -> Result<()> {
     // We need an icon file for the AUMID to work properly
     let png_path = executable_directory.join(PNG_ICON_FILE_NAME);
     if let Err(e) = fs::write(&png_path, PNG_ICON_BYTES) {
-        log::warn!("Failed to write {PNG_ICON_FILE_NAME} icon: {e}");
+        log::warn!("Failed to write {PNG_ICON_FILE_NAME} icon: {e:#}");
         let _ = key.remove_value("IconUri");
     } else {
         let _ = key.set_hstring("IconUri", &png_path.as_path().into());

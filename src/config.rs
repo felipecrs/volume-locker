@@ -1,6 +1,6 @@
 use crate::consts::STATE_FILE_NAME;
 use crate::types::DeviceSettings;
-use crate::types::DeviceType;
+use crate::types::{DeviceId, DeviceType};
 use crate::utils::get_executable_directory;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -11,9 +11,9 @@ use std::path::PathBuf;
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PersistentState {
-    pub devices: HashMap<String, DeviceSettings>,
-    pub output_priority_list: Vec<String>,
-    pub input_priority_list: Vec<String>,
+    pub devices: HashMap<DeviceId, DeviceSettings>,
+    pub output_priority_list: Vec<DeviceId>,
+    pub input_priority_list: Vec<DeviceId>,
     pub notify_on_priority_restore_output: bool,
     pub notify_on_priority_restore_input: bool,
     pub switch_communication_device_output: bool,
@@ -22,14 +22,14 @@ pub struct PersistentState {
 }
 
 impl PersistentState {
-    pub fn get_priority_list_mut(&mut self, device_type: DeviceType) -> &mut Vec<String> {
+    pub fn get_priority_list_mut(&mut self, device_type: DeviceType) -> &mut Vec<DeviceId> {
         match device_type {
             DeviceType::Output => &mut self.output_priority_list,
             DeviceType::Input => &mut self.input_priority_list,
         }
     }
 
-    pub fn get_priority_list(&self, device_type: DeviceType) -> &[String] {
+    pub fn get_priority_list(&self, device_type: DeviceType) -> &[DeviceId] {
         match device_type {
             DeviceType::Output => &self.output_priority_list,
             DeviceType::Input => &self.input_priority_list,
@@ -134,6 +134,7 @@ pub fn load_state() -> anyhow::Result<PersistentState> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{UnmuteLockPolicy, VolumeLockPolicy};
 
     #[test]
     fn persistent_state_default_values() {
@@ -156,11 +157,12 @@ mod tests {
             devices: HashMap::from([(
                 "test_id".into(),
                 DeviceSettings {
-                    is_volume_locked: true,
-                    volume_percent: 75.0,
-                    notify_on_volume_lock: true,
-                    is_unmute_locked: false,
-                    notify_on_unmute_lock: false,
+                    volume_lock: VolumeLockPolicy {
+                        is_locked: true,
+                        target_percent: 75.0,
+                        notify: true,
+                    },
+                    unmute_lock: UnmuteLockPolicy::default(),
                     device_type: DeviceType::Output,
                     name: "Test Device".into(),
                 },
@@ -174,8 +176,8 @@ mod tests {
         assert_eq!(loaded.output_priority_list, vec!["device_a", "device_b"]);
         assert!(!loaded.check_updates_on_launch);
         let dev = loaded.devices.get("test_id").unwrap();
-        assert!(dev.is_volume_locked);
-        assert_eq!(dev.volume_percent, 75.0);
+        assert!(dev.volume_lock.is_locked);
+        assert_eq!(dev.volume_lock.target_percent, 75.0);
         assert_eq!(dev.name, "Test Device");
     }
 
@@ -247,11 +249,15 @@ mod tests {
             devices: HashMap::from([(
                 "dev_a".into(),
                 DeviceSettings {
-                    is_volume_locked: true,
-                    volume_percent: 80.0,
-                    notify_on_volume_lock: true,
-                    is_unmute_locked: true,
-                    notify_on_unmute_lock: false,
+                    volume_lock: VolumeLockPolicy {
+                        is_locked: true,
+                        target_percent: 80.0,
+                        notify: true,
+                    },
+                    unmute_lock: UnmuteLockPolicy {
+                        is_locked: true,
+                        notify: false,
+                    },
                     device_type: DeviceType::Output,
                     name: "Speakers".into(),
                 },
@@ -274,10 +280,10 @@ mod tests {
         assert!(!loaded.check_updates_on_launch);
 
         let dev = loaded.devices.get("dev_a").unwrap();
-        assert!(dev.is_volume_locked);
-        assert_eq!(dev.volume_percent, 80.0);
-        assert!(dev.notify_on_volume_lock);
-        assert!(dev.is_unmute_locked);
+        assert!(dev.volume_lock.is_locked);
+        assert_eq!(dev.volume_lock.target_percent, 80.0);
+        assert!(dev.volume_lock.notify);
+        assert!(dev.unmute_lock.is_locked);
         assert_eq!(dev.name, "Speakers");
 
         // Cleanup
@@ -296,7 +302,10 @@ mod tests {
         state.devices.insert(
             "dev1".into(),
             DeviceSettings {
-                volume_percent: 50.0,
+                volume_lock: VolumeLockPolicy {
+                    target_percent: 50.0,
+                    ..VolumeLockPolicy::default()
+                },
                 ..DeviceSettings::new("Initial Device".into(), DeviceType::Output)
             },
         );
@@ -306,8 +315,18 @@ mod tests {
         // Load, modify, save again
         let data = fs::read_to_string(&path).unwrap();
         let mut loaded: PersistentState = serde_json::from_str(&data).unwrap();
-        loaded.devices.get_mut("dev1").unwrap().is_volume_locked = true;
-        loaded.devices.get_mut("dev1").unwrap().volume_percent = 75.0;
+        loaded
+            .devices
+            .get_mut("dev1")
+            .unwrap()
+            .volume_lock
+            .is_locked = true;
+        loaded
+            .devices
+            .get_mut("dev1")
+            .unwrap()
+            .volume_lock
+            .target_percent = 75.0;
         loaded.output_priority_list.push("dev1".into());
 
         let json2 = serde_json::to_string_pretty(&loaded).unwrap();
@@ -317,8 +336,8 @@ mod tests {
         let data2 = fs::read_to_string(&path).unwrap();
         let final_state: PersistentState = serde_json::from_str(&data2).unwrap();
         let dev = final_state.devices.get("dev1").unwrap();
-        assert!(dev.is_volume_locked);
-        assert_eq!(dev.volume_percent, 75.0);
+        assert!(dev.volume_lock.is_locked);
+        assert_eq!(dev.volume_lock.target_percent, 75.0);
         assert_eq!(final_state.output_priority_list, vec!["dev1"]);
 
         // Cleanup

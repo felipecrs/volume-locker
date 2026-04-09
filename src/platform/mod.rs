@@ -38,7 +38,7 @@ pub fn send_notification(
 
     notification
         .show()
-        .map_err(|e| anyhow::anyhow!("failed to show notification: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("failed to show notification: {e:#}"))?;
     Ok(())
 }
 

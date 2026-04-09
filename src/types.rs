@@ -1,4 +1,67 @@
 use serde::{Deserialize, Serialize};
+use std::borrow::Borrow;
+use std::fmt;
+
+/// A strongly-typed wrapper around a device identifier string.
+/// Prevents accidental confusion between device IDs and device names.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+#[serde(transparent)]
+pub struct DeviceId(String);
+
+impl DeviceId {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+}
+
+impl fmt::Display for DeviceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl std::ops::Deref for DeviceId {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Borrow<str> for DeviceId {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for DeviceId {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl From<&str> for DeviceId {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
+    }
+}
+
+impl PartialEq<str> for DeviceId {
+    fn eq(&self, other: &str) -> bool {
+        self.0 == other
+    }
+}
+
+impl PartialEq<&str> for DeviceId {
+    fn eq(&self, other: &&str) -> bool {
+        self.0 == *other
+    }
+}
+
+impl PartialEq<String> for DeviceId {
+    fn eq(&self, other: &String) -> bool {
+        self.0 == *other
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DeviceType {
@@ -13,18 +76,30 @@ pub enum DeviceRole {
     Communications,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct VolumeLockPolicy {
+    #[serde(default, rename = "is_volume_locked")]
+    pub is_locked: bool,
+    #[serde(default, rename = "volume_percent")]
+    pub target_percent: f32,
+    #[serde(default, rename = "notify_on_volume_lock")]
+    pub notify: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct UnmuteLockPolicy {
+    #[serde(default, rename = "is_unmute_locked")]
+    pub is_locked: bool,
+    #[serde(default, rename = "notify_on_unmute_lock")]
+    pub notify: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DeviceSettings {
-    #[serde(default)]
-    pub is_volume_locked: bool,
-    #[serde(default)]
-    pub volume_percent: f32,
-    #[serde(default)]
-    pub notify_on_volume_lock: bool,
-    #[serde(default)]
-    pub is_unmute_locked: bool,
-    #[serde(default)]
-    pub notify_on_unmute_lock: bool,
+    #[serde(flatten)]
+    pub volume_lock: VolumeLockPolicy,
+    #[serde(flatten)]
+    pub unmute_lock: UnmuteLockPolicy,
     pub device_type: DeviceType,
     pub name: String,
 }
@@ -32,11 +107,8 @@ pub struct DeviceSettings {
 impl DeviceSettings {
     pub fn new(name: String, device_type: DeviceType) -> Self {
         Self {
-            is_volume_locked: false,
-            volume_percent: 0.0,
-            notify_on_volume_lock: false,
-            is_unmute_locked: false,
-            notify_on_unmute_lock: false,
+            volume_lock: VolumeLockPolicy::default(),
+            unmute_lock: UnmuteLockPolicy::default(),
             device_type,
             name,
         }
@@ -80,7 +152,7 @@ pub enum AppAction {
 #[derive(Debug)]
 pub enum MenuAction {
     Device {
-        device_id: String,
+        device_id: DeviceId,
         device_type: DeviceType,
         action: DeviceAction,
     },
@@ -99,13 +171,29 @@ pub struct MenuItemInfo {
 
 #[derive(Debug)]
 pub struct VolumeChangedEvent {
-    pub device_id: String,
+    pub device_id: DeviceId,
     pub new_volume: Option<f32>,
 }
 
 pub struct TemporaryPriorities {
-    pub output: Option<String>,
-    pub input: Option<String>,
+    pub output: Option<DeviceId>,
+    pub input: Option<DeviceId>,
+}
+
+impl TemporaryPriorities {
+    pub fn get(&self, device_type: DeviceType) -> Option<&DeviceId> {
+        match device_type {
+            DeviceType::Output => self.output.as_ref(),
+            DeviceType::Input => self.input.as_ref(),
+        }
+    }
+
+    pub fn set(&mut self, device_type: DeviceType, value: Option<DeviceId>) {
+        match device_type {
+            DeviceType::Output => self.output = value,
+            DeviceType::Input => self.input = value,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -139,33 +227,38 @@ mod tests {
     fn device_settings_default_fields() {
         let json = r#"{"device_type": "Output", "name": "Test"}"#;
         let settings: DeviceSettings = serde_json::from_str(json).unwrap();
-        assert!(!settings.is_volume_locked);
-        assert_eq!(settings.volume_percent, 0.0);
-        assert!(!settings.notify_on_volume_lock);
-        assert!(!settings.is_unmute_locked);
-        assert!(!settings.notify_on_unmute_lock);
+        assert!(!settings.volume_lock.is_locked);
+        assert_eq!(settings.volume_lock.target_percent, 0.0);
+        assert!(!settings.volume_lock.notify);
+        assert!(!settings.unmute_lock.is_locked);
+        assert!(!settings.unmute_lock.notify);
         assert_eq!(settings.device_type, DeviceType::Output);
         assert_eq!(settings.name, "Test");
     }
 
     #[test]
     fn device_settings_full_roundtrip() {
+        use super::{UnmuteLockPolicy, VolumeLockPolicy};
         let settings = DeviceSettings {
-            is_volume_locked: true,
-            volume_percent: 75.0,
-            notify_on_volume_lock: true,
-            is_unmute_locked: true,
-            notify_on_unmute_lock: false,
+            volume_lock: VolumeLockPolicy {
+                is_locked: true,
+                target_percent: 75.0,
+                notify: true,
+            },
+            unmute_lock: UnmuteLockPolicy {
+                is_locked: true,
+                notify: false,
+            },
             device_type: DeviceType::Input,
             name: "Microphone".into(),
         };
         let json = serde_json::to_string(&settings).unwrap();
         let loaded: DeviceSettings = serde_json::from_str(&json).unwrap();
-        assert!(loaded.is_volume_locked);
-        assert_eq!(loaded.volume_percent, 75.0);
-        assert!(loaded.notify_on_volume_lock);
-        assert!(loaded.is_unmute_locked);
-        assert!(!loaded.notify_on_unmute_lock);
+        assert!(loaded.volume_lock.is_locked);
+        assert_eq!(loaded.volume_lock.target_percent, 75.0);
+        assert!(loaded.volume_lock.notify);
+        assert!(loaded.unmute_lock.is_locked);
+        assert!(!loaded.unmute_lock.notify);
         assert_eq!(loaded.device_type, DeviceType::Input);
         assert_eq!(loaded.name, "Microphone");
     }

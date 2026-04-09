@@ -60,6 +60,16 @@ struct AppState {
     backend: AudioBackendImpl,
 }
 
+struct EventLoopRefs<'a> {
+    auto_launch: &'a AutoLaunch,
+    auto_launch_check_item: &'a CheckMenuItem,
+    check_updates_on_launch_item: &'a CheckMenuItem,
+    quit_item: &'a MenuItem,
+    tray_menu: &'a Menu,
+    output_devices_heading_item: &'a MenuItem,
+    input_devices_heading_item: &'a MenuItem,
+}
+
 impl AppState {
     fn handle_volume_changed(&mut self, event: VolumeChangedEvent) {
         let VolumeChangedEvent {
@@ -67,7 +77,7 @@ impl AppState {
             new_volume,
         } = event;
 
-        let device_settings = match self.persistent_state.devices.get_mut(&device_id) {
+        let device_settings = match self.persistent_state.devices.get(&device_id) {
             Some(s) => s,
             None => return,
         };
@@ -89,48 +99,29 @@ impl AppState {
             None => match device.volume() {
                 Ok(v) => v,
                 Err(e) => {
-                    log::error!("Failed to get volume for {device_id}: {e}");
+                    log::error!("Failed to get volume for {device_id}: {e:#}");
                     return;
                 }
             },
         };
-        let new_volume_percent = convert_float_to_percent(new_volume);
 
-        if device_settings.is_volume_locked {
-            let target_volume_percent = device_settings.volume_percent;
-            if new_volume_percent != target_volume_percent {
-                let target_volume = convert_percent_to_float(target_volume_percent);
-                let device_name = device.name();
-
-                if let Err(e) = device.set_volume(target_volume) {
-                    log::error!(
-                        "Failed to set volume of {device_name} to {target_volume_percent}%: {e}"
-                    );
-                    return;
-                }
-                log::info!(
-                    "Restored volume of {device_name} from {new_volume_percent}% to {target_volume_percent}%"
-                );
-                if device_settings.notify_on_volume_lock {
-                    send_notification_debounced(
-                        &format!("volume_restore_{}", device_id),
-                        "Volume Restored",
-                        &format!(
-                            "The volume of {device_name} has been restored from {new_volume_percent}% to {target_volume_percent}%."
-                        ),
-                        &mut self.last_notification_times,
-                    );
-                }
-            }
+        if device_settings.volume_lock.is_locked {
+            enforce_volume_lock(
+                &device_id,
+                device.as_ref(),
+                device_settings,
+                new_volume,
+                &mut self.last_notification_times,
+            );
         }
 
-        if device_settings.is_unmute_locked {
+        if device_settings.unmute_lock.is_locked {
             let (notification_title, notification_suffix) =
                 get_unmute_notification_details(device_settings.device_type);
 
             if let Err(e) = check_and_unmute_device(
                 device.as_ref(),
-                device_settings.notify_on_unmute_lock,
+                device_settings.unmute_lock.notify,
                 notification_title,
                 notification_suffix,
                 &mut self.last_notification_times,
@@ -154,7 +145,7 @@ impl AppState {
             if let Err(e) = save_state(&self.persistent_state) {
                 log_and_notify_error(
                     "Failed to Save State",
-                    &format!("Failed to save state after device migration: {e}"),
+                    &format!("Failed to save state after device migration: {e:#}"),
                 );
             } else {
                 log::info!("Saved state after device migration");
@@ -172,7 +163,7 @@ impl AppState {
         let mut some_locked = false;
 
         for (device_id, device_settings) in self.persistent_state.devices.iter() {
-            if !device_settings.is_volume_locked && !device_settings.is_unmute_locked {
+            if !device_settings.volume_lock.is_locked && !device_settings.unmute_lock.is_locked {
                 continue;
             }
 
@@ -212,13 +203,13 @@ impl AppState {
                 continue;
             }
 
-            if device_settings.is_unmute_locked {
+            if device_settings.unmute_lock.is_locked {
                 let (notification_title, notification_suffix) =
                     get_unmute_notification_details(device_settings.device_type);
 
                 if let Err(e) = check_and_unmute_device(
                     device.as_ref(),
-                    device_settings.notify_on_unmute_lock,
+                    device_settings.unmute_lock.notify,
                     notification_title,
                     notification_suffix,
                     &mut self.last_notification_times,
@@ -232,15 +223,15 @@ impl AppState {
             log::info!(
                 "Watching volume of {} (Locked: {}, Unmute: {})",
                 device_settings.name,
-                device_settings.is_volume_locked,
-                device_settings.is_unmute_locked
+                device_settings.volume_lock.is_locked,
+                device_settings.unmute_lock.is_locked
             );
 
             if let Err(e) = proxy.send_event(UserEvent::VolumeChanged(VolumeChangedEvent {
                 device_id: device_id.clone(),
                 new_volume: None,
             })) {
-                log::warn!("Failed to send VolumeChanged event: {e}");
+                log::warn!("Failed to send VolumeChanged event: {e:#}");
             }
 
             some_locked = true;
@@ -249,10 +240,10 @@ impl AppState {
         if let Some(tray_icon) = &self.tray_icon {
             if some_locked {
                 if let Err(e) = tray_icon.set_icon(Some(locked_icon.clone())) {
-                    log::error!("Failed to update tray icon to locked: {e}");
+                    log::error!("Failed to update tray icon to locked: {e:#}");
                 }
             } else if let Err(e) = tray_icon.set_icon(Some(unlocked_icon.clone())) {
-                log::error!("Failed to update tray icon to unlocked: {e}");
+                log::error!("Failed to update tray icon to unlocked: {e:#}");
             }
         }
     }
@@ -261,52 +252,48 @@ impl AppState {
         if let Err(e) = save_state(&self.persistent_state) {
             log_and_notify_error(
                 "Failed to Save State",
-                &format!("Failed to save state: {e}"),
+                &format!("Failed to save state: {e:#}"),
             );
-        } else {
-            log::info!("Saved: {:?}", self.persistent_state);
+            return;
         }
+        log::info!("Saved: {:?}", self.persistent_state);
         if let Err(e) = proxy.send_event(UserEvent::DevicesChanged) {
-            log::warn!("Failed to send DevicesChanged event: {e}");
+            log::warn!("Failed to send DevicesChanged event: {e:#}");
         }
     }
 
     fn handle_menu_click(
         &mut self,
         event: &tray_icon::menu::MenuEvent,
-        auto_launch: &AutoLaunch,
-        auto_launch_check_item: &CheckMenuItem,
-        check_updates_on_launch_item: &CheckMenuItem,
-        quit_item: &MenuItem,
-        tray_menu: &Menu,
+        refs: &EventLoopRefs,
         proxy: &EventLoopProxy<UserEvent>,
         control_flow: &mut ControlFlow,
     ) {
-        if event.id == auto_launch_check_item.id() {
-            let checked = auto_launch_check_item.is_checked();
+        if event.id == refs.auto_launch_check_item.id() {
+            let checked = refs.auto_launch_check_item.is_checked();
             let result = if checked {
-                auto_launch.enable()
+                refs.auto_launch.enable()
             } else {
-                auto_launch.disable()
+                refs.auto_launch.disable()
             };
             if let Err(e) = result {
                 log_and_notify_error(
                     "Failed to Toggle Auto-Launch",
-                    &format!("Failed to toggle auto-launch: {e}"),
+                    &format!("Failed to toggle auto-launch: {e:#}"),
                 );
             }
-        } else if event.id == check_updates_on_launch_item.id() {
+        } else if event.id == refs.check_updates_on_launch_item.id() {
             self.persistent_state.check_updates_on_launch =
-                check_updates_on_launch_item.is_checked();
+                refs.check_updates_on_launch_item.is_checked();
             let _ = proxy.send_event(UserEvent::ConfigurationChanged);
-        } else if event.id == quit_item.id() {
+        } else if event.id == refs.quit_item.id() {
             self.tray_icon.take();
             *control_flow = ControlFlow::Exit;
         } else if let Some(menu_info) = self.menu_id_to_device.get(&event.id) {
             let result = handle_menu_event(
                 event,
                 menu_info,
-                tray_menu,
+                refs.tray_menu,
                 &mut self.persistent_state,
                 &self.backend,
                 &mut self.temporary_priorities,
@@ -322,40 +309,36 @@ impl AppState {
             }
 
             match result.update_action {
-                ui::UpdateAction::Perform(info) => update::perform(&info),
+                ui::UpdateAction::Perform(info) => {
+                    if update::perform(&info) {
+                        self.tray_icon.take();
+                        *control_flow = ControlFlow::Exit;
+                    }
+                }
                 ui::UpdateAction::Check => self.update_info = update::check(true),
                 ui::UpdateAction::None => {}
             }
         }
     }
 
-    fn handle_tray_click(
-        &mut self,
-        tray_menu: &Menu,
-        auto_launch: &AutoLaunch,
-        auto_launch_check_item: &CheckMenuItem,
-        check_updates_on_launch_item: &CheckMenuItem,
-        quit_item: &MenuItem,
-        output_devices_heading_item: &MenuItem,
-        input_devices_heading_item: &MenuItem,
-    ) {
+    fn handle_tray_click(&mut self, refs: &EventLoopRefs) {
         sync_device_names(&self.backend, &mut self.persistent_state);
         let ctx = MenuContext {
             backend: &self.backend,
             persistent_state: &self.persistent_state,
             temporary_priorities: &self.temporary_priorities,
-            auto_launch_enabled: auto_launch.is_enabled().unwrap_or(false),
+            auto_launch_enabled: refs.auto_launch.is_enabled().unwrap_or(false),
             update_info: &self.update_info,
         };
         match rebuild_tray_menu(
-            tray_menu,
+            refs.tray_menu,
             &ctx,
             &TrayMenuItems {
-                auto_launch_check_item,
-                check_updates_on_launch_item,
-                quit_item,
-                output_devices_heading_item,
-                input_devices_heading_item,
+                auto_launch_check_item: refs.auto_launch_check_item,
+                check_updates_on_launch_item: refs.check_updates_on_launch_item,
+                quit_item: refs.quit_item,
+                output_devices_heading_item: refs.output_devices_heading_item,
+                input_devices_heading_item: refs.input_devices_heading_item,
             },
         ) {
             Ok(map) => {
@@ -367,10 +350,45 @@ impl AppState {
             Err(e) => {
                 log_and_notify_error(
                     "Failed to Rebuild Tray Menu",
-                    &format!("Failed to rebuild tray menu: {e}"),
+                    &format!("Failed to rebuild tray menu: {e:#}"),
                 );
             }
         }
+    }
+}
+
+fn enforce_volume_lock(
+    device_id: &str,
+    device: &dyn AudioDevice,
+    settings: &types::DeviceSettings,
+    new_volume: f32,
+    last_notification_times: &mut HashMap<String, Instant>,
+) {
+    let new_volume_percent = convert_float_to_percent(new_volume);
+    let target_volume_percent = settings.volume_lock.target_percent;
+    if new_volume_percent == target_volume_percent {
+        return;
+    }
+
+    let target_volume = convert_percent_to_float(target_volume_percent);
+    let device_name = device.name();
+
+    if let Err(e) = device.set_volume(target_volume) {
+        log::error!("Failed to set volume of {device_name} to {target_volume_percent}%: {e:#}");
+        return;
+    }
+    log::info!(
+        "Restored volume of {device_name} from {new_volume_percent}% to {target_volume_percent}%"
+    );
+    if settings.volume_lock.notify {
+        send_notification_debounced(
+            &format!("volume_restore_{}", device_id),
+            "Volume Restored",
+            &format!(
+                "The volume of {device_name} has been restored from {new_volume_percent}% to {target_volume_percent}%."
+            ),
+            last_notification_times,
+        );
     }
 }
 
@@ -434,7 +452,7 @@ fn run() -> anyhow::Result<()> {
     let proxy = event_loop.create_proxy();
     TrayIconEvent::set_event_handler(Some(move |event| {
         if let Err(e) = proxy.send_event(UserEvent::TrayIcon(event)) {
-            log::warn!("Failed to send TrayIcon event: {e}");
+            log::warn!("Failed to send TrayIcon event: {e:#}");
         }
     }));
     TrayIconEvent::receiver();
@@ -442,7 +460,7 @@ fn run() -> anyhow::Result<()> {
     let proxy = event_loop.create_proxy();
     MenuEvent::set_event_handler(Some(move |event| {
         if let Err(e) = proxy.send_event(UserEvent::Menu(event)) {
-            log::warn!("Failed to send Menu event: {e}");
+            log::warn!("Failed to send Menu event: {e:#}");
         }
     }));
     MenuEvent::receiver();
@@ -482,7 +500,7 @@ fn run() -> anyhow::Result<()> {
     backend
         .register_device_change_callback(Box::new(move || {
             if let Err(e) = proxy.send_event(UserEvent::DevicesChanged) {
-                log::warn!("Failed to send DevicesChanged event: {e}");
+                log::warn!("Failed to send DevicesChanged event: {e:#}");
             }
         }))
         .context("failed to register device change callback")?;
@@ -523,7 +541,7 @@ fn run() -> anyhow::Result<()> {
                     .build()
                 {
                     Ok(icon) => app.tray_icon = Some(icon),
-                    Err(e) => log::error!("Failed to build tray icon: {e}"),
+                    Err(e) => log::error!("Failed to build tray icon: {e:#}"),
                 }
 
                 if app.persistent_state.check_updates_on_launch {
@@ -534,16 +552,16 @@ fn run() -> anyhow::Result<()> {
             }
 
             Event::UserEvent(UserEvent::Menu(event)) => {
-                app.handle_menu_click(
-                    &event,
-                    &auto_launch,
-                    &auto_launch_check_item,
-                    &check_updates_on_launch_item,
-                    &quit_item,
-                    &tray_menu,
-                    &main_proxy,
-                    control_flow,
-                );
+                let refs = EventLoopRefs {
+                    auto_launch: &auto_launch,
+                    auto_launch_check_item: &auto_launch_check_item,
+                    check_updates_on_launch_item: &check_updates_on_launch_item,
+                    quit_item: &quit_item,
+                    tray_menu: &tray_menu,
+                    output_devices_heading_item: &output_devices_heading_item,
+                    input_devices_heading_item: &input_devices_heading_item,
+                };
+                app.handle_menu_click(&event, &refs, &main_proxy, control_flow);
             }
 
             Event::UserEvent(UserEvent::TrayIcon(TrayIconEvent::Click {
@@ -551,15 +569,16 @@ fn run() -> anyhow::Result<()> {
                 button_state: MouseButtonState::Down,
                 ..
             })) if button == MouseButton::Right || button == MouseButton::Left => {
-                app.handle_tray_click(
-                    &tray_menu,
-                    &auto_launch,
-                    &auto_launch_check_item,
-                    &check_updates_on_launch_item,
-                    &quit_item,
-                    &output_devices_heading_item,
-                    &input_devices_heading_item,
-                );
+                let refs = EventLoopRefs {
+                    auto_launch: &auto_launch,
+                    auto_launch_check_item: &auto_launch_check_item,
+                    check_updates_on_launch_item: &check_updates_on_launch_item,
+                    quit_item: &quit_item,
+                    tray_menu: &tray_menu,
+                    output_devices_heading_item: &output_devices_heading_item,
+                    input_devices_heading_item: &input_devices_heading_item,
+                };
+                app.handle_tray_click(&refs);
             }
 
             Event::UserEvent(UserEvent::VolumeChanged(event)) => {

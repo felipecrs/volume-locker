@@ -106,10 +106,10 @@ pub fn check(manual_request: bool) -> Option<UpdateInfo> {
             if manual_request {
                 log_and_notify_error(
                     "Update Check Failed",
-                    &format!("Failed to check for updates: {e}"),
+                    &format!("Failed to check for updates: {e:#}"),
                 );
             } else {
-                log::error!("Failed to check for updates: {e}");
+                log::error!("Failed to check for updates: {e:#}");
             }
             None
         }
@@ -117,11 +117,16 @@ pub fn check(manual_request: bool) -> Option<UpdateInfo> {
 }
 
 /// Performs the update or shows error notification on failure.
-pub fn perform(update_info: &UpdateInfo) {
+/// Returns `true` if the application should exit (update launched successfully).
+pub fn perform(update_info: &UpdateInfo) -> bool {
     log::info!("Starting update to {}", update_info.latest_version);
 
-    if let Err(e) = try_perform(update_info) {
-        log_and_notify_error("Update Failed", &format!("Update failed: {e}"));
+    match try_perform(update_info) {
+        Ok(()) => true,
+        Err(e) => {
+            log_and_notify_error("Update Failed", &format!("Update failed: {e:#}"));
+            false
+        }
     }
 }
 
@@ -159,7 +164,7 @@ fn try_perform(update_info: &UpdateInfo) -> anyhow::Result<()> {
         .spawn()?;
 
     log::info!("Post-update script launched, exiting application...");
-    std::process::exit(0);
+    Ok(())
 }
 
 #[cfg(test)]

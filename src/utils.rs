@@ -28,7 +28,7 @@ pub fn get_executable_path_str() -> anyhow::Result<String> {
 pub fn log_and_notify_error(title: &str, message: &str) {
     log::error!("{message}");
     if let Err(e) = send_notification(title, message, NotificationDuration::Long) {
-        log::error!("Failed to send error notification: {e}");
+        log::error!("Failed to send error notification: {e:#}");
     }
 }
 
@@ -45,7 +45,7 @@ pub fn send_notification_debounced(
     };
     if should_notify {
         if let Err(e) = send_notification(title, message, NotificationDuration::Short) {
-            log::error!("Failed to show notification for {title}: {e}");
+            log::error!("Failed to show notification for {title}: {e:#}");
         }
         last_notification_times.insert(key.to_string(), now);
     }

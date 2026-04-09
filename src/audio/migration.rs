@@ -1,5 +1,5 @@
 use crate::config::PersistentState;
-use crate::types::{DeviceSettings, DeviceType};
+use crate::types::{DeviceId, DeviceSettings, DeviceType};
 
 use super::AudioBackend;
 
@@ -7,8 +7,8 @@ pub fn migrate_device_ids(
     backend: &impl AudioBackend,
     persistent_state: &mut PersistentState,
 ) -> bool {
-    let mut devices_to_migrate: Vec<(String, DeviceSettings)> = Vec::new();
-    let mut devices_to_update: Vec<(String, DeviceSettings)> = Vec::new();
+    let mut devices_to_migrate: Vec<(DeviceId, DeviceSettings)> = Vec::new();
+    let mut devices_to_update: Vec<(DeviceId, DeviceSettings)> = Vec::new();
 
     // Check which devices need migration
     for (device_id, device_settings) in persistent_state.devices.iter() {
@@ -76,11 +76,11 @@ pub(crate) fn find_device_by_name_and_type(
     backend: &impl AudioBackend,
     target_name: &str,
     device_type: DeviceType,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<DeviceId> {
     let devices = backend.get_devices(device_type)?;
     for device in devices {
         if device.name() == target_name {
-            return Ok(device.id());
+            return Ok(DeviceId::new(device.id()));
         }
     }
     anyhow::bail!("Device not found: {target_name}")
@@ -171,7 +171,7 @@ mod tests {
         let changed = migrate_device_ids(&backend, &mut state);
         assert!(changed);
         assert!(state.devices.contains_key("mic_new"));
-        assert_eq!(state.input_priority_list, vec!["mic_new".to_string()]);
+        assert_eq!(state.input_priority_list, vec!["mic_new"]);
     }
 
     #[test]

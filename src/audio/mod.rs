@@ -82,7 +82,7 @@ pub fn get_unmute_notification_details(device_type: DeviceType) -> (&'static str
 pub(crate) mod tests {
     use super::*;
     use crate::config::PersistentState;
-    use crate::types::{DeviceSettings, TemporaryPriorities};
+    use crate::types::{DeviceId, DeviceSettings, TemporaryPriorities};
     use std::cell::RefCell;
     use std::collections::HashMap;
 
@@ -247,7 +247,10 @@ pub(crate) mod tests {
 
     pub(crate) fn make_device_settings(name: &str, device_type: DeviceType) -> DeviceSettings {
         DeviceSettings {
-            volume_percent: 50.0,
+            volume_lock: crate::types::VolumeLockPolicy {
+                target_percent: 50.0,
+                ..Default::default()
+            },
             ..DeviceSettings::new(name.to_string(), device_type)
         }
     }
@@ -303,10 +306,10 @@ pub(crate) mod tests {
 
         let mut state = PersistentState::default();
         state.devices.insert(
-            "old_id".to_string(),
+            DeviceId::from("old_id"),
             make_device_settings("Speakers", DeviceType::Output),
         );
-        state.output_priority_list = vec!["old_id".to_string()];
+        state.output_priority_list = vec![DeviceId::from("old_id")];
 
         migrate_device_ids(&backend, &mut state);
         assert!(state.devices.contains_key("new_id"));

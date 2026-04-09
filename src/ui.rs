@@ -6,8 +6,8 @@ use crate::platform::{
     open_volume_mixer,
 };
 use crate::types::{
-    AppAction, DeviceAction, DeviceRole, DeviceSettings, DeviceType, MenuAction, MenuItemInfo,
-    PreferenceAction, TemporaryPriorities,
+    AppAction, DeviceAction, DeviceId, DeviceRole, DeviceSettings, DeviceType, MenuAction,
+    MenuItemInfo, PreferenceAction, TemporaryPriorities,
 };
 use crate::update::UpdateInfo;
 use crate::utils::{
@@ -24,21 +24,30 @@ pub enum UpdateAction {
     Perform(UpdateInfo),
 }
 
-pub fn format_device_menu_label(
-    name: &str,
-    volume_percent: f32,
-    is_default: bool,
-    is_locked: bool,
-    is_muted: bool,
-) -> String {
-    let default_indicator = if is_default { " · ☆" } else { "" };
-    let locked_indicator = if is_locked { " · 🔒" } else { "" };
-    let muted_indicator = if is_muted { " 🚫" } else { "" };
-    format!("{name}{default_indicator} · {volume_percent}%{muted_indicator}{locked_indicator}")
+pub struct DeviceDisplayInfo<'a> {
+    pub name: &'a str,
+    pub volume_percent: f32,
+    pub is_default: bool,
+    pub is_locked: bool,
+    pub is_muted: bool,
+}
+
+pub fn format_device_menu_label(info: &DeviceDisplayInfo) -> String {
+    let default_indicator = if info.is_default { " · ☆" } else { "" };
+    let locked_indicator = if info.is_locked { " · 🔒" } else { "" };
+    let muted_indicator = if info.is_muted { " 🚫" } else { "" };
+    format!(
+        "{}{default_indicator} · {}%{muted_indicator}{locked_indicator}",
+        info.name, info.volume_percent
+    )
 }
 
 pub fn find_menu_item(menu: &Menu, id: &MenuId) -> Option<MenuItemKind> {
     find_in_items(&menu.items(), id)
+}
+
+fn get_check_item_state(menu: &Menu, id: &MenuId) -> Option<bool> {
+    find_menu_item(menu, id).and_then(|item| item.as_check_menuitem().map(|c| c.is_checked()))
 }
 
 fn find_in_items(items: &[MenuItemKind], id: &MenuId) -> Option<MenuItemKind> {
@@ -88,7 +97,7 @@ fn register_menu_item(
         MenuItemInfo {
             name: name.to_string(),
             action: MenuAction::Device {
-                device_id: device_id.to_string(),
+                device_id: device_id.into(),
                 device_type,
                 action,
             },
@@ -96,7 +105,7 @@ fn register_menu_item(
     );
 }
 
-fn resolve_device_name(
+fn lookup_device_name(
     device_id: &str,
     persistent_state: &PersistentState,
     backend: &impl AudioBackend,
@@ -170,10 +179,7 @@ pub fn rebuild_tray_menu(
 
     // Default device priority section
     for device_type in [DeviceType::Output, DeviceType::Input] {
-        let temporary_priority = match device_type {
-            DeviceType::Output => &ctx.temporary_priorities.output,
-            DeviceType::Input => &ctx.temporary_priorities.input,
-        };
+        let temporary_priority = ctx.temporary_priorities.get(device_type);
         append_priority_list_to_menu(
             tray_menu,
             device_type,
@@ -211,7 +217,7 @@ pub fn sync_device_names(backend: &impl AudioBackend, persistent_state: &mut Per
     for device_type in [DeviceType::Output, DeviceType::Input] {
         let devices = backend.get_devices(device_type).unwrap_or_default();
         for device in devices {
-            if let Some(settings) = persistent_state.devices.get_mut(&device.id()) {
+            if let Some(settings) = persistent_state.devices.get_mut(device.id().as_str()) {
                 settings.name = device.name();
                 settings.device_type = device_type;
             }
@@ -248,20 +254,25 @@ fn append_device_list_to_menu(
             .is_some_and(|id| id == &device_id);
 
         let (is_volume_locked, notify_on_volume_lock, is_unmute_locked, notify_on_unmute_lock) =
-            if let Some(settings) = persistent_state.devices.get(&device_id) {
+            if let Some(settings) = persistent_state.devices.get(device_id.as_str()) {
                 (
-                    settings.is_volume_locked,
-                    settings.notify_on_volume_lock,
-                    settings.is_unmute_locked,
-                    settings.notify_on_unmute_lock,
+                    settings.volume_lock.is_locked,
+                    settings.volume_lock.notify,
+                    settings.unmute_lock.is_locked,
+                    settings.unmute_lock.notify,
                 )
             } else {
                 (false, false, false, false)
             };
 
         let is_locked = is_volume_locked || is_unmute_locked;
-        let label =
-            format_device_menu_label(&name, volume_percent, is_default, is_locked, is_muted);
+        let label = format_device_menu_label(&DeviceDisplayInfo {
+            name: &name,
+            volume_percent,
+            is_default,
+            is_locked,
+            is_muted,
+        });
 
         let submenu = Submenu::new(&label, true);
 
@@ -281,37 +292,25 @@ fn append_device_list_to_menu(
             None,
         );
 
-        register_menu_item(
-            menu_id_to_device,
-            volume_lock_item.id().clone(),
-            DeviceAction::VolumeLock,
-            &device_id,
-            &name,
-            device_type,
-        );
-        register_menu_item(
-            menu_id_to_device,
+        let mut register = |menu_id: MenuId, action: DeviceAction| {
+            register_menu_item(
+                menu_id_to_device,
+                menu_id,
+                action,
+                &device_id,
+                &name,
+                device_type,
+            );
+        };
+        register(volume_lock_item.id().clone(), DeviceAction::VolumeLock);
+        register(
             volume_notify_item.id().clone(),
             DeviceAction::VolumeLockNotify,
-            &device_id,
-            &name,
-            device_type,
         );
-        register_menu_item(
-            menu_id_to_device,
-            unmute_lock_item.id().clone(),
-            DeviceAction::UnmuteLock,
-            &device_id,
-            &name,
-            device_type,
-        );
-        register_menu_item(
-            menu_id_to_device,
+        register(unmute_lock_item.id().clone(), DeviceAction::UnmuteLock);
+        register(
             unmute_notify_item.id().clone(),
             DeviceAction::UnmuteLockNotify,
-            &device_id,
-            &name,
-            device_type,
         );
 
         submenu.append(&volume_lock_item)?;
@@ -322,25 +321,11 @@ fn append_device_list_to_menu(
         submenu.append(&PredefinedMenuItem::separator())?;
 
         let properties_item = MenuItem::new("Properties...", true, None);
-        register_menu_item(
-            menu_id_to_device,
-            properties_item.id().clone(),
-            DeviceAction::OpenProperties,
-            &device_id,
-            &name,
-            device_type,
-        );
+        register(properties_item.id().clone(), DeviceAction::OpenProperties);
         submenu.append(&properties_item)?;
 
         let settings_item = MenuItem::new("Settings...", true, None);
-        register_menu_item(
-            menu_id_to_device,
-            settings_item.id().clone(),
-            DeviceAction::OpenSettings,
-            &device_id,
-            &name,
-            device_type,
-        );
+        register(settings_item.id().clone(), DeviceAction::OpenSettings);
         submenu.append(&settings_item)?;
 
         tray_menu.append(&submenu)?;
@@ -382,10 +367,7 @@ fn append_temporary_priority_section(
         let devices = backend.get_devices(device_type).unwrap_or_default();
         let available_devices: Vec<_> = devices.iter().map(|d| (d.id(), d.name())).collect();
 
-        let temp_id_opt = match device_type {
-            DeviceType::Output => temporary_priorities.output.as_ref(),
-            DeviceType::Input => temporary_priorities.input.as_ref(),
-        };
+        let temp_id_opt = temporary_priorities.get(device_type);
 
         let label_prefix = match device_type {
             DeviceType::Output => "Output device",
@@ -393,7 +375,7 @@ fn append_temporary_priority_section(
         };
 
         let submenu_label = if let Some(temp_id) = temp_id_opt {
-            let device_name = resolve_device_name(temp_id, persistent_state, backend);
+            let device_name = lookup_device_name(temp_id, persistent_state, backend);
             format!("{}: {}", label_prefix, device_name)
         } else {
             label_prefix.to_string()
@@ -402,14 +384,14 @@ fn append_temporary_priority_section(
         let submenu = Submenu::new(&submenu_label, true);
 
         for (id, name) in &available_devices {
-            let is_checked = Some(id) == temp_id_opt;
+            let is_checked = temp_id_opt.is_some_and(|t| *t == *id);
             let item = CheckMenuItem::new(name, true, is_checked, None);
             menu_id_to_device.insert(
                 item.id().clone(),
                 MenuItemInfo {
                     name: name.clone(),
                     action: MenuAction::Device {
-                        device_id: id.clone(),
+                        device_id: id.clone().into(),
                         device_type,
                         action: DeviceAction::SetTemporaryPriority,
                     },
@@ -499,7 +481,7 @@ fn append_priority_list_to_menu(
     device_type: DeviceType,
     backend: &impl AudioBackend,
     persistent_state: &PersistentState,
-    temporary_priority: &Option<String>,
+    temporary_priority: Option<&DeviceId>,
     menu_id_to_device: &mut HashMap<MenuId, MenuItemInfo>,
 ) -> anyhow::Result<()> {
     let priority_list = persistent_state.get_priority_list(device_type);
@@ -519,7 +501,7 @@ fn append_priority_list_to_menu(
     }
 
     for (index, device_id) in priority_list.iter().enumerate() {
-        let device_name = resolve_device_name(device_id, persistent_state, backend);
+        let device_name = lookup_device_name(device_id, persistent_state, backend);
 
         let label = format!("{}. {}", index + 1, device_name);
         let priority_submenu = Submenu::new(&label, true);
@@ -610,7 +592,7 @@ fn append_priority_list_to_menu(
 
     let mut devices_to_add = Vec::new();
     for (id, name) in &available_devices {
-        if !priority_list.contains(id) {
+        if !priority_list.iter().any(|p| *p == *id) {
             devices_to_add.push((id, name));
         }
     }
@@ -623,7 +605,7 @@ fn append_priority_list_to_menu(
             MenuItemInfo {
                 name: name.clone(),
                 action: MenuAction::Device {
-                    device_id: id.clone(),
+                    device_id: id.clone().into(),
                     device_type,
                     action: DeviceAction::AddToPriority,
                 },
@@ -689,10 +671,10 @@ pub struct MenuEventResult {
 /// Returns `true` if the device has no active locks or notifications,
 /// meaning its settings entry can be removed when not in a priority list.
 fn device_settings_are_empty(settings: &DeviceSettings) -> bool {
-    !settings.is_volume_locked
-        && !settings.is_unmute_locked
-        && !settings.notify_on_volume_lock
-        && !settings.notify_on_unmute_lock
+    !settings.volume_lock.is_locked
+        && !settings.unmute_lock.is_locked
+        && !settings.volume_lock.notify
+        && !settings.unmute_lock.notify
 }
 
 /// Applies a device lock/notify toggle and returns whether the device entry should be removed.
@@ -707,7 +689,7 @@ fn apply_device_lock_toggle(
 ) -> bool {
     let device_settings = persistent_state
         .devices
-        .entry(device_id.to_string())
+        .entry(DeviceId::from(device_id))
         .or_insert_with(|| DeviceSettings::new(device_name.to_string(), device_type));
 
     match action {
@@ -716,27 +698,27 @@ fn apply_device_lock_toggle(
                 if let Ok(device) = backend.get_device_by_id(device_id)
                     && let Ok(vol) = device.volume()
                 {
-                    device_settings.volume_percent = convert_float_to_percent(vol);
-                    device_settings.is_volume_locked = true;
+                    device_settings.volume_lock.target_percent = convert_float_to_percent(vol);
+                    device_settings.volume_lock.is_locked = true;
                 } else {
                     log_and_notify_error(
                         "Failed to Lock Volume",
                         &format!("Failed to get volume for device {device_name}, cannot lock."),
                     );
-                    device_settings.is_volume_locked = false;
+                    device_settings.volume_lock.is_locked = false;
                 }
             } else {
-                device_settings.is_volume_locked = false;
+                device_settings.volume_lock.is_locked = false;
             }
         }
         DeviceAction::VolumeLockNotify => {
-            device_settings.notify_on_volume_lock = is_checked;
+            device_settings.volume_lock.notify = is_checked;
         }
         DeviceAction::UnmuteLock => {
-            device_settings.is_unmute_locked = is_checked;
+            device_settings.unmute_lock.is_locked = is_checked;
         }
         DeviceAction::UnmuteLockNotify => {
-            device_settings.notify_on_unmute_lock = is_checked;
+            device_settings.unmute_lock.notify = is_checked;
         }
         _ => {}
     }
@@ -754,11 +736,11 @@ fn handle_priority_event(
     match action {
         DeviceAction::AddToPriority => {
             let list = persistent_state.get_priority_list_mut(device_type);
-            if !list.contains(&device_id.to_string()) {
-                list.push(device_id.to_string());
+            if !list.iter().any(|x| *x == *device_id) {
+                list.push(device_id.into());
                 persistent_state
                     .devices
-                    .entry(device_id.to_string())
+                    .entry(DeviceId::from(device_id))
                     .or_insert_with(|| DeviceSettings::new(device_name.to_string(), device_type));
                 true
             } else {
@@ -846,12 +828,10 @@ pub fn handle_menu_event(
             | DeviceAction::VolumeLockNotify
             | DeviceAction::UnmuteLock
             | DeviceAction::UnmuteLockNotify => {
-                if let Some(item) = find_menu_item(tray_menu, &event.id)
-                    && let Some(check_item) = item.as_check_menuitem()
-                {
+                if let Some(is_checked) = get_check_item_state(tray_menu, &event.id) {
                     let should_remove = apply_device_lock_toggle(
                         action,
-                        check_item.is_checked(),
+                        is_checked,
                         device_id,
                         &menu_info.name,
                         *device_type,
@@ -886,31 +866,17 @@ pub fn handle_menu_event(
                 );
             }
             DeviceAction::SetTemporaryPriority => {
-                if let Some(item) = find_menu_item(tray_menu, &event.id) {
-                    let is_checked = if let Some(check_item) = item.as_check_menuitem() {
-                        check_item.is_checked()
-                    } else {
-                        false
-                    };
+                let is_checked = get_check_item_state(tray_menu, &event.id).unwrap_or(false);
 
-                    match device_type {
-                        DeviceType::Output => {
-                            temporary_priorities.output = if is_checked {
-                                Some(device_id.clone())
-                            } else {
-                                None
-                            };
-                        }
-                        DeviceType::Input => {
-                            temporary_priorities.input = if is_checked {
-                                Some(device_id.clone())
-                            } else {
-                                None
-                            };
-                        }
-                    }
-                    devices_changed = true;
-                }
+                temporary_priorities.set(
+                    *device_type,
+                    if is_checked {
+                        Some(device_id.clone())
+                    } else {
+                        None
+                    },
+                );
+                devices_changed = true;
             }
             DeviceAction::OpenProperties => {
                 if let Err(e) = open_device_properties(device_id) {
@@ -928,19 +894,13 @@ pub fn handle_menu_event(
             action,
         } => match action {
             PreferenceAction::PriorityRestoreNotify => {
-                if let Some(item) = find_menu_item(tray_menu, &event.id)
-                    && let Some(check_item) = item.as_check_menuitem()
-                {
-                    let is_checked = check_item.is_checked();
+                if let Some(is_checked) = get_check_item_state(tray_menu, &event.id) {
                     persistent_state.set_notify_on_priority_restore(*device_type, is_checked);
                     should_save = true;
                 }
             }
             PreferenceAction::SwitchCommunicationDevice => {
-                if let Some(item) = find_menu_item(tray_menu, &event.id)
-                    && let Some(check_item) = item.as_check_menuitem()
-                {
-                    let is_checked = check_item.is_checked();
+                if let Some(is_checked) = get_check_item_state(tray_menu, &event.id) {
                     persistent_state.set_switch_communication_device(*device_type, is_checked);
                     should_save = true;
                 }
@@ -996,63 +956,87 @@ pub fn handle_menu_event(
 #[cfg(test)]
 mod tests {
     use super::{
-        DeviceAction, DeviceSettings, DeviceType, PersistentState, device_settings_are_empty,
-        format_device_menu_label, handle_priority_event,
+        DeviceAction, DeviceDisplayInfo, DeviceId, DeviceSettings, DeviceType, PersistentState,
+        device_settings_are_empty, format_device_menu_label, handle_priority_event,
     };
 
     #[test]
     fn to_label_basic() {
-        let label = format_device_menu_label("Speakers", 50.0, false, false, false);
+        let label = format_device_menu_label(&DeviceDisplayInfo {
+            name: "Speakers",
+            volume_percent: 50.0,
+            is_default: false,
+            is_locked: false,
+            is_muted: false,
+        });
         assert_eq!(label, "Speakers · 50%");
     }
 
     #[test]
     fn to_label_default_device() {
-        let label = format_device_menu_label("Speakers", 75.0, true, false, false);
+        let label = format_device_menu_label(&DeviceDisplayInfo {
+            name: "Speakers",
+            volume_percent: 75.0,
+            is_default: true,
+            is_locked: false,
+            is_muted: false,
+        });
         assert_eq!(label, "Speakers · ☆ · 75%");
     }
 
     #[test]
     fn to_label_locked() {
-        let label = format_device_menu_label("Speakers", 100.0, false, true, false);
+        let label = format_device_menu_label(&DeviceDisplayInfo {
+            name: "Speakers",
+            volume_percent: 100.0,
+            is_default: false,
+            is_locked: true,
+            is_muted: false,
+        });
         assert_eq!(label, "Speakers · 100% · 🔒");
     }
 
     #[test]
     fn to_label_muted() {
-        let label = format_device_menu_label("Mic", 0.0, false, false, true);
+        let label = format_device_menu_label(&DeviceDisplayInfo {
+            name: "Mic",
+            volume_percent: 0.0,
+            is_default: false,
+            is_locked: false,
+            is_muted: true,
+        });
         assert_eq!(label, "Mic · 0% 🚫");
     }
 
     #[test]
     fn to_label_all_indicators() {
-        let label = format_device_menu_label("Headset", 42.0, true, true, true);
+        let label = format_device_menu_label(&DeviceDisplayInfo {
+            name: "Headset",
+            volume_percent: 42.0,
+            is_default: true,
+            is_locked: true,
+            is_muted: true,
+        });
         assert_eq!(label, "Headset · ☆ · 42% 🚫 · 🔒");
     }
 
     #[test]
     fn device_settings_empty_when_all_false() {
-        let settings = DeviceSettings {
-            volume_percent: 50.0,
-            ..DeviceSettings::new("Test".to_string(), DeviceType::Output)
-        };
+        let settings = DeviceSettings::new("Test".to_string(), DeviceType::Output);
         assert!(device_settings_are_empty(&settings));
     }
 
     #[test]
     fn device_settings_not_empty_when_locked() {
-        let settings = DeviceSettings {
-            is_volume_locked: true,
-            volume_percent: 50.0,
-            ..DeviceSettings::new("Test".to_string(), DeviceType::Output)
-        };
+        let mut settings = DeviceSettings::new("Test".to_string(), DeviceType::Output);
+        settings.volume_lock.is_locked = true;
         assert!(!device_settings_are_empty(&settings));
     }
 
     fn make_state_with_device(device_id: &str, device_type: DeviceType) -> PersistentState {
         let mut state = PersistentState::default();
         state.devices.insert(
-            device_id.to_string(),
+            DeviceId::from(device_id),
             DeviceSettings::new("Test Device".to_string(), device_type),
         );
         state
@@ -1076,7 +1060,7 @@ mod tests {
     #[test]
     fn priority_add_duplicate_no_op() {
         let mut state = PersistentState::default();
-        state.output_priority_list.push("dev1".to_string());
+        state.output_priority_list.push("dev1".into());
         let changed = handle_priority_event(
             &DeviceAction::AddToPriority,
             "dev1",
@@ -1090,7 +1074,7 @@ mod tests {
     #[test]
     fn priority_remove_cleans_empty_device() {
         let mut state = make_state_with_device("dev1", DeviceType::Output);
-        state.output_priority_list.push("dev1".to_string());
+        state.output_priority_list.push("dev1".into());
         let changed = handle_priority_event(
             &DeviceAction::RemoveFromPriority,
             "dev1",
