@@ -23,6 +23,22 @@ pub fn enforce_priorities(
     }
 }
 
+fn is_default_device(
+    backend: &impl AudioBackend,
+    device_type: DeviceType,
+    role: DeviceRole,
+    target_id: &DeviceId,
+    type_str: &str,
+) -> bool {
+    match backend.get_default_device(device_type, role) {
+        Ok(d) => *target_id == *d.id(),
+        Err(e) => {
+            log::warn!("Failed to get default {type_str} {role:?} device: {e:#}");
+            false
+        }
+    }
+}
+
 fn enforce_priority_for_type(
     backend: &impl AudioBackend,
     state: &PersistentState,
@@ -47,15 +63,7 @@ fn enforce_priority_for_type(
     };
 
     // Enforce Console and Multimedia roles together
-    let is_console_correct = match backend.get_default_device(device_type, DeviceRole::Console) {
-        Ok(d) => target_id == d.id(),
-        Err(e) => {
-            log::warn!("Failed to get default {type_str} console device: {e:#}");
-            false
-        }
-    };
-
-    if !is_console_correct {
+    if !is_default_device(backend, device_type, DeviceRole::Console, &target_id, type_str) {
         log::info!("Enforcing {type_str} priority: Switching to {target_id}");
         for role in [DeviceRole::Console, DeviceRole::Multimedia] {
             if let Err(e) = backend.set_default_device(&target_id, role) {
@@ -68,25 +76,22 @@ fn enforce_priority_for_type(
     }
 
     // Enforce Communications role if enabled
-    if state.get_switch_communication_device(device_type) {
-        let is_comm_correct =
-            match backend.get_default_device(device_type, DeviceRole::Communications) {
-                Ok(d) => target_id == d.id(),
-                Err(e) => {
-                    log::warn!("Failed to get default {type_str} communications device: {e:#}");
-                    false
-                }
-            };
-
-        if !is_comm_correct {
-            log::info!("Enforcing {type_str} priority (Communication): Switching to {target_id}");
-            if let Err(e) = backend.set_default_device(&target_id, DeviceRole::Communications) {
-                log::error!(
-                    "Failed to set default {type_str} communications device to {target_id}: {e:#}"
-                );
-            }
-            switched = true;
+    if state.get_switch_communication_device(device_type)
+        && !is_default_device(
+            backend,
+            device_type,
+            DeviceRole::Communications,
+            &target_id,
+            type_str,
+        )
+    {
+        log::info!("Enforcing {type_str} priority (Communication): Switching to {target_id}");
+        if let Err(e) = backend.set_default_device(&target_id, DeviceRole::Communications) {
+            log::error!(
+                "Failed to set default {type_str} communications device to {target_id}: {e:#}"
+            );
         }
+        switched = true;
     }
 
     if switched && state.get_notify_on_priority_restore(device_type) {

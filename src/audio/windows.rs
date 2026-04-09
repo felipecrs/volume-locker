@@ -5,6 +5,14 @@ use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::sync::OnceLock;
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
+
+/// Encodes a string slice as a null-terminated UTF-16 wide string for Win32 APIs.
+fn encode_wide_null(s: &str) -> Vec<u16> {
+    OsStr::new(s)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
+}
 use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::Media::Audio::Endpoints::{
     IAudioEndpointVolume, IAudioEndpointVolumeCallback, IAudioEndpointVolumeCallback_Impl,
@@ -318,10 +326,7 @@ pub(crate) fn get_device_by_id(
     device_enumerator: &IMMDeviceEnumerator,
     device_id: &str,
 ) -> Result<IMMDevice> {
-    let wide: Vec<u16> = OsStr::new(device_id)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
+    let wide = encode_wide_null(device_id);
     // SAFETY: wide is a null-terminated UTF-16 string on the stack, valid for this call.
     // device_enumerator is a valid COM pointer from CoCreateInstance.
     let device = unsafe { device_enumerator.GetDevice(PCWSTR(wide.as_ptr()))? };
@@ -359,10 +364,7 @@ fn set_default_device(device_id: &str, role: ERole) -> Result<()> {
             CLSCTX_INPROC_SERVER,
         )?
     };
-    let wide: Vec<u16> = OsStr::new(device_id)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
+    let wide = encode_wide_null(device_id);
     // SAFETY: wide is a null-terminated UTF-16 string on the stack, valid for this call.
     unsafe { policy_config.SetDefaultEndpoint(PCWSTR(wide.as_ptr()), role) }
 }

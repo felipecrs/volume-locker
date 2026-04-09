@@ -46,58 +46,64 @@ fn setup_app_aumid(executable_directory: &Path) -> Result<()> {
     Ok(())
 }
 
+fn spawn_rundll32(dll: &str, function: &str, arg: &str, context: &str) -> anyhow::Result<()> {
+    Command::new("rundll32.exe")
+        .arg(format!("{dll},{function}"))
+        .arg(arg)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| anyhow::anyhow!(e).context(format!("failed to {context}")))
+}
+
 pub fn open_devices_list(device_type: DeviceType) -> anyhow::Result<()> {
     let tab_index = match device_type {
         DeviceType::Output => "0",
         DeviceType::Input => "1",
     };
 
-    Command::new("rundll32.exe")
-        .arg("shell32.dll,Control_RunDLL")
-        .arg(format!("mmsys.cpl,,{}", tab_index))
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| anyhow::anyhow!(e).context("failed to open devices list"))
+    spawn_rundll32(
+        "shell32.dll",
+        "Control_RunDLL",
+        &format!("mmsys.cpl,,{tab_index}"),
+        "open devices list",
+    )
 }
 
 /// Opens the Sound control panel (mmsys.cpl). The `tab_selector` is passed as the
 /// page argument (e.g. "0" for Playback, "1" for Recording). Non-numeric values
 /// cause mmsys.cpl to open at the default tab.
 pub fn open_device_properties(tab_selector: &str) -> anyhow::Result<()> {
-    Command::new("rundll32.exe")
-        .arg("shell32.dll,Control_RunDLL")
-        .arg(format!("mmsys.cpl,,{}", tab_selector))
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| anyhow::anyhow!(e).context("failed to open sound control panel"))
+    spawn_rundll32(
+        "shell32.dll",
+        "Control_RunDLL",
+        &format!("mmsys.cpl,,{tab_selector}"),
+        "open sound control panel",
+    )
 }
 
 pub fn open_sound_settings() -> anyhow::Result<()> {
-    Command::new("rundll32.exe")
-        .arg("url.dll,FileProtocolHandler")
-        .arg("ms-settings:sound")
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| anyhow::anyhow!(e).context("failed to open sound settings"))
+    spawn_rundll32(
+        "url.dll",
+        "FileProtocolHandler",
+        "ms-settings:sound",
+        "open sound settings",
+    )
 }
 
 pub fn open_device_settings(device_id: &str) -> anyhow::Result<()> {
-    Command::new("rundll32.exe")
-        .arg("url.dll,FileProtocolHandler")
-        .arg(format!(
-            "ms-settings:sound-properties?endpointId={}",
-            device_id
-        ))
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| anyhow::anyhow!(e).context("failed to open device settings"))
+    spawn_rundll32(
+        "url.dll",
+        "FileProtocolHandler",
+        &format!("ms-settings:sound-properties?endpointId={device_id}"),
+        "open device settings",
+    )
 }
 
 pub fn open_volume_mixer() -> anyhow::Result<()> {
-    Command::new("rundll32.exe")
-        .arg("url.dll,FileProtocolHandler")
-        .arg("ms-settings:apps-volume")
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| anyhow::anyhow!(e).context("failed to open volume mixer"))
+    spawn_rundll32(
+        "url.dll",
+        "FileProtocolHandler",
+        "ms-settings:apps-volume",
+        "open volume mixer",
+    )
 }
