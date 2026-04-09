@@ -69,7 +69,7 @@ pub fn open_device_properties(tab_selector: &str) -> anyhow::Result<()> {
         .arg(format!("mmsys.cpl,,{}", tab_selector))
         .spawn()
         .map(|_| ())
-        .map_err(|e| anyhow::anyhow!(e).context("failed to open device properties"))
+        .map_err(|e| anyhow::anyhow!(e).context("failed to open sound control panel"))
 }
 
 pub fn open_sound_settings() -> anyhow::Result<()> {

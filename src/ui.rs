@@ -728,7 +728,7 @@ fn apply_device_lock_toggle(
 
 fn handle_priority_event(
     action: &DeviceAction,
-    device_id: &str,
+    device_id: &DeviceId,
     device_type: DeviceType,
     device_name: &str,
     persistent_state: &mut PersistentState,
@@ -736,11 +736,11 @@ fn handle_priority_event(
     match action {
         DeviceAction::AddToPriority => {
             let list = persistent_state.get_priority_list_mut(device_type);
-            if !list.iter().any(|x| *x == *device_id) {
-                list.push(device_id.into());
+            if !list.iter().any(|x| *x == **device_id) {
+                list.push(device_id.clone());
                 persistent_state
                     .devices
-                    .entry(DeviceId::from(device_id))
+                    .entry(device_id.clone())
                     .or_insert_with(|| DeviceSettings::new(device_name.to_string(), device_type));
                 true
             } else {
@@ -773,7 +773,7 @@ fn handle_priority_event(
 
 fn move_priority_item(
     action: &DeviceAction,
-    device_id: &str,
+    device_id: &DeviceId,
     device_type: DeviceType,
     persistent_state: &mut PersistentState,
 ) -> bool {
@@ -1047,7 +1047,7 @@ mod tests {
         let mut state = PersistentState::default();
         let changed = handle_priority_event(
             &DeviceAction::AddToPriority,
-            "dev1",
+            &DeviceId::from("dev1"),
             DeviceType::Output,
             "Speaker",
             &mut state,
@@ -1063,7 +1063,7 @@ mod tests {
         state.output_priority_list.push("dev1".into());
         let changed = handle_priority_event(
             &DeviceAction::AddToPriority,
-            "dev1",
+            &DeviceId::from("dev1"),
             DeviceType::Output,
             "Speaker",
             &mut state,
@@ -1077,7 +1077,7 @@ mod tests {
         state.output_priority_list.push("dev1".into());
         let changed = handle_priority_event(
             &DeviceAction::RemoveFromPriority,
-            "dev1",
+            &DeviceId::from("dev1"),
             DeviceType::Output,
             "Speaker",
             &mut state,
@@ -1095,7 +1095,7 @@ mod tests {
         };
         let changed = handle_priority_event(
             &DeviceAction::MovePriorityUp,
-            "b",
+            &DeviceId::from("b"),
             DeviceType::Output,
             "B",
             &mut state,
@@ -1112,7 +1112,7 @@ mod tests {
         };
         let changed = handle_priority_event(
             &DeviceAction::MovePriorityUp,
-            "a",
+            &DeviceId::from("a"),
             DeviceType::Output,
             "A",
             &mut state,
@@ -1128,7 +1128,7 @@ mod tests {
         };
         let changed = handle_priority_event(
             &DeviceAction::MovePriorityDown,
-            "b",
+            &DeviceId::from("b"),
             DeviceType::Output,
             "B",
             &mut state,
@@ -1145,7 +1145,7 @@ mod tests {
         };
         let changed = handle_priority_event(
             &DeviceAction::MovePriorityToTop,
-            "c",
+            &DeviceId::from("c"),
             DeviceType::Output,
             "C",
             &mut state,
@@ -1162,7 +1162,7 @@ mod tests {
         };
         let changed = handle_priority_event(
             &DeviceAction::MovePriorityToBottom,
-            "a",
+            &DeviceId::from("a"),
             DeviceType::Output,
             "A",
             &mut state,
@@ -1176,7 +1176,7 @@ mod tests {
         let mut state = PersistentState::default();
         handle_priority_event(
             &DeviceAction::AddToPriority,
-            "mic1",
+            &DeviceId::from("mic1"),
             DeviceType::Input,
             "Mic",
             &mut state,

@@ -19,7 +19,7 @@ use crate::audio::{
 use crate::config::{PersistentState, load_state, save_state};
 use crate::consts::{APP_NAME, APP_UID, CURRENT_VERSION, LOG_FILE_NAME};
 use crate::platform::{NotificationDuration, init_platform, send_notification};
-use crate::types::{MenuItemInfo, TemporaryPriorities, UserEvent, VolumeChangedEvent};
+use crate::types::{DeviceId, MenuItemInfo, TemporaryPriorities, UserEvent, VolumeChangedEvent};
 use crate::ui::{
     MenuContext, TrayMenuItems, handle_menu_event, rebuild_tray_menu, sync_device_names,
 };
@@ -358,7 +358,7 @@ impl AppState {
 }
 
 fn enforce_volume_lock(
-    device_id: &str,
+    device_id: &DeviceId,
     device: &dyn AudioDevice,
     settings: &types::DeviceSettings,
     new_volume: f32,
