@@ -72,7 +72,7 @@ pub fn open_devices_list(device_type: DeviceType) -> anyhow::Result<()> {
 /// Opens the Sound control panel (mmsys.cpl). The `tab_selector` is passed as the
 /// page argument (e.g. "0" for Playback, "1" for Recording). Non-numeric values
 /// cause mmsys.cpl to open at the default tab.
-pub fn open_device_properties(tab_selector: &str) -> anyhow::Result<()> {
+pub fn open_sound_control_panel(tab_selector: &str) -> anyhow::Result<()> {
     spawn_rundll32(
         "shell32.dll",
         "Control_RunDLL",

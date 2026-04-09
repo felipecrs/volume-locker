@@ -2,7 +2,7 @@ use crate::audio::AudioBackend;
 use crate::config::PersistentState;
 use crate::consts::GITHUB_REPO_URL;
 use crate::platform::{
-    open_device_properties, open_device_settings, open_devices_list, open_sound_settings,
+    open_sound_control_panel, open_device_settings, open_devices_list, open_sound_settings,
     open_volume_mixer,
 };
 use crate::types::{
@@ -17,12 +17,6 @@ use std::collections::HashMap;
 use tray_icon::menu::{
     CheckMenuItem, Menu, MenuId, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu,
 };
-
-pub enum UpdateAction {
-    None,
-    Check,
-    Perform(UpdateInfo),
-}
 
 pub struct DeviceDisplayInfo<'a> {
     pub name: &'a str,
@@ -225,6 +219,100 @@ pub fn sync_device_names(backend: &impl AudioBackend, persistent_state: &mut Per
     }
 }
 
+fn build_device_submenu(
+    device: &dyn crate::audio::AudioDevice,
+    device_type: DeviceType,
+    default_device_id: &Option<String>,
+    persistent_state: &PersistentState,
+    menu_id_to_device: &mut HashMap<MenuId, MenuItemInfo>,
+) -> anyhow::Result<Submenu> {
+    let name = device.name();
+    let device_id = device.id();
+    let volume = device.volume().unwrap_or(0.0.into());
+    let volume_percent = volume.to_percent();
+    let is_muted = device.is_muted().unwrap_or(false);
+    let is_default = default_device_id
+        .as_ref()
+        .is_some_and(|id| **device_id == **id);
+
+    let (is_volume_locked, notify_on_volume_lock, is_unmute_locked, notify_on_unmute_lock) =
+        if let Some(settings) = persistent_state.devices.get(device_id) {
+            (
+                settings.volume_lock.is_locked,
+                settings.volume_lock.notify,
+                settings.unmute_lock.is_locked,
+                settings.unmute_lock.notify,
+            )
+        } else {
+            (false, false, false, false)
+        };
+
+    let is_locked = is_volume_locked || is_unmute_locked;
+    let label = format_device_menu_label(&DeviceDisplayInfo {
+        name: &name,
+        volume_percent,
+        is_default,
+        is_locked,
+        is_muted,
+    });
+
+    let submenu = Submenu::new(&label, true);
+
+    let volume_lock_item =
+        CheckMenuItem::new("Keep volume locked", true, is_volume_locked, None);
+    let volume_notify_item = CheckMenuItem::new(
+        "Notify on volume restore",
+        is_volume_locked,
+        notify_on_volume_lock,
+        None,
+    );
+    let unmute_lock_item = CheckMenuItem::new("Keep unmuted", true, is_unmute_locked, None);
+    let unmute_notify_item = CheckMenuItem::new(
+        "Notify on unmute",
+        is_unmute_locked,
+        notify_on_unmute_lock,
+        None,
+    );
+
+    let mut register = |menu_id: MenuId, action: DeviceAction| {
+        register_menu_item(
+            menu_id_to_device,
+            menu_id,
+            action,
+            &device_id,
+            &name,
+            device_type,
+        );
+    };
+    register(volume_lock_item.id().clone(), DeviceAction::VolumeLock);
+    register(
+        volume_notify_item.id().clone(),
+        DeviceAction::VolumeLockNotify,
+    );
+    register(unmute_lock_item.id().clone(), DeviceAction::UnmuteLock);
+    register(
+        unmute_notify_item.id().clone(),
+        DeviceAction::UnmuteLockNotify,
+    );
+
+    submenu.append(&volume_lock_item)?;
+    submenu.append(&unmute_lock_item)?;
+    submenu.append(&PredefinedMenuItem::separator())?;
+    submenu.append(&volume_notify_item)?;
+    submenu.append(&unmute_notify_item)?;
+    submenu.append(&PredefinedMenuItem::separator())?;
+
+    let properties_item = MenuItem::new("Properties...", true, None);
+    register(properties_item.id().clone(), DeviceAction::OpenProperties);
+    submenu.append(&properties_item)?;
+
+    let settings_item = MenuItem::new("Settings...", true, None);
+    register(settings_item.id().clone(), DeviceAction::OpenSettings);
+    submenu.append(&settings_item)?;
+
+    Ok(submenu)
+}
+
 fn append_device_list_to_menu(
     tray_menu: &Menu,
     heading_item: &MenuItem,
@@ -237,97 +325,19 @@ fn append_device_list_to_menu(
 
     let devices = backend.get_devices(device_type).unwrap_or_default();
 
-    // Get default device ID for Console role to mark it
     let default_device_id = backend
         .get_default_device(device_type, DeviceRole::Console)
         .map(|d| d.id().to_string())
         .ok();
 
     for device in devices {
-        let name = device.name();
-        let device_id = device.id();
-        let volume = device.volume().unwrap_or(0.0.into());
-        let volume_percent = volume.to_percent();
-        let is_muted = device.is_muted().unwrap_or(false);
-        let is_default = default_device_id
-            .as_ref()
-            .is_some_and(|id| **device_id == **id);
-
-        let (is_volume_locked, notify_on_volume_lock, is_unmute_locked, notify_on_unmute_lock) =
-            if let Some(settings) = persistent_state.devices.get(device_id) {
-                (
-                    settings.volume_lock.is_locked,
-                    settings.volume_lock.notify,
-                    settings.unmute_lock.is_locked,
-                    settings.unmute_lock.notify,
-                )
-            } else {
-                (false, false, false, false)
-            };
-
-        let is_locked = is_volume_locked || is_unmute_locked;
-        let label = format_device_menu_label(&DeviceDisplayInfo {
-            name: &name,
-            volume_percent,
-            is_default,
-            is_locked,
-            is_muted,
-        });
-
-        let submenu = Submenu::new(&label, true);
-
-        let volume_lock_item =
-            CheckMenuItem::new("Keep volume locked", true, is_volume_locked, None);
-        let volume_notify_item = CheckMenuItem::new(
-            "Notify on volume restore",
-            is_volume_locked,
-            notify_on_volume_lock,
-            None,
-        );
-        let unmute_lock_item = CheckMenuItem::new("Keep unmuted", true, is_unmute_locked, None);
-        let unmute_notify_item = CheckMenuItem::new(
-            "Notify on unmute",
-            is_unmute_locked,
-            notify_on_unmute_lock,
-            None,
-        );
-
-        let mut register = |menu_id: MenuId, action: DeviceAction| {
-            register_menu_item(
-                menu_id_to_device,
-                menu_id,
-                action,
-                &device_id,
-                &name,
-                device_type,
-            );
-        };
-        register(volume_lock_item.id().clone(), DeviceAction::VolumeLock);
-        register(
-            volume_notify_item.id().clone(),
-            DeviceAction::VolumeLockNotify,
-        );
-        register(unmute_lock_item.id().clone(), DeviceAction::UnmuteLock);
-        register(
-            unmute_notify_item.id().clone(),
-            DeviceAction::UnmuteLockNotify,
-        );
-
-        submenu.append(&volume_lock_item)?;
-        submenu.append(&unmute_lock_item)?;
-        submenu.append(&PredefinedMenuItem::separator())?;
-        submenu.append(&volume_notify_item)?;
-        submenu.append(&unmute_notify_item)?;
-        submenu.append(&PredefinedMenuItem::separator())?;
-
-        let properties_item = MenuItem::new("Properties...", true, None);
-        register(properties_item.id().clone(), DeviceAction::OpenProperties);
-        submenu.append(&properties_item)?;
-
-        let settings_item = MenuItem::new("Settings...", true, None);
-        register(settings_item.id().clone(), DeviceAction::OpenSettings);
-        submenu.append(&settings_item)?;
-
+        let submenu = build_device_submenu(
+            device.as_ref(),
+            device_type,
+            &default_device_id,
+            persistent_state,
+            menu_id_to_device,
+        )?;
         tray_menu.append(&submenu)?;
     }
 
@@ -662,10 +672,12 @@ fn append_priority_list_to_menu(
     Ok(())
 }
 
-pub struct MenuEventResult {
-    pub should_save: bool,
-    pub devices_changed: bool,
-    pub update_action: UpdateAction,
+pub enum MenuEventResult {
+    NoChange,
+    SaveConfig,
+    DevicesChanged,
+    UpdateCheck,
+    UpdatePerform(UpdateInfo),
 }
 
 /// Returns `true` if the device has no active locks or notifications,
@@ -805,19 +817,19 @@ fn move_priority_item(
     }
 }
 
+pub struct MenuEventContext<'a, B: AudioBackend> {
+    pub tray_menu: &'a Menu,
+    pub persistent_state: &'a mut PersistentState,
+    pub backend: &'a B,
+    pub temporary_priorities: &'a mut TemporaryPriorities,
+    pub update_info: &'a Option<UpdateInfo>,
+}
+
 pub fn handle_menu_event(
     event: &tray_icon::menu::MenuEvent,
     menu_info: &MenuItemInfo,
-    tray_menu: &Menu,
-    persistent_state: &mut PersistentState,
-    backend: &impl AudioBackend,
-    temporary_priorities: &mut TemporaryPriorities,
-    update_info: &Option<UpdateInfo>,
+    ctx: &mut MenuEventContext<'_, impl AudioBackend>,
 ) -> MenuEventResult {
-    let mut should_save = false;
-    let mut devices_changed = false;
-    let mut update_action = UpdateAction::None;
-
     match &menu_info.action {
         MenuAction::Device {
             device_id,
@@ -828,27 +840,29 @@ pub fn handle_menu_event(
             | DeviceAction::VolumeLockNotify
             | DeviceAction::UnmuteLock
             | DeviceAction::UnmuteLockNotify => {
-                if let Some(is_checked) = get_check_item_state(tray_menu, &event.id) {
+                if let Some(is_checked) = get_check_item_state(ctx.tray_menu, &event.id) {
                     let should_remove = apply_device_lock_toggle(
                         action,
                         is_checked,
                         device_id,
                         &menu_info.name,
                         *device_type,
-                        persistent_state,
-                        backend,
+                        ctx.persistent_state,
+                        ctx.backend,
                     );
 
                     if should_remove {
                         let is_in_priority =
-                            persistent_state.output_priority_list.contains(device_id)
-                                || persistent_state.input_priority_list.contains(device_id);
+                            ctx.persistent_state.output_priority_list.contains(device_id)
+                                || ctx.persistent_state.input_priority_list.contains(device_id);
 
                         if !is_in_priority {
-                            persistent_state.devices.remove(device_id);
+                            ctx.persistent_state.devices.remove(device_id);
                         }
                     }
-                    should_save = true;
+                    MenuEventResult::SaveConfig
+                } else {
+                    MenuEventResult::NoChange
                 }
             }
             DeviceAction::AddToPriority
@@ -857,18 +871,22 @@ pub fn handle_menu_event(
             | DeviceAction::MovePriorityDown
             | DeviceAction::MovePriorityToTop
             | DeviceAction::MovePriorityToBottom => {
-                should_save = handle_priority_event(
+                if handle_priority_event(
                     action,
                     device_id,
                     *device_type,
                     &menu_info.name,
-                    persistent_state,
-                );
+                    ctx.persistent_state,
+                ) {
+                    MenuEventResult::SaveConfig
+                } else {
+                    MenuEventResult::NoChange
+                }
             }
             DeviceAction::SetTemporaryPriority => {
-                let is_checked = get_check_item_state(tray_menu, &event.id).unwrap_or(false);
+                let is_checked = get_check_item_state(ctx.tray_menu, &event.id).unwrap_or(false);
 
-                temporary_priorities.set(
+                ctx.temporary_priorities.set(
                     *device_type,
                     if is_checked {
                         Some(device_id.clone())
@@ -876,17 +894,23 @@ pub fn handle_menu_event(
                         None
                     },
                 );
-                devices_changed = true;
+                MenuEventResult::DevicesChanged
             }
             DeviceAction::OpenProperties => {
-                if let Err(e) = open_device_properties(device_id) {
-                    log::error!("Failed to open device properties: {e:#}");
+                let tab = match device_type {
+                    DeviceType::Output => "0",
+                    DeviceType::Input => "1",
+                };
+                if let Err(e) = open_sound_control_panel(tab) {
+                    log::error!("Failed to open sound control panel: {e:#}");
                 }
+                MenuEventResult::NoChange
             }
             DeviceAction::OpenSettings => {
                 if let Err(e) = open_device_settings(device_id) {
                     log::error!("Failed to open device settings: {e:#}");
                 }
+                MenuEventResult::NoChange
             }
         },
         MenuAction::Preference {
@@ -894,21 +918,26 @@ pub fn handle_menu_event(
             action,
         } => match action {
             PreferenceAction::PriorityRestoreNotify => {
-                if let Some(is_checked) = get_check_item_state(tray_menu, &event.id) {
-                    persistent_state.set_notify_on_priority_restore(*device_type, is_checked);
-                    should_save = true;
+                if let Some(is_checked) = get_check_item_state(ctx.tray_menu, &event.id) {
+                    ctx.persistent_state.set_notify_on_priority_restore(*device_type, is_checked);
+                    MenuEventResult::SaveConfig
+                } else {
+                    MenuEventResult::NoChange
                 }
             }
             PreferenceAction::SwitchCommunicationDevice => {
-                if let Some(is_checked) = get_check_item_state(tray_menu, &event.id) {
-                    persistent_state.set_switch_communication_device(*device_type, is_checked);
-                    should_save = true;
+                if let Some(is_checked) = get_check_item_state(ctx.tray_menu, &event.id) {
+                    ctx.persistent_state.set_switch_communication_device(*device_type, is_checked);
+                    MenuEventResult::SaveConfig
+                } else {
+                    MenuEventResult::NoChange
                 }
             }
             PreferenceAction::OpenDevicesList => {
                 if let Err(e) = open_devices_list(*device_type) {
                     log::error!("Failed to open devices list: {e:#}");
                 }
+                MenuEventResult::NoChange
             }
         },
         MenuAction::App(action) => match action {
@@ -916,40 +945,40 @@ pub fn handle_menu_event(
                 if let Err(e) = open_sound_settings() {
                     log::error!("Failed to open sound settings: {e:#}");
                 }
+                MenuEventResult::NoChange
             }
             AppAction::OpenVolumeMixer => {
                 if let Err(e) = open_volume_mixer() {
                     log::error!("Failed to open volume mixer: {e:#}");
                 }
+                MenuEventResult::NoChange
             }
-            AppAction::CheckForUpdates => {
-                update_action = UpdateAction::Check;
-            }
+            AppAction::CheckForUpdates => MenuEventResult::UpdateCheck,
             AppAction::PerformUpdate => {
-                if let Some(info) = update_info {
-                    update_action = UpdateAction::Perform(info.clone());
+                if let Some(info) = ctx.update_info {
+                    MenuEventResult::UpdatePerform(info.clone())
+                } else {
+                    MenuEventResult::NoChange
                 }
             }
             AppAction::OpenGitHubRepo => {
                 if let Err(e) = open_url(GITHUB_REPO_URL) {
                     log::error!("Failed to open GitHub repo: {e:#}");
                 }
+                MenuEventResult::NoChange
             }
-            AppAction::OpenAppDirectory => match get_executable_directory() {
-                Ok(dir) => {
-                    if let Err(e) = open_path(&dir) {
-                        log::error!("Failed to open app directory: {e:#}");
+            AppAction::OpenAppDirectory => {
+                match get_executable_directory() {
+                    Ok(dir) => {
+                        if let Err(e) = open_path(&dir) {
+                            log::error!("Failed to open app directory: {e:#}");
+                        }
                     }
+                    Err(e) => log::error!("Failed to get executable directory: {e:#}"),
                 }
-                Err(e) => log::error!("Failed to get executable directory: {e:#}"),
-            },
+                MenuEventResult::NoChange
+            }
         },
-    }
-
-    MenuEventResult {
-        should_save,
-        devices_changed,
-        update_action,
     }
 }
 

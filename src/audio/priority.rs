@@ -1,15 +1,13 @@
 use crate::config::PersistentState;
 use crate::types::{DeviceId, DeviceRole, DeviceType, TemporaryPriorities};
-use crate::utils::send_notification_debounced;
-use std::collections::HashMap;
-use std::time::Instant;
+use crate::utils::NotificationThrottler;
 
 use super::AudioBackend;
 
 pub fn enforce_priorities(
     backend: &impl AudioBackend,
     state: &PersistentState,
-    last_notification_times: &mut HashMap<String, Instant>,
+    throttler: &mut NotificationThrottler,
     temporary_priorities: &TemporaryPriorities,
 ) {
     for device_type in [DeviceType::Output, DeviceType::Input] {
@@ -18,7 +16,7 @@ pub fn enforce_priorities(
             state,
             device_type,
             temporary_priorities.get(device_type),
-            last_notification_times,
+            throttler,
         );
     }
 }
@@ -44,7 +42,7 @@ fn enforce_priority_for_type(
     state: &PersistentState,
     device_type: DeviceType,
     temporary_priority: Option<&DeviceId>,
-    last_notification_times: &mut HashMap<String, Instant>,
+    throttler: &mut NotificationThrottler,
 ) {
     let mut priority_list = state.get_priority_list(device_type).to_vec();
     if let Some(temp_id) = temporary_priority {
@@ -103,11 +101,10 @@ fn enforce_priority_for_type(
             DeviceType::Output => "Default Output Device Restored",
             DeviceType::Input => "Default Input Device Restored",
         };
-        send_notification_debounced(
+        throttler.send_if_not_throttled(
             &format!("priority_restore_{}", target_id),
             title,
             &format!("Switched to {} based on priority list.", device_name),
-            last_notification_times,
         );
     }
 }
@@ -138,6 +135,7 @@ fn find_highest_priority_active_device(
 mod tests {
     use super::*;
     use crate::audio::tests::{MockAudioBackend, MockDevice};
+    use crate::utils::NotificationThrottler;
 
     #[test]
     fn enforce_priorities_switches_to_highest_active() {
@@ -152,7 +150,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut times = HashMap::new();
+        let mut times = NotificationThrottler::new();
         let temp = TemporaryPriorities {
             output: None,
             input: None,
@@ -176,7 +174,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut times = HashMap::new();
+        let mut times = NotificationThrottler::new();
         let temp = TemporaryPriorities {
             output: None,
             input: None,
@@ -203,7 +201,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut times = HashMap::new();
+        let mut times = NotificationThrottler::new();
         let temp = TemporaryPriorities {
             output: None,
             input: None,
@@ -230,7 +228,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut times = HashMap::new();
+        let mut times = NotificationThrottler::new();
         let temp = TemporaryPriorities {
             output: Some("dev_temp".into()),
             input: None,
@@ -251,7 +249,7 @@ mod tests {
 
         let state = PersistentState::default();
 
-        let mut times = HashMap::new();
+        let mut times = NotificationThrottler::new();
         let temp = TemporaryPriorities {
             output: None,
             input: None,
@@ -279,7 +277,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut times = HashMap::new();
+        let mut times = NotificationThrottler::new();
         let temp = TemporaryPriorities {
             output: None,
             input: None,

@@ -48,9 +48,6 @@ pub struct WindowsAudioDevice {
     endpoint: IAudioEndpointVolume,
     id: DeviceId,
     name: String,
-    // Keep volume callback alive
-    #[allow(dead_code)]
-    volume_callback: Option<IAudioEndpointVolumeCallback>,
 }
 
 impl WindowsAudioDevice {
@@ -63,7 +60,6 @@ impl WindowsAudioDevice {
             endpoint,
             id,
             name,
-            volume_callback: None,
         })
     }
 }
@@ -163,6 +159,8 @@ impl AudioDevice for WindowsAudioDevice {
 
     fn watch_volume(&self, callback: Box<dyn Fn(Option<VolumeScalar>) + Send + Sync>) -> anyhow::Result<()> {
         let cb: IAudioEndpointVolumeCallback = VolumeChangeCallback { callback }.into();
+        // COM's RegisterControlChangeNotify calls AddRef on the callback,
+        // keeping it alive until UnregisterControlChangeNotify or endpoint drop.
         register_control_change_notify(&self.endpoint, &cb)?;
         Ok(())
     }

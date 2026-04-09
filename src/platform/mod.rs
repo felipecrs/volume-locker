@@ -8,7 +8,7 @@ mod windows;
 
 #[cfg(target_os = "windows")]
 pub use self::windows::{
-    ComToken, init_platform, open_device_properties, open_device_settings, open_devices_list,
+    ComToken, init_platform, open_sound_control_panel, open_device_settings, open_devices_list,
     open_sound_settings, open_volume_mixer,
 };
 

@@ -32,7 +32,7 @@ pub fn log_and_notify_error(title: &str, message: &str) {
     }
 }
 
-pub fn send_notification_debounced(
+fn send_notification_debounced(
     key: &str,
     title: &str,
     message: &str,
@@ -48,6 +48,23 @@ pub fn send_notification_debounced(
             log::error!("Failed to show notification for {title}: {e:#}");
         }
         last_notification_times.insert(key.to_string(), now);
+    }
+}
+
+/// Manages debounced notifications, preventing repeated notifications within a cooldown period.
+pub struct NotificationThrottler {
+    last_times: HashMap<String, Instant>,
+}
+
+impl NotificationThrottler {
+    pub fn new() -> Self {
+        Self {
+            last_times: HashMap::new(),
+        }
+    }
+
+    pub fn send_if_not_throttled(&mut self, key: &str, title: &str, message: &str) {
+        send_notification_debounced(key, title, message, &mut self.last_times);
     }
 }
 

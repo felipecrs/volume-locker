@@ -45,16 +45,14 @@ mod priority;
 pub use migration::migrate_device_ids;
 pub use priority::enforce_priorities;
 
-use crate::utils::send_notification_debounced;
-use std::collections::HashMap;
-use std::time::Instant;
+use crate::utils::NotificationThrottler;
 
 pub fn check_and_unmute_device(
     device: &dyn AudioDevice,
     notify: bool,
     notification_title: &str,
     notification_message_suffix: &str,
-    last_notification_times: &mut HashMap<String, Instant>,
+    throttler: &mut NotificationThrottler,
 ) -> anyhow::Result<()> {
     if device.is_muted()? {
         device.set_mute(false)?;
@@ -62,11 +60,10 @@ pub fn check_and_unmute_device(
         log::info!("Unmuted {device_name} due to lock settings");
         if notify {
             let message = format!("{device_name} {notification_message_suffix}");
-            send_notification_debounced(
+            throttler.send_if_not_throttled(
                 &format!("unmute_{}", device.id()),
                 notification_title,
                 &message,
-                last_notification_times,
             );
         }
     }
@@ -86,6 +83,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::config::PersistentState;
     use crate::types::{DeviceId, DeviceSettings, TemporaryPriorities, VolumePercent, VolumeScalar};
+    use crate::utils::NotificationThrottler;
     use std::cell::RefCell;
     use std::collections::HashMap;
 
@@ -264,9 +262,9 @@ pub(crate) mod tests {
     fn check_and_unmute_unmutes_muted_device() {
         let device = MockDevice::new("dev1", "Speaker", true);
         *device.muted.borrow_mut() = true;
-        let mut times = HashMap::new();
+        let mut throttler = NotificationThrottler::new();
 
-        let result = check_and_unmute_device(&device, false, "Unmuted", "was unmuted", &mut times);
+        let result = check_and_unmute_device(&device, false, "Unmuted", "was unmuted", &mut throttler);
         assert!(result.is_ok());
         assert!(!*device.muted.borrow());
     }
@@ -274,9 +272,9 @@ pub(crate) mod tests {
     #[test]
     fn check_and_unmute_leaves_unmuted_device() {
         let device = MockDevice::new("dev1", "Speaker", true);
-        let mut times = HashMap::new();
+        let mut throttler = NotificationThrottler::new();
 
-        let result = check_and_unmute_device(&device, false, "Unmuted", "was unmuted", &mut times);
+        let result = check_and_unmute_device(&device, false, "Unmuted", "was unmuted", &mut throttler);
         assert!(result.is_ok());
         assert!(!*device.muted.borrow());
     }
@@ -319,7 +317,7 @@ pub(crate) mod tests {
         assert!(!state.devices.contains_key("old_id"));
         assert_eq!(state.output_priority_list, vec!["new_id"]);
 
-        let mut last_notification_times = HashMap::new();
+        let mut throttler = NotificationThrottler::new();
         let temp_priorities = TemporaryPriorities {
             output: None,
             input: None,
@@ -327,7 +325,7 @@ pub(crate) mod tests {
         enforce_priorities(
             &backend,
             &state,
-            &mut last_notification_times,
+            &mut throttler,
             &temp_priorities,
         );
 

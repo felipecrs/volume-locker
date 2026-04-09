@@ -123,7 +123,7 @@ pub enum DeviceRole {
     Communications,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct VolumeLockPolicy {
     #[serde(default, rename = "is_volume_locked")]
     pub is_locked: bool,
@@ -145,7 +145,7 @@ where
     Ok(VolumePercent(value.clamp(0.0, 100.0)))
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct UnmuteLockPolicy {
     #[serde(default, rename = "is_unmute_locked")]
     pub is_locked: bool,

@@ -23,12 +23,13 @@ use crate::types::{
     DeviceId, MenuItemInfo, TemporaryPriorities, UserEvent, VolumeChangedEvent, VolumeScalar,
 };
 use crate::ui::{
-    MenuContext, TrayMenuItems, handle_menu_event, rebuild_tray_menu, sync_device_names,
+    MenuContext, MenuEventContext, MenuEventResult, TrayMenuItems, handle_menu_event,
+    rebuild_tray_menu, sync_device_names,
 };
 use crate::update::UpdateInfo;
 use crate::utils::{
     get_executable_directory, get_executable_path_str, log_and_notify_error,
-    send_notification_debounced,
+    NotificationThrottler,
 };
 use anyhow::Context;
 use auto_launch::AutoLaunch;
@@ -41,7 +42,6 @@ use simplelog::{
 use single_instance::SingleInstance;
 use std::collections::HashMap;
 use std::fs::File;
-use std::time::Instant;
 use tao::{
     event::Event,
     event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy},
@@ -55,7 +55,7 @@ struct AppState {
     persistent_state: PersistentState,
     menu_id_to_device: HashMap<MenuId, MenuItemInfo>,
     watched_devices: Vec<Box<dyn AudioDevice>>,
-    last_notification_times: HashMap<String, Instant>,
+    notification_throttler: NotificationThrottler,
     temporary_priorities: TemporaryPriorities,
     update_info: Option<UpdateInfo>,
     tray_icon: Option<tray_icon::TrayIcon>,
@@ -84,14 +84,15 @@ impl AppState {
             None => return,
         };
 
+        let device_name = device_settings.name.clone();
+        let device_type = device_settings.device_type;
+        let volume_lock = device_settings.volume_lock;
+        let unmute_lock = device_settings.unmute_lock;
+
         let device = match self.backend.get_device_by_id(&device_id) {
             Ok(d) => d,
             Err(e) => {
-                log::error!(
-                    "Failed to get device by id for {}: {}",
-                    device_settings.name,
-                    e
-                );
+                log::error!("Failed to get device by id for {device_name}: {e}");
                 return;
             }
         };
@@ -107,28 +108,28 @@ impl AppState {
             },
         };
 
-        if device_settings.volume_lock.is_locked {
-            enforce_volume_lock(
+        if volume_lock.is_locked {
+            self.enforce_volume_lock(
                 &device_id,
                 device.as_ref(),
-                device_settings,
+                &device_name,
+                &volume_lock,
                 new_volume,
-                &mut self.last_notification_times,
             );
         }
 
-        if device_settings.unmute_lock.is_locked {
+        if unmute_lock.is_locked {
             let (notification_title, notification_suffix) =
-                get_unmute_notification_details(device_settings.device_type);
+                get_unmute_notification_details(device_type);
 
             if let Err(e) = check_and_unmute_device(
                 device.as_ref(),
-                device_settings.unmute_lock.notify,
+                unmute_lock.notify,
                 notification_title,
                 notification_suffix,
-                &mut self.last_notification_times,
+                &mut self.notification_throttler,
             ) {
-                log::error!("Failed to unmute {}: {e:#}", device_settings.name);
+                log::error!("Failed to unmute {device_name}: {e:#}");
             }
         }
     }
@@ -202,7 +203,7 @@ impl AppState {
                     device_settings.unmute_lock.notify,
                     notification_title,
                     notification_suffix,
-                    &mut self.last_notification_times,
+                    &mut self.notification_throttler,
                 ) {
                     log::error!("Failed to unmute {}: {e:#}", device_settings.name);
                 }
@@ -257,7 +258,7 @@ impl AppState {
         enforce_priorities(
             &self.backend,
             &self.persistent_state,
-            &mut self.last_notification_times,
+            &mut self.notification_throttler,
             &self.temporary_priorities,
         );
 
@@ -308,33 +309,32 @@ impl AppState {
             self.tray_icon.take();
             *control_flow = ControlFlow::Exit;
         } else if let Some(menu_info) = self.menu_id_to_device.get(&event.id) {
-            let result = handle_menu_event(
-                event,
-                menu_info,
-                refs.tray_menu,
-                &mut self.persistent_state,
-                &self.backend,
-                &mut self.temporary_priorities,
-                &self.update_info,
-            );
+            let mut ctx = MenuEventContext {
+                tray_menu: refs.tray_menu,
+                persistent_state: &mut self.persistent_state,
+                backend: &self.backend,
+                temporary_priorities: &mut self.temporary_priorities,
+                update_info: &self.update_info,
+            };
+            let result = handle_menu_event(event, menu_info, &mut ctx);
 
-            if result.devices_changed {
-                let _ = proxy.send_event(UserEvent::DevicesChanged);
-            }
-
-            if result.should_save {
-                let _ = proxy.send_event(UserEvent::ConfigurationChanged);
-            }
-
-            match result.update_action {
-                ui::UpdateAction::Perform(info) => {
+            match result {
+                MenuEventResult::DevicesChanged => {
+                    let _ = proxy.send_event(UserEvent::DevicesChanged);
+                }
+                MenuEventResult::SaveConfig => {
+                    let _ = proxy.send_event(UserEvent::ConfigurationChanged);
+                }
+                MenuEventResult::UpdatePerform(info) => {
                     if update::perform(&info) {
                         self.tray_icon.take();
                         *control_flow = ControlFlow::Exit;
                     }
                 }
-                ui::UpdateAction::Check => self.update_info = update::check(true).unwrap_or(None),
-                ui::UpdateAction::None => {}
+                MenuEventResult::UpdateCheck => {
+                    self.update_info = update::check(true).unwrap_or(None);
+                }
+                MenuEventResult::NoChange => {}
             }
         }
     }
@@ -373,40 +373,39 @@ impl AppState {
             }
         }
     }
-}
 
-fn enforce_volume_lock(
-    device_id: &DeviceId,
-    device: &dyn AudioDevice,
-    settings: &types::DeviceSettings,
-    new_volume: VolumeScalar,
-    last_notification_times: &mut HashMap<String, Instant>,
-) {
-    let new_volume_percent = new_volume.to_percent();
-    let target_volume_percent = settings.volume_lock.target_percent;
-    if new_volume_percent == target_volume_percent {
-        return;
-    }
+    fn enforce_volume_lock(
+        &mut self,
+        device_id: &DeviceId,
+        device: &dyn AudioDevice,
+        device_name: &str,
+        lock: &types::VolumeLockPolicy,
+        new_volume: VolumeScalar,
+    ) {
+        let new_volume_percent = new_volume.to_percent();
+        let target_volume_percent = lock.target_percent;
+        if new_volume_percent == target_volume_percent {
+            return;
+        }
 
-    let target_volume = target_volume_percent.to_scalar();
-    let device_name = device.name();
+        let target_volume = target_volume_percent.to_scalar();
 
-    if let Err(e) = device.set_volume(target_volume) {
-        log::error!("Failed to set volume of {device_name} to {target_volume_percent}%: {e:#}");
-        return;
-    }
-    log::info!(
-        "Restored volume of {device_name} from {new_volume_percent}% to {target_volume_percent}%"
-    );
-    if settings.volume_lock.notify {
-        send_notification_debounced(
-            &format!("volume_restore_{}", device_id),
-            "Volume Restored",
-            &format!(
-                "The volume of {device_name} has been restored from {new_volume_percent}% to {target_volume_percent}%."
-            ),
-            last_notification_times,
+        if let Err(e) = device.set_volume(target_volume) {
+            log::error!("Failed to set volume of {device_name} to {target_volume_percent}%: {e:#}");
+            return;
+        }
+        log::info!(
+            "Restored volume of {device_name} from {new_volume_percent}% to {target_volume_percent}%"
         );
+        if lock.notify {
+            self.notification_throttler.send_if_not_throttled(
+                &format!("volume_restore_{}", device_id),
+                "Volume Restored",
+                &format!(
+                    "The volume of {device_name} has been restored from {new_volume_percent}% to {target_volume_percent}%."
+                ),
+            );
+        }
     }
 }
 
@@ -421,20 +420,6 @@ fn main() -> std::process::ExitCode {
 
 fn run() -> anyhow::Result<()> {
     let executable_directory = get_executable_directory()?;
-
-    let com_token = init_platform(&executable_directory)?;
-
-    if !executable_directory.writable() {
-        let error_title = "Volume Locker Directory Not Writable";
-        let error_message = format!(
-            "Please move Volume Locker to a directory that is writable or fix the permissions of '{}'.",
-            executable_directory.display(),
-        );
-
-        let _ = send_notification(error_title, &error_message, NotificationDuration::Long);
-
-        anyhow::bail!("{error_title}: {error_message}");
-    }
 
     let log_path = executable_directory.join(LOG_FILE_NAME);
     let loggers: Vec<Box<dyn SharedLogger>> = vec![
@@ -458,6 +443,20 @@ fn run() -> anyhow::Result<()> {
     std::panic::set_hook(Box::new(|panic_info| {
         log::error!("Panic occurred: {panic_info}");
     }));
+
+    let com_token = init_platform(&executable_directory)?;
+
+    if !executable_directory.writable() {
+        let error_title = "Volume Locker Directory Not Writable";
+        let error_message = format!(
+            "Please move Volume Locker to a directory that is writable or fix the permissions of '{}'.",
+            executable_directory.display(),
+        );
+
+        let _ = send_notification(error_title, &error_message, NotificationDuration::Long);
+
+        anyhow::bail!("{error_title}: {error_message}");
+    }
 
     // Only allow one instance of the application to run at a time
     let instance = SingleInstance::new(APP_UID).context("failed to create single instance")?;
@@ -533,7 +532,7 @@ fn run() -> anyhow::Result<()> {
         persistent_state,
         menu_id_to_device: HashMap::new(),
         watched_devices: Vec::new(),
-        last_notification_times: HashMap::new(),
+        notification_throttler: NotificationThrottler::new(),
         temporary_priorities: TemporaryPriorities {
             output: None,
             input: None,
