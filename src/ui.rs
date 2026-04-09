@@ -251,7 +251,7 @@ fn append_device_list_to_menu(
         let is_muted = device.is_muted().unwrap_or(false);
         let is_default = default_device_id
             .as_ref()
-            .is_some_and(|id| id == device_id);
+            .is_some_and(|id| **device_id == **id);
 
         let (is_volume_locked, notify_on_volume_lock, is_unmute_locked, notify_on_unmute_lock) =
             if let Some(settings) = persistent_state.devices.get(device_id) {
@@ -384,14 +384,14 @@ fn append_temporary_priority_section(
         let submenu = Submenu::new(&submenu_label, true);
 
         for (id, name) in &available_devices {
-            let is_checked = temp_id_opt.is_some_and(|t| *t == *id);
+            let is_checked = temp_id_opt.is_some_and(|t| *t == **id);
             let item = CheckMenuItem::new(name, true, is_checked, None);
             menu_id_to_device.insert(
                 item.id().clone(),
                 MenuItemInfo {
                     name: name.clone(),
                     action: MenuAction::Device {
-                        device_id: (*id).into(),
+                        device_id: (*id).clone(),
                         device_type,
                         action: DeviceAction::SetTemporaryPriority,
                     },

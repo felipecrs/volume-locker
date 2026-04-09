@@ -80,7 +80,7 @@ pub(crate) fn find_device_by_name_and_type(
     let devices = backend.get_devices(device_type)?;
     for device in devices {
         if device.name() == target_name {
-            return Ok(DeviceId::new(device.id()));
+            return Ok(device.id().clone());
         }
     }
     anyhow::bail!("Device not found: {target_name}")

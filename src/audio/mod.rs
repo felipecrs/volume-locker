@@ -20,7 +20,7 @@ pub trait AudioBackend {
 }
 
 pub trait AudioDevice {
-    fn id(&self) -> &str;
+    fn id(&self) -> &DeviceId;
     fn name(&self) -> String;
     fn volume(&self) -> anyhow::Result<f32>;
     fn set_volume(&self, volume: f32) -> anyhow::Result<()>;
@@ -87,7 +87,7 @@ pub(crate) mod tests {
     use std::collections::HashMap;
 
     pub(crate) struct MockDevice {
-        pub(crate) id: String,
+        pub(crate) id: DeviceId,
         pub(crate) name: String,
         pub(crate) active: bool,
         pub(crate) device_type: DeviceType,
@@ -98,7 +98,7 @@ pub(crate) mod tests {
     impl MockDevice {
         pub(crate) fn new(id: &str, name: &str, active: bool) -> Self {
             Self {
-                id: id.to_string(),
+                id: DeviceId::from(id),
                 name: name.to_string(),
                 active,
                 device_type: DeviceType::Output,
@@ -109,7 +109,7 @@ pub(crate) mod tests {
     }
 
     impl AudioDevice for MockDevice {
-        fn id(&self) -> &str {
+        fn id(&self) -> &DeviceId {
             &self.id
         }
         fn name(&self) -> String {

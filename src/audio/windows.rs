@@ -46,7 +46,7 @@ impl WindowsAudioBackend {
 pub struct WindowsAudioDevice {
     device: IMMDevice,
     endpoint: IAudioEndpointVolume,
-    id: String,
+    id: DeviceId,
     name: String,
     // Keep volume callback alive
     #[allow(dead_code)]
@@ -56,7 +56,7 @@ pub struct WindowsAudioDevice {
 impl WindowsAudioDevice {
     pub fn new(device: IMMDevice) -> anyhow::Result<Self> {
         let endpoint = get_audio_endpoint(&device)?;
-        let id = get_device_id(&device)?;
+        let id = DeviceId::from(get_device_id(&device)?);
         let name = get_device_name(&device)?;
         Ok(Self {
             device,
@@ -132,7 +132,7 @@ impl AudioBackend for WindowsAudioBackend {
 }
 
 impl AudioDevice for WindowsAudioDevice {
-    fn id(&self) -> &str {
+    fn id(&self) -> &DeviceId {
         &self.id
     }
 

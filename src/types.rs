@@ -8,12 +8,6 @@ use std::fmt;
 #[serde(transparent)]
 pub struct DeviceId(String);
 
-impl DeviceId {
-    pub fn new(id: impl Into<String>) -> Self {
-        Self(id.into())
-    }
-}
-
 impl fmt::Display for DeviceId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
@@ -80,10 +74,22 @@ pub enum DeviceRole {
 pub struct VolumeLockPolicy {
     #[serde(default, rename = "is_volume_locked")]
     pub is_locked: bool,
-    #[serde(default, rename = "volume_percent")]
+    #[serde(
+        default,
+        rename = "volume_percent",
+        deserialize_with = "deserialize_clamped_percent"
+    )]
     pub target_percent: f32,
     #[serde(default, rename = "notify_on_volume_lock")]
     pub notify: bool,
+}
+
+fn deserialize_clamped_percent<'de, D>(deserializer: D) -> Result<f32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value: f32 = serde::Deserialize::deserialize(deserializer)?;
+    Ok(value.clamp(0.0, 100.0))
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
