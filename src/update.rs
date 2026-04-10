@@ -31,6 +31,22 @@ pub struct UpdateInfo {
     pub release_url: String,
 }
 
+/// Extracts the version tag from a release URL like
+/// `https://github.com/.../releases/tag/v1.2.3` and returns `("v1.2.3", "1.2.3")`.
+fn extract_version_from_url(url: &str) -> anyhow::Result<(&str, &str)> {
+    let tag = url
+        .rsplit('/')
+        .next()
+        .context("could not extract version from redirect URL")?;
+    let version = tag.trim_start_matches('v');
+    Ok((tag, version))
+}
+
+/// Returns `true` if `latest` is newer than `current` by semver comparison.
+fn is_newer_version(latest: &str, current: &str) -> bool {
+    Version::parse(latest).ok() > Version::parse(current).ok()
+}
+
 fn check_for_updates() -> anyhow::Result<Option<UpdateInfo>> {
     log::info!("Checking for updates...");
 
@@ -39,18 +55,11 @@ fn check_for_updates() -> anyhow::Result<Option<UpdateInfo>> {
     let response = agent.head(&releases_url).call()?;
     let release_url = response.get_uri().to_string();
 
-    // Extract version from URL like: https://github.com/felipecrs/volume-locker/releases/tag/v1.2.3
-    let latest_tag = release_url
-        .rsplit('/')
-        .next()
-        .context("could not extract version from redirect URL")?;
-
-    let latest_version = latest_tag.trim_start_matches('v');
+    let (latest_tag, latest_version) = extract_version_from_url(&release_url)?;
 
     log::info!("Current: {CURRENT_VERSION}, Latest: {latest_version}");
 
-    // Compare versions - if parsing fails, assume no update available
-    if Version::parse(latest_version).ok() > Version::parse(CURRENT_VERSION).ok() {
+    if is_newer_version(latest_version, CURRENT_VERSION) {
         Ok(Some(UpdateInfo {
             latest_version: latest_version.to_string(),
             download_url: format!(
@@ -65,8 +74,8 @@ fn check_for_updates() -> anyhow::Result<Option<UpdateInfo>> {
 
 /// Checks for updates and optionally notifies the user.
 /// If `manual_request` is true, shows notifications for all outcomes.
-/// If `manual_request` is false, only shows notification when update is available.
-pub fn check(manual_request: bool) -> Option<UpdateInfo> {
+/// If `manual_request` is false, only logs errors without notifying.
+pub fn check(manual_request: bool) -> anyhow::Result<Option<UpdateInfo>> {
     match check_for_updates() {
         Ok(Some(info)) => {
             log::info!("Update available: v{}", info.latest_version);
@@ -80,7 +89,7 @@ pub fn check(manual_request: bool) -> Option<UpdateInfo> {
                     NotificationDuration::Long,
                 );
             }
-            Some(info)
+            Ok(Some(info))
         }
         Ok(None) => {
             log::info!("No updates available");
@@ -91,28 +100,33 @@ pub fn check(manual_request: bool) -> Option<UpdateInfo> {
                     NotificationDuration::Short,
                 );
             }
-            None
+            Ok(None)
         }
         Err(e) => {
             if manual_request {
                 log_and_notify_error(
                     "Update Check Failed",
-                    &format!("Failed to check for updates: {e}"),
+                    &format!("Failed to check for updates: {e:#}"),
                 );
             } else {
-                log::error!("Failed to check for updates: {e}");
+                log::error!("Failed to check for updates: {e:#}");
             }
-            None
+            Err(e)
         }
     }
 }
 
 /// Performs the update or shows error notification on failure.
-pub fn perform(update_info: &UpdateInfo) {
+/// Returns `true` if the application should exit (update launched successfully).
+pub fn perform(update_info: &UpdateInfo) -> bool {
     log::info!("Starting update to {}", update_info.latest_version);
 
-    if let Err(e) = try_perform(update_info) {
-        log_and_notify_error("Update Failed", &format!("Update failed: {e}"));
+    match try_perform(update_info) {
+        Ok(()) => true,
+        Err(e) => {
+            log_and_notify_error("Update Failed", &format!("Update failed: {e:#}"));
+            false
+        }
     }
 }
 
@@ -120,7 +134,7 @@ fn try_perform(update_info: &UpdateInfo) -> anyhow::Result<()> {
     // Open release notes
     let _ = open::that_detached(&update_info.release_url);
 
-    let exe_str = get_executable_path_str();
+    let exe_str = get_executable_path_str()?;
     let temp_download = format!("{exe_str}.download");
 
     log::info!("Downloading from {}", update_info.download_url);
@@ -150,5 +164,60 @@ fn try_perform(update_info: &UpdateInfo) -> anyhow::Result<()> {
         .spawn()?;
 
     log::info!("Post-update script launched, exiting application...");
-    std::process::exit(0);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_version_from_release_url() {
+        let (tag, version) = extract_version_from_url(
+            "https://github.com/felipecrs/volume-locker/releases/tag/v1.2.3",
+        )
+        .unwrap();
+        assert_eq!(tag, "v1.2.3");
+        assert_eq!(version, "1.2.3");
+    }
+
+    #[test]
+    fn extract_version_no_v_prefix() {
+        let (tag, version) = extract_version_from_url(
+            "https://github.com/felipecrs/volume-locker/releases/tag/1.0.0",
+        )
+        .unwrap();
+        assert_eq!(tag, "1.0.0");
+        assert_eq!(version, "1.0.0");
+    }
+
+    #[test]
+    fn is_newer_detects_major() {
+        assert!(is_newer_version("2.0.0", "1.0.0"));
+    }
+
+    #[test]
+    fn is_newer_detects_minor() {
+        assert!(is_newer_version("1.1.0", "1.0.0"));
+    }
+
+    #[test]
+    fn is_newer_detects_patch() {
+        assert!(is_newer_version("1.0.1", "1.0.0"));
+    }
+
+    #[test]
+    fn is_newer_same_version() {
+        assert!(!is_newer_version("1.0.0", "1.0.0"));
+    }
+
+    #[test]
+    fn is_newer_older_version() {
+        assert!(!is_newer_version("0.9.0", "1.0.0"));
+    }
+
+    #[test]
+    fn is_newer_invalid_latest_returns_false() {
+        assert!(!is_newer_version("not-a-version", "1.0.0"));
+    }
 }

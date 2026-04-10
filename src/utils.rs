@@ -1,34 +1,38 @@
 use crate::platform::{NotificationDuration, send_notification};
+use anyhow::Context;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-pub fn get_executable_path() -> PathBuf {
-    let exe_path = std::env::current_exe().expect("failed to determine current executable path");
+pub fn get_executable_path() -> anyhow::Result<PathBuf> {
+    let exe_path =
+        std::env::current_exe().context("failed to determine current executable path")?;
     // Resolves symbolic links (e.g., when installed via winget)
-    dunce::canonicalize(&exe_path).unwrap_or(exe_path)
+    Ok(dunce::canonicalize(&exe_path).unwrap_or(exe_path))
 }
 
-pub fn get_executable_directory() -> PathBuf {
-    get_executable_path()
+pub fn get_executable_directory() -> anyhow::Result<PathBuf> {
+    Ok(get_executable_path()?
         .parent()
-        .expect("executable path has no parent directory")
-        .to_path_buf()
+        .context("executable path has no parent directory")?
+        .to_path_buf())
 }
 
-pub fn get_executable_path_str() -> String {
-    get_executable_path()
+pub fn get_executable_path_str() -> anyhow::Result<String> {
+    Ok(get_executable_path()?
         .to_str()
-        .expect("executable path is not valid UTF-8")
-        .to_string()
+        .context("executable path is not valid UTF-8")?
+        .to_string())
 }
 
 pub fn log_and_notify_error(title: &str, message: &str) {
     log::error!("{message}");
-    let _ = send_notification(title, message, NotificationDuration::Long);
+    if let Err(e) = send_notification(title, message, NotificationDuration::Long) {
+        log::error!("Failed to send error notification: {e:#}");
+    }
 }
 
-pub fn send_notification_debounced(
+fn send_notification_debounced(
     key: &str,
     title: &str,
     message: &str,
@@ -41,26 +45,99 @@ pub fn send_notification_debounced(
     };
     if should_notify {
         if let Err(e) = send_notification(title, message, NotificationDuration::Short) {
-            log::error!("Failed to show notification for {title}: {e}");
+            log::error!("Failed to show notification for {title}: {e:#}");
         }
         last_notification_times.insert(key.to_string(), now);
     }
 }
 
-pub fn convert_float_to_percent(volume: f32) -> f32 {
-    (volume * 100.0).round()
+/// Manages debounced notifications, preventing repeated notifications within a cooldown period.
+pub struct NotificationThrottler {
+    last_times: HashMap<String, Instant>,
 }
 
-pub fn convert_percent_to_float(volume: f32) -> f32 {
-    volume / 100.0
+impl NotificationThrottler {
+    pub fn new() -> Self {
+        Self {
+            last_times: HashMap::new(),
+        }
+    }
+
+    pub fn send_if_not_throttled(&mut self, key: &str, title: &str, message: &str) {
+        send_notification_debounced(key, title, message, &mut self.last_times);
+    }
 }
 
 /// Open a path in the system file explorer.
-pub fn open_path(path: &std::path::Path) {
-    let _ = open::that_detached(path);
+pub fn open_path(path: &std::path::Path) -> anyhow::Result<()> {
+    open::that_detached(path).context("failed to open path")
 }
 
 /// Open a URL in the default browser.
-pub fn open_url(url: &str) {
-    let _ = open::that_detached(url);
+pub fn open_url(url: &str) -> anyhow::Result<()> {
+    open::that_detached(url).context("failed to open URL")
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::types::{VolumePercent, VolumeScalar};
+
+    #[test]
+    fn convert_float_to_percent_zero() {
+        assert_eq!(VolumeScalar::from(0.0).to_percent().as_f32(), 0.0);
+    }
+
+    #[test]
+    fn convert_float_to_percent_full() {
+        assert_eq!(VolumeScalar::from(1.0).to_percent().as_f32(), 100.0);
+    }
+
+    #[test]
+    fn convert_float_to_percent_half() {
+        assert_eq!(VolumeScalar::from(0.5).to_percent().as_f32(), 50.0);
+    }
+
+    #[test]
+    fn convert_float_to_percent_rounds() {
+        assert_eq!(VolumeScalar::from(0.333).to_percent().as_f32(), 33.0);
+        assert_eq!(VolumeScalar::from(0.335).to_percent().as_f32(), 34.0);
+    }
+
+    #[test]
+    fn convert_percent_to_float_zero() {
+        assert_eq!(VolumePercent::from(0.0).to_scalar().as_f32(), 0.0);
+    }
+
+    #[test]
+    fn convert_percent_to_float_full() {
+        assert_eq!(VolumePercent::from(100.0).to_scalar().as_f32(), 1.0);
+    }
+
+    #[test]
+    fn convert_percent_to_float_half() {
+        assert_eq!(VolumePercent::from(50.0).to_scalar().as_f32(), 0.5);
+    }
+
+    #[test]
+    fn roundtrip_float_percent() {
+        let original = 0.75;
+        let percent = VolumeScalar::from(original).to_percent();
+        let back = percent.to_scalar().as_f32();
+        assert_eq!(back, original);
+    }
+
+    #[test]
+    fn convert_float_to_percent_over_100() {
+        assert_eq!(VolumeScalar::from(1.5).to_percent().as_f32(), 150.0);
+    }
+
+    #[test]
+    fn convert_percent_to_float_over_100() {
+        assert_eq!(VolumePercent::from(200.0).to_scalar().as_f32(), 2.0);
+    }
+
+    #[test]
+    fn convert_float_to_percent_negative() {
+        assert_eq!(VolumeScalar::from(-0.1).to_percent().as_f32(), -10.0);
+    }
 }
