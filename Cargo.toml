@@ -22,7 +22,7 @@ dunce = "1.0.5"
 faccess = "0.2.4"
 log = "0.4.29"
 notify-rust = "4.14.0"
-open = "5.3.3"
+open = "5.3.4"
 regex-lite = "0.1.9"
 semver = "1.0.28"
 serde = { version = "1.0.228", features = ["derive"] }
