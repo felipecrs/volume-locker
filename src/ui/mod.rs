@@ -27,3 +27,43 @@ fn find_in_items(items: &[MenuItemKind], id: &MenuId) -> Option<MenuItemKind> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tray_icon::menu::{MenuItem, Submenu};
+
+    #[test]
+    fn find_menu_item_top_level() {
+        let menu = Menu::new();
+        let item = MenuItem::new("Test", true, None);
+        let target_id = item.id().clone();
+        menu.append(&item).unwrap();
+
+        let found = find_menu_item(&menu, &target_id);
+        assert!(found.is_some());
+    }
+
+    #[test]
+    fn find_menu_item_in_submenu() {
+        let menu = Menu::new();
+        let submenu = Submenu::new("Sub", true);
+        let item = MenuItem::new("Nested", true, None);
+        let target_id = item.id().clone();
+        submenu.append(&item).unwrap();
+        menu.append(&submenu).unwrap();
+
+        let found = find_menu_item(&menu, &target_id);
+        assert!(found.is_some());
+    }
+
+    #[test]
+    fn find_menu_item_missing_returns_none() {
+        let menu = Menu::new();
+        let item = MenuItem::new("Test", true, None);
+        menu.append(&item).unwrap();
+
+        let bogus_id = MenuId::new("nonexistent");
+        assert!(find_menu_item(&menu, &bogus_id).is_none());
+    }
+}
