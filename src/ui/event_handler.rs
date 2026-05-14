@@ -53,7 +53,7 @@ fn device_settings_are_empty(settings: &DeviceSettings) -> bool {
         && !settings.unmute_lock.notify
 }
 
-/// Applies a device lock/notify toggle and returns whether the device entry should be removed.
+/// Applies a device lock/notify toggle to the device's settings entry.
 fn apply_device_lock_toggle(
     action: &DeviceAction,
     is_checked: bool,
@@ -62,7 +62,7 @@ fn apply_device_lock_toggle(
     device_type: DeviceType,
     persistent_state: &mut PersistentState,
     backend: &impl AudioBackend,
-) -> bool {
+) {
     let device_settings = persistent_state
         .devices
         .entry(device_id.clone())
@@ -98,8 +98,6 @@ fn apply_device_lock_toggle(
         }
         _ => {}
     }
-
-    device_settings_are_empty(device_settings)
 }
 
 fn handle_priority_event(
@@ -205,7 +203,7 @@ pub fn handle_menu_event(
             | DeviceAction::UnmuteLock
             | DeviceAction::UnmuteLockNotify => {
                 if let Some(is_checked) = get_check_item_state(ctx.tray_menu, &event.id) {
-                    let should_remove = apply_device_lock_toggle(
+                    apply_device_lock_toggle(
                         action,
                         is_checked,
                         device_id,
@@ -215,8 +213,10 @@ pub fn handle_menu_event(
                         ctx.backend,
                     );
 
-                    if should_remove {
-                        let is_in_priority = ctx
+                    if let Some(settings) = ctx.persistent_state.devices.get(device_id)
+                        && device_settings_are_empty(settings)
+                    {
+                        let in_priority = ctx
                             .persistent_state
                             .get_priority_list(DeviceType::Output)
                             .contains(device_id)
@@ -225,7 +225,7 @@ pub fn handle_menu_event(
                                 .get_priority_list(DeviceType::Input)
                                 .contains(device_id);
 
-                        if !is_in_priority {
+                        if !in_priority {
                             ctx.persistent_state.devices.remove(device_id);
                         }
                     }
