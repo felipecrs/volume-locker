@@ -125,7 +125,15 @@ fn get_state_file_path() -> anyhow::Result<PathBuf> {
 }
 
 pub fn save_state(state: &PersistentState) -> anyhow::Result<()> {
-    let path = get_state_file_path()?;
+    save_state_to(&get_state_file_path()?, state)
+}
+
+pub fn load_state() -> anyhow::Result<PersistentState> {
+    load_state_from(&get_state_file_path()?)
+}
+
+/// Writes `state` to `path` via a temp file + rename for crash safety.
+pub(crate) fn save_state_to(path: &PathBuf, state: &PersistentState) -> anyhow::Result<()> {
     let tmp_path = path.with_extension("json.tmp");
 
     let json = serde_json::to_string_pretty(state).context("failed to serialize state")?;
@@ -140,7 +148,6 @@ pub fn save_state(state: &PersistentState) -> anyhow::Result<()> {
     })?;
 
     if let Err(e) = fs::rename(&tmp_path, &path) {
-        // Try to clean up the temporary file
         let _ = fs::remove_file(&tmp_path);
         return Err(anyhow::anyhow!(e).context(format!(
             "failed to rename temporary state file '{}' to '{}'",
@@ -152,13 +159,11 @@ pub fn save_state(state: &PersistentState) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn load_state() -> anyhow::Result<PersistentState> {
-    let path = get_state_file_path()?;
-
-    let data = match fs::read_to_string(&path) {
+/// Loads state from `path`, returning defaults if the file doesn't exist.
+pub(crate) fn load_state_from(path: &PathBuf) -> anyhow::Result<PersistentState> {
+    let data = match fs::read_to_string(path) {
         Ok(data) => data,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            // First run or file was deleted intentionally — use defaults
             return Ok(PersistentState::default());
         }
         Err(e) => {
@@ -399,6 +404,101 @@ mod tests {
         assert!(result.is_err());
 
         // Cleanup
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_dir(&dir);
+    }
+
+    // --- save_state_to / load_state_from tests ---
+
+    #[test]
+    fn save_and_load_state_roundtrip() {
+        let dir = std::env::temp_dir().join("vl_test_save_load_roundtrip");
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("state.json");
+
+        let mut state = PersistentState::default();
+        state.output_priority_list = vec!["dev_a".into(), "dev_b".into()];
+        state.check_updates_on_launch = false;
+        state.devices.insert(
+            "dev_a".into(),
+            DeviceSettings {
+                volume_lock: VolumeLockPolicy {
+                    is_locked: true,
+                    target_percent: VolumePercent::from(60.0),
+                    notify: true,
+                },
+                unmute_lock: UnmuteLockPolicy::default(),
+                device_type: DeviceType::Output,
+                name: "Speakers".into(),
+            },
+        );
+
+        super::save_state_to(&path, &state).unwrap();
+
+        // Verify temp file was cleaned up
+        assert!(!path.with_extension("json.tmp").exists());
+        assert!(path.exists());
+
+        let loaded = super::load_state_from(&path).unwrap();
+        assert_eq!(loaded.output_priority_list, vec!["dev_a", "dev_b"]);
+        assert!(!loaded.check_updates_on_launch);
+        let dev = loaded.devices.get("dev_a").unwrap();
+        assert!(dev.volume_lock.is_locked);
+        assert_eq!(dev.volume_lock.target_percent, 60.0);
+
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn load_state_missing_file_returns_default() {
+        let path = std::env::temp_dir().join("vl_test_missing_state.json");
+        let _ = fs::remove_file(&path); // ensure it doesn't exist
+
+        let loaded = super::load_state_from(&path).unwrap();
+        assert!(loaded.devices.is_empty());
+        assert!(loaded.output_priority_list.is_empty());
+        assert!(loaded.check_updates_on_launch); // default is true
+    }
+
+    #[test]
+    fn load_state_malformed_file_returns_error_with_context() {
+        let dir = std::env::temp_dir().join("vl_test_malformed_load");
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("state.json");
+
+        fs::write(&path, "not json at all").unwrap();
+
+        let result = super::load_state_from(&path);
+        assert!(result.is_err());
+        let err_msg = format!("{:#}", result.unwrap_err());
+        assert!(err_msg.contains("failed to parse state file"));
+
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn save_state_overwrites_existing_file() {
+        let dir = std::env::temp_dir().join("vl_test_overwrite");
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("state.json");
+
+        // Save initial
+        let mut state = PersistentState::default();
+        state.check_updates_on_launch = false;
+        super::save_state_to(&path, &state).unwrap();
+
+        // Save modified
+        state.check_updates_on_launch = true;
+        state.output_priority_list = vec!["new_dev".into()];
+        super::save_state_to(&path, &state).unwrap();
+
+        // Load and verify latest
+        let loaded = super::load_state_from(&path).unwrap();
+        assert!(loaded.check_updates_on_launch);
+        assert_eq!(loaded.output_priority_list, vec!["new_dev"]);
+
         let _ = fs::remove_file(&path);
         let _ = fs::remove_dir(&dir);
     }
