@@ -150,79 +150,85 @@ impl AppState {
         self.watched_devices.clear();
         let mut any_device_locked = false;
 
-        for (device_id, device_settings) in self.persistent_state.devices.iter() {
-            if !device_settings.volume_lock.is_locked && !device_settings.unmute_lock.is_locked {
-                continue;
+        // Collect device IDs first to avoid borrow conflict with `self`.
+        let locked_device_ids: Vec<_> = self
+            .persistent_state
+            .devices
+            .iter()
+            .filter(|(_, s)| s.volume_lock.is_locked || s.unmute_lock.is_locked)
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        for device_id in locked_device_ids {
+            if let Some(device) = self.try_watch_device(&device_id, proxy) {
+                self.watched_devices.push(device);
+                any_device_locked = true;
             }
-
-            let device = match self.backend.get_device_by_id(device_id) {
-                Ok(device) => device,
-                Err(e) => {
-                    log::warn!(
-                        "Not watching volume of {} as failed to get its device by id: {}",
-                        device_settings.name,
-                        e
-                    );
-                    continue;
-                }
-            };
-
-            if let Ok(false) = device.is_active() {
-                log::info!(
-                    "Not watching volume of {} as it is not active",
-                    device_settings.name
-                );
-                continue;
-            }
-
-            let volume_proxy = proxy.clone();
-            let device_id = device_id.clone();
-            let device_id_for_closure = device_id.clone();
-            if let Err(e) = device.watch_volume(Box::new(move |vol| {
-                let _ = volume_proxy.send_event(UserEvent::VolumeChanged(VolumeChangedEvent {
-                    device_id: device_id_for_closure.clone(),
-                    new_volume: vol,
-                }));
-            })) {
-                log::warn!(
-                    "Not watching volume of {} as failed to register for volume changes: {}",
-                    device_settings.name,
-                    e
-                );
-                continue;
-            }
-
-            if device_settings.unmute_lock.is_locked {
-                if let Err(e) = check_and_unmute_device(
-                    device.as_ref(),
-                    device_settings.device_type,
-                    device_settings.unmute_lock.notify,
-                    &mut self.notification_throttler,
-                ) {
-                    log::error!("Failed to unmute {}: {e:#}", device_settings.name);
-                }
-            }
-
-            self.watched_devices.push(device);
-
-            log::info!(
-                "Watching volume of {} (Locked: {}, Unmute: {})",
-                device_settings.name,
-                device_settings.volume_lock.is_locked,
-                device_settings.unmute_lock.is_locked
-            );
-
-            if let Err(e) = proxy.send_event(UserEvent::VolumeChanged(VolumeChangedEvent {
-                device_id: device_id.clone(),
-                new_volume: None,
-            })) {
-                log::warn!("Failed to send VolumeChanged event: {e:#}");
-            }
-
-            any_device_locked = true;
         }
 
         any_device_locked
+    }
+
+    /// Attempts to set up volume monitoring for a single locked device.
+    /// Returns the device handle on success, or `None` if the device can't be watched.
+    fn try_watch_device(
+        &mut self,
+        device_id: &DeviceId,
+        proxy: &EventLoopProxy<UserEvent>,
+    ) -> Option<Box<dyn AudioDevice>> {
+        let device_settings = self.persistent_state.devices.get(device_id)?;
+        let device_name = &device_settings.name;
+
+        let device = match self.backend.get_device_by_id(device_id) {
+            Ok(d) => d,
+            Err(e) => {
+                log::warn!("Not watching {device_name}: failed to get device by id: {e}");
+                return None;
+            }
+        };
+
+        if let Ok(false) = device.is_active() {
+            log::info!("Not watching {device_name}: device is not active");
+            return None;
+        }
+
+        let cb_proxy = proxy.clone();
+        let cb_device_id = device_id.clone();
+        if let Err(e) = device.watch_volume(Box::new(move |vol| {
+            let _ = cb_proxy.send_event(UserEvent::VolumeChanged(VolumeChangedEvent {
+                device_id: cb_device_id.clone(),
+                new_volume: vol,
+            }));
+        })) {
+            log::warn!("Not watching {device_name}: failed to register volume callback: {e}");
+            return None;
+        }
+
+        if device_settings.unmute_lock.is_locked {
+            if let Err(e) = check_and_unmute_device(
+                device.as_ref(),
+                device_settings.device_type,
+                device_settings.unmute_lock.notify,
+                &mut self.notification_throttler,
+            ) {
+                log::error!("Failed to unmute {device_name}: {e:#}");
+            }
+        }
+
+        log::info!(
+            "Watching {device_name} (Locked: {}, Unmute: {})",
+            device_settings.volume_lock.is_locked,
+            device_settings.unmute_lock.is_locked
+        );
+
+        if let Err(e) = proxy.send_event(UserEvent::VolumeChanged(VolumeChangedEvent {
+            device_id: device_id.clone(),
+            new_volume: None,
+        })) {
+            log::warn!("Failed to send initial VolumeChanged event: {e:#}");
+        }
+
+        Some(device)
     }
 
     fn update_tray_icon(

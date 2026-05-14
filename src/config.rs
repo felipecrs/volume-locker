@@ -37,63 +37,71 @@ pub struct PersistentState {
 }
 
 impl PersistentState {
-    /// Returns an owned snapshot of settings for the given device type.
-    /// Callers that need a borrowed view should use the individual accessors instead.
-    pub fn settings(&self, device_type: DeviceType) -> DeviceTypeSettings {
-        match device_type {
-            DeviceType::Output => DeviceTypeSettings {
-                priority_list: self.output_priority_list.clone(),
-                notify_on_priority_restore: self.notify_on_priority_restore_output,
-                switch_communication_device: self.switch_communication_device_output,
-            },
-            DeviceType::Input => DeviceTypeSettings {
-                priority_list: self.input_priority_list.clone(),
-                notify_on_priority_restore: self.notify_on_priority_restore_input,
-                switch_communication_device: self.switch_communication_device_input,
-            },
+    /// Single dispatch point for all per-device-type fields (shared ref).
+    fn fields_ref(&self, dt: DeviceType) -> (&Vec<DeviceId>, bool, bool) {
+        match dt {
+            DeviceType::Output => (
+                &self.output_priority_list,
+                self.notify_on_priority_restore_output,
+                self.switch_communication_device_output,
+            ),
+            DeviceType::Input => (
+                &self.input_priority_list,
+                self.notify_on_priority_restore_input,
+                self.switch_communication_device_input,
+            ),
         }
     }
 
-    pub fn get_priority_list_mut(&mut self, device_type: DeviceType) -> &mut Vec<DeviceId> {
-        match device_type {
-            DeviceType::Output => &mut self.output_priority_list,
-            DeviceType::Input => &mut self.input_priority_list,
+    /// Single dispatch point for all per-device-type fields (mutable ref).
+    fn fields_mut(&mut self, dt: DeviceType) -> (&mut Vec<DeviceId>, &mut bool, &mut bool) {
+        match dt {
+            DeviceType::Output => (
+                &mut self.output_priority_list,
+                &mut self.notify_on_priority_restore_output,
+                &mut self.switch_communication_device_output,
+            ),
+            DeviceType::Input => (
+                &mut self.input_priority_list,
+                &mut self.notify_on_priority_restore_input,
+                &mut self.switch_communication_device_input,
+            ),
+        }
+    }
+
+    /// Returns an owned snapshot of settings for the given device type.
+    /// Callers that need a borrowed view should use the individual accessors instead.
+    pub fn settings(&self, device_type: DeviceType) -> DeviceTypeSettings {
+        let (list, notify, switch) = self.fields_ref(device_type);
+        DeviceTypeSettings {
+            priority_list: list.clone(),
+            notify_on_priority_restore: notify,
+            switch_communication_device: switch,
         }
     }
 
     pub fn get_priority_list(&self, device_type: DeviceType) -> &[DeviceId] {
-        match device_type {
-            DeviceType::Output => &self.output_priority_list,
-            DeviceType::Input => &self.input_priority_list,
-        }
+        self.fields_ref(device_type).0
     }
 
-    pub fn set_notify_on_priority_restore(&mut self, device_type: DeviceType, notify: bool) {
-        match device_type {
-            DeviceType::Output => self.notify_on_priority_restore_output = notify,
-            DeviceType::Input => self.notify_on_priority_restore_input = notify,
-        }
+    pub fn get_priority_list_mut(&mut self, device_type: DeviceType) -> &mut Vec<DeviceId> {
+        self.fields_mut(device_type).0
     }
 
     pub fn get_notify_on_priority_restore(&self, device_type: DeviceType) -> bool {
-        match device_type {
-            DeviceType::Output => self.notify_on_priority_restore_output,
-            DeviceType::Input => self.notify_on_priority_restore_input,
-        }
+        self.fields_ref(device_type).1
     }
 
-    pub fn set_switch_communication_device(&mut self, device_type: DeviceType, switch: bool) {
-        match device_type {
-            DeviceType::Output => self.switch_communication_device_output = switch,
-            DeviceType::Input => self.switch_communication_device_input = switch,
-        }
+    pub fn set_notify_on_priority_restore(&mut self, device_type: DeviceType, value: bool) {
+        *self.fields_mut(device_type).1 = value;
     }
 
     pub fn get_switch_communication_device(&self, device_type: DeviceType) -> bool {
-        match device_type {
-            DeviceType::Output => self.switch_communication_device_output,
-            DeviceType::Input => self.switch_communication_device_input,
-        }
+        self.fields_ref(device_type).2
+    }
+
+    pub fn set_switch_communication_device(&mut self, device_type: DeviceType, value: bool) {
+        *self.fields_mut(device_type).2 = value;
     }
 }
 
