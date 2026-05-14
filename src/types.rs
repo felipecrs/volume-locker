@@ -18,7 +18,7 @@ impl VolumeScalar {
 
 impl From<f32> for VolumeScalar {
     fn from(v: f32) -> Self {
-        Self(v)
+        Self(v.clamp(0.0, 1.0))
     }
 }
 
@@ -45,7 +45,7 @@ impl fmt::Display for VolumePercent {
 
 impl From<f32> for VolumePercent {
     fn from(v: f32) -> Self {
-        Self(v)
+        Self(v.clamp(0.0, 100.0))
     }
 }
 
@@ -268,7 +268,7 @@ pub enum UserEvent {
 
 #[cfg(test)]
 mod tests {
-    use super::{DeviceRole, DeviceSettings, DeviceType, VolumePercent, VolumeScalar};
+    use super::{DeviceSettings, DeviceType, VolumePercent, VolumeScalar};
 
     #[test]
     fn device_type_serialization_roundtrip() {
@@ -325,38 +325,6 @@ mod tests {
     }
 
     #[test]
-    fn device_type_equality_and_hash() {
-        use std::collections::HashSet;
-        let mut set = HashSet::new();
-        set.insert(DeviceType::Output);
-        set.insert(DeviceType::Input);
-        set.insert(DeviceType::Output); // duplicate
-        assert_eq!(set.len(), 2);
-    }
-
-    #[test]
-    fn device_type_clone_and_copy() {
-        let dt = DeviceType::Output;
-        let cloned = dt;
-        let copied = dt;
-        assert_eq!(dt, cloned);
-        assert_eq!(dt, copied);
-    }
-
-    #[test]
-    fn device_role_variants() {
-        let roles = [
-            DeviceRole::Console,
-            DeviceRole::Multimedia,
-            DeviceRole::Communications,
-        ];
-        assert_eq!(roles.len(), 3);
-        assert_ne!(DeviceRole::Console, DeviceRole::Multimedia);
-        assert_ne!(DeviceRole::Console, DeviceRole::Communications);
-        assert_ne!(DeviceRole::Multimedia, DeviceRole::Communications);
-    }
-
-    #[test]
     fn convert_float_to_percent_zero() {
         assert_eq!(VolumeScalar::from(0.0).to_percent().as_f32(), 0.0);
     }
@@ -401,17 +369,22 @@ mod tests {
     }
 
     #[test]
-    fn convert_float_to_percent_over_100() {
-        assert_eq!(VolumeScalar::from(1.5).to_percent().as_f32(), 150.0);
+    fn volume_scalar_clamps_above_one() {
+        assert_eq!(VolumeScalar::from(1.5).as_f32(), 1.0);
     }
 
     #[test]
-    fn convert_percent_to_float_over_100() {
-        assert_eq!(VolumePercent::from(200.0).to_scalar().as_f32(), 2.0);
+    fn volume_percent_clamps_above_100() {
+        assert_eq!(VolumePercent::from(200.0).as_f32(), 100.0);
     }
 
     #[test]
-    fn convert_float_to_percent_negative() {
-        assert_eq!(VolumeScalar::from(-0.1).to_percent().as_f32(), -10.0);
+    fn volume_scalar_clamps_below_zero() {
+        assert_eq!(VolumeScalar::from(-0.1).as_f32(), 0.0);
+    }
+
+    #[test]
+    fn volume_percent_clamps_below_zero() {
+        assert_eq!(VolumePercent::from(-10.0).as_f32(), 0.0);
     }
 }

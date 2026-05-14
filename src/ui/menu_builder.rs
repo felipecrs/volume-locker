@@ -51,7 +51,7 @@ fn append_action_item(
 
 /// Registers a menu item in the device map, associating it with a device and setting type.
 fn register_menu_item(
-    map: &mut HashMap<MenuId, MenuItemInfo>,
+    map: &mut MenuIdMap,
     menu_id: MenuId,
     action: DeviceAction,
     device_id: &DeviceId,
