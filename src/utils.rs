@@ -1,4 +1,3 @@
-use crate::platform::{NotificationDuration, send_notification};
 use anyhow::Context;
 use std::path::PathBuf;
 
@@ -21,13 +20,6 @@ pub fn get_executable_path_str() -> anyhow::Result<String> {
         .to_str()
         .context("executable path is not valid UTF-8")?
         .to_string())
-}
-
-pub fn log_and_notify_error(title: &str, message: &str) {
-    log::error!("{message}");
-    if let Err(e) = send_notification(title, message, NotificationDuration::Long) {
-        log::error!("Failed to send error notification: {e:#}");
-    }
 }
 
 pub fn open_path(path: &std::path::Path) -> anyhow::Result<()> {

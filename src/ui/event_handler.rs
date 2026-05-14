@@ -10,7 +10,8 @@ use crate::types::{
     PreferenceAction, TemporaryPriorities,
 };
 use crate::update::UpdateInfo;
-use crate::utils::{get_executable_directory, log_and_notify_error, open_path, open_url};
+use crate::notification::log_and_notify_error;
+use crate::utils::{get_executable_directory, open_path, open_url};
 use tray_icon::menu::Menu;
 
 use super::find_menu_item;

@@ -27,10 +27,10 @@ use crate::ui::{
     MenuContext, MenuEventContext, MenuEventResult, TrayMenuItems, handle_menu_event,
     rebuild_tray_menu,
 };
-use crate::notification::NotificationThrottler;
+use crate::notification::{NotificationThrottler, log_and_notify_error};
 use crate::update::UpdateInfo;
 use crate::utils::{
-    get_executable_directory, get_executable_path_str, log_and_notify_error,
+    get_executable_directory, get_executable_path_str,
 };
 use anyhow::Context;
 use auto_launch::AutoLaunch;
@@ -325,7 +325,7 @@ impl AppState {
                             *control_flow = ControlFlow::Exit;
                         }
                         Err(e) => {
-                            utils::log_and_notify_error(
+                            log_and_notify_error(
                                 "Update Failed",
                                 &format!("Update failed: {e:#}"),
                             );
