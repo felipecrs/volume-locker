@@ -54,7 +54,7 @@ fn register_menu_item(
     map: &mut HashMap<MenuId, MenuItemInfo>,
     menu_id: MenuId,
     action: DeviceAction,
-    device_id: &str,
+    device_id: &DeviceId,
     name: &str,
     device_type: DeviceType,
 ) {
@@ -63,7 +63,7 @@ fn register_menu_item(
         MenuItemInfo {
             name: name.to_string(),
             action: MenuAction::Device {
-                device_id: device_id.into(),
+                device_id: device_id.clone(),
                 device_type,
                 action,
             },
@@ -497,7 +497,7 @@ fn append_priority_list_to_menu(
         });
     let mut available_devices = Vec::new();
     for device in devices {
-        available_devices.push((device.id().to_string(), device.name()));
+        available_devices.push((device.id().clone(), device.name()));
     }
 
     for (index, device_id) in priority_list.iter().enumerate() {
@@ -553,7 +553,7 @@ fn append_priority_list_to_menu(
 
     let mut devices_to_add = Vec::new();
     for (id, name) in &available_devices {
-        if !priority_list.iter().any(|p| *p == *id) {
+        if !priority_list.iter().any(|p| p == id) {
             devices_to_add.push((id, name));
         }
     }
