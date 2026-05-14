@@ -6,6 +6,7 @@
 mod audio;
 mod config;
 mod consts;
+mod notification;
 mod platform;
 mod types;
 mod ui;
@@ -26,10 +27,10 @@ use crate::ui::{
     MenuContext, MenuEventContext, MenuEventResult, TrayMenuItems, handle_menu_event,
     rebuild_tray_menu,
 };
+use crate::notification::NotificationThrottler;
 use crate::update::UpdateInfo;
 use crate::utils::{
     get_executable_directory, get_executable_path_str, log_and_notify_error,
-    NotificationThrottler,
 };
 use anyhow::Context;
 use auto_launch::AutoLaunch;

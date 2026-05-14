@@ -1,6 +1,6 @@
 use crate::config::{DeviceTypeSettings, PersistentState};
+use crate::notification::NotificationThrottler;
 use crate::types::{DeviceId, DeviceRole, DeviceType, TemporaryPriorities};
-use crate::utils::NotificationThrottler;
 
 use super::AudioBackend;
 
@@ -138,7 +138,7 @@ fn find_highest_priority_active_device(
 mod tests {
     use super::*;
     use crate::audio::tests::{MockAudioBackend, MockDevice};
-    use crate::utils::NotificationThrottler;
+    use crate::notification::NotificationThrottler;
 
     #[test]
     fn enforce_priorities_switches_to_highest_active() {

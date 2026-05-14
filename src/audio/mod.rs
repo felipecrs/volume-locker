@@ -45,7 +45,7 @@ mod priority;
 pub use migration::migrate_device_ids;
 pub use priority::enforce_priorities;
 
-use crate::utils::NotificationThrottler;
+use crate::notification::NotificationThrottler;
 
 pub fn check_and_unmute_device(
     device: &dyn AudioDevice,
@@ -102,7 +102,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::config::PersistentState;
     use crate::types::{DeviceId, DeviceSettings, TemporaryPriorities, VolumePercent, VolumeScalar};
-    use crate::utils::NotificationThrottler;
+    use crate::notification::NotificationThrottler;
     use std::cell::RefCell;
     use std::collections::HashMap;
 
