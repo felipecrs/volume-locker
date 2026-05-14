@@ -15,7 +15,7 @@ mod utils;
 
 use crate::audio::{
     AudioBackend, AudioBackendImpl, AudioDevice, check_and_unmute_device, enforce_priorities,
-    migrate_device_ids, sync_device_names,
+    collect_device_names, migrate_device_ids,
 };
 use crate::config::{PersistentState, load_state, save_state};
 use crate::consts::{APP_NAME, APP_UID, CURRENT_VERSION, LOG_FILE_NAME};
@@ -254,7 +254,7 @@ impl AppState {
         log::info!("Reloading list of watched devices...");
 
         self.migrate_device_ids_if_needed();
-        for (device_id, new_name, device_type) in sync_device_names(&self.backend) {
+        for (device_id, new_name, device_type) in collect_device_names(&self.backend) {
             if let Some(settings) = self.persistent_state.devices.get_mut(&device_id) {
                 settings.name = new_name;
                 settings.device_type = device_type;
