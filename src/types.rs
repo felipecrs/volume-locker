@@ -206,6 +206,8 @@ pub enum AppAction {
     PerformUpdate,
     OpenGitHubRepo,
     OpenAppDirectory,
+    ToggleAutoLaunch,
+    ToggleCheckUpdatesOnLaunch,
 }
 
 #[derive(Debug)]

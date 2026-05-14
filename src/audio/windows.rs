@@ -316,8 +316,8 @@ fn clean_device_name(name: &str) -> String {
 
 pub(crate) fn get_device_id(device: &IMMDevice) -> Result<String> {
     // SAFETY: device from IMMDeviceEnumerator; GetId returns an owned PWSTR that to_string frees.
-    let dev_id = unsafe { device.GetId()?.to_string()? };
-    Ok(dev_id)
+    let device_id = unsafe { device.GetId()?.to_string()? };
+    Ok(device_id)
 }
 
 pub(crate) fn get_device_by_id(

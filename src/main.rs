@@ -14,7 +14,7 @@ mod utils;
 
 use crate::audio::{
     AudioBackend, AudioBackendImpl, AudioDevice, check_and_unmute_device, enforce_priorities,
-    get_unmute_notification_details, migrate_device_ids, sync_device_names,
+    migrate_device_ids, sync_device_names,
 };
 use crate::config::{PersistentState, load_state, save_state};
 use crate::consts::{APP_NAME, APP_UID, CURRENT_VERSION, LOG_FILE_NAME};
@@ -119,14 +119,10 @@ impl AppState {
         }
 
         if unmute_lock.is_locked {
-            let (notification_title, notification_suffix) =
-                get_unmute_notification_details(device_type);
-
             if let Err(e) = check_and_unmute_device(
                 device.as_ref(),
+                device_type,
                 unmute_lock.notify,
-                notification_title,
-                notification_suffix,
                 &mut self.notification_throttler,
             ) {
                 log::error!("Failed to unmute {device_name}: {e:#}");
@@ -179,10 +175,11 @@ impl AppState {
             }
 
             let volume_proxy = proxy.clone();
-            let dev_id = device_id.clone();
+            let device_id = device_id.clone();
+            let device_id_for_closure = device_id.clone();
             if let Err(e) = device.watch_volume(Box::new(move |vol| {
                 let _ = volume_proxy.send_event(UserEvent::VolumeChanged(VolumeChangedEvent {
-                    device_id: dev_id.clone(),
+                    device_id: device_id_for_closure.clone(),
                     new_volume: vol,
                 }));
             })) {
@@ -195,14 +192,10 @@ impl AppState {
             }
 
             if device_settings.unmute_lock.is_locked {
-                let (notification_title, notification_suffix) =
-                    get_unmute_notification_details(device_settings.device_type);
-
                 if let Err(e) = check_and_unmute_device(
                     device.as_ref(),
+                    device_settings.device_type,
                     device_settings.unmute_lock.notify,
-                    notification_title,
-                    notification_suffix,
                     &mut self.notification_throttler,
                 ) {
                     log::error!("Failed to unmute {}: {e:#}", device_settings.name);
@@ -254,6 +247,7 @@ impl AppState {
         log::info!("Reloading list of watched devices...");
 
         self.migrate_device_ids_if_needed();
+        sync_device_names(&self.backend, &mut self.persistent_state);
 
         enforce_priorities(
             &self.backend,
@@ -288,24 +282,7 @@ impl AppState {
         proxy: &EventLoopProxy<UserEvent>,
         control_flow: &mut ControlFlow,
     ) {
-        if event.id == refs.auto_launch_check_item.id() {
-            let checked = refs.auto_launch_check_item.is_checked();
-            let result = if checked {
-                refs.auto_launch.enable()
-            } else {
-                refs.auto_launch.disable()
-            };
-            if let Err(e) = result {
-                log_and_notify_error(
-                    "Failed to Toggle Auto-Launch",
-                    &format!("Failed to toggle auto-launch: {e:#}"),
-                );
-            }
-        } else if event.id == refs.check_updates_on_launch_item.id() {
-            self.persistent_state.check_updates_on_launch =
-                refs.check_updates_on_launch_item.is_checked();
-            let _ = proxy.send_event(UserEvent::ConfigurationChanged);
-        } else if event.id == refs.quit_item.id() {
+        if event.id == refs.quit_item.id() {
             self.tray_icon.take();
             *control_flow = ControlFlow::Exit;
         } else if let Some(menu_info) = self.menu_id_to_device.get(&event.id) {
@@ -326,7 +303,7 @@ impl AppState {
                     let _ = proxy.send_event(UserEvent::ConfigurationChanged);
                 }
                 MenuEventResult::UpdatePerform(info) => {
-                    if update::install_update(&info).unwrap_or(false) {
+                    if update::install_update(&info) {
                         self.tray_icon.take();
                         *control_flow = ControlFlow::Exit;
                     }
@@ -334,13 +311,25 @@ impl AppState {
                 MenuEventResult::UpdateCheck => {
                     self.update_info = update::check_for_update(true).unwrap_or(None);
                 }
+                MenuEventResult::ToggleAutoLaunch(checked) => {
+                    let result = if checked {
+                        refs.auto_launch.enable()
+                    } else {
+                        refs.auto_launch.disable()
+                    };
+                    if let Err(e) = result {
+                        log_and_notify_error(
+                            "Failed to Toggle Auto-Launch",
+                            &format!("Failed to toggle auto-launch: {e:#}"),
+                        );
+                    }
+                }
                 MenuEventResult::NoChange => {}
             }
         }
     }
 
     fn handle_tray_click(&mut self, refs: &EventLoopRefs) {
-        sync_device_names(&self.backend, &mut self.persistent_state);
         let ctx = MenuContext {
             backend: &self.backend,
             persistent_state: &self.persistent_state,

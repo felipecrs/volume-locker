@@ -47,7 +47,7 @@ fn is_newer_version(latest: &str, current: &str) -> bool {
     Version::parse(latest).ok() > Version::parse(current).ok()
 }
 
-fn check_for_updates() -> anyhow::Result<Option<UpdateInfo>> {
+fn fetch_update_info() -> anyhow::Result<Option<UpdateInfo>> {
     log::info!("Checking for updates...");
 
     let agent = create_agent();
@@ -76,7 +76,7 @@ fn check_for_updates() -> anyhow::Result<Option<UpdateInfo>> {
 /// If `manual_request` is true, shows notifications for all outcomes.
 /// If `manual_request` is false, only logs errors without notifying.
 pub fn check_for_update(manual_request: bool) -> anyhow::Result<Option<UpdateInfo>> {
-    match check_for_updates() {
+    match fetch_update_info() {
         Ok(Some(info)) => {
             log::info!("Update available: v{}", info.latest_version);
             if manual_request {
@@ -117,21 +117,21 @@ pub fn check_for_update(manual_request: bool) -> anyhow::Result<Option<UpdateInf
 }
 
 /// Performs the update.
-/// Returns `Ok(true)` if the application should exit (update launched successfully),
-/// `Ok(false)` on failure, or `Err` if an unexpected error occurred.
-pub fn install_update(update_info: &UpdateInfo) -> anyhow::Result<bool> {
+/// Returns `true` if the application should exit (update launched successfully),
+/// or `false` on failure.
+pub fn install_update(update_info: &UpdateInfo) -> bool {
     log::info!("Starting update to {}", update_info.latest_version);
 
-    match try_perform(update_info) {
-        Ok(()) => Ok(true),
+    match execute_update_steps(update_info) {
+        Ok(()) => true,
         Err(e) => {
             log_and_notify_error("Update Failed", &format!("Update failed: {e:#}"));
-            Ok(false)
+            false
         }
     }
 }
 
-fn try_perform(update_info: &UpdateInfo) -> anyhow::Result<()> {
+fn execute_update_steps(update_info: &UpdateInfo) -> anyhow::Result<()> {
     // Open release notes
     let _ = open::that_detached(&update_info.release_url);
 

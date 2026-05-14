@@ -49,9 +49,8 @@ use crate::utils::NotificationThrottler;
 
 pub fn check_and_unmute_device(
     device: &dyn AudioDevice,
+    device_type: DeviceType,
     notify: bool,
-    notification_title: &str,
-    notification_message_suffix: &str,
     throttler: &mut NotificationThrottler,
 ) -> anyhow::Result<()> {
     if device.is_muted()? {
@@ -59,7 +58,9 @@ pub fn check_and_unmute_device(
         let device_name = device.name();
         log::info!("Unmuted {device_name} due to lock settings");
         if notify {
-            let message = format!("{device_name} {notification_message_suffix}");
+            let (notification_title, notification_suffix) =
+                get_unmute_notification_details(device_type);
+            let message = format!("{device_name} {notification_suffix}");
             throttler.send_if_not_throttled(
                 &format!("unmute_{}", device.id()),
                 notification_title,
@@ -70,7 +71,7 @@ pub fn check_and_unmute_device(
     Ok(())
 }
 
-pub fn get_unmute_notification_details(device_type: DeviceType) -> (&'static str, &'static str) {
+fn get_unmute_notification_details(device_type: DeviceType) -> (&'static str, &'static str) {
     let title = match device_type {
         DeviceType::Input => "Input Device Unmuted",
         DeviceType::Output => "Output Device Unmuted",
@@ -284,7 +285,7 @@ pub(crate) mod tests {
         *device.muted.borrow_mut() = true;
         let mut throttler = NotificationThrottler::new();
 
-        let result = check_and_unmute_device(&device, false, "Unmuted", "was unmuted", &mut throttler);
+        let result = check_and_unmute_device(&device, DeviceType::Output, false, &mut throttler);
         assert!(result.is_ok());
         assert!(!*device.muted.borrow());
     }
@@ -294,7 +295,7 @@ pub(crate) mod tests {
         let device = MockDevice::new("dev1", "Speaker", true);
         let mut throttler = NotificationThrottler::new();
 
-        let result = check_and_unmute_device(&device, false, "Unmuted", "was unmuted", &mut throttler);
+        let result = check_and_unmute_device(&device, DeviceType::Output, false, &mut throttler);
         assert!(result.is_ok());
         assert!(!*device.muted.borrow());
     }

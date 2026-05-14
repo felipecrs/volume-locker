@@ -72,7 +72,7 @@ pub fn migrate_device_ids(
     migrations_occurred
 }
 
-pub(crate) fn find_device_by_name_and_type(
+fn find_device_by_name_and_type(
     backend: &impl AudioBackend,
     target_name: &str,
     device_type: DeviceType,

@@ -109,7 +109,10 @@ fn lookup_device_name(
     } else {
         match backend.get_device_by_id(device_id) {
             Ok(d) => d.name(),
-            Err(_) => "Unknown Device".to_string(),
+            Err(e) => {
+                log::warn!("Failed to look up device name for {device_id}: {e:#}");
+                "Unknown Device".to_string()
+            }
         }
     }
 }
@@ -199,6 +202,7 @@ pub fn rebuild_tray_menu(
         ctx.auto_launch_enabled,
         ctx.persistent_state,
         items,
+        &mut menu_id_to_device,
     )?;
 
     // Troubleshooting, updates, and quit section
@@ -426,17 +430,32 @@ fn append_preferences_section(
     auto_launch_enabled: bool,
     persistent_state: &PersistentState,
     items: &TrayMenuItems,
+    menu_id_to_device: &mut HashMap<MenuId, MenuItemInfo>,
 ) -> anyhow::Result<()> {
     tray_menu.append(&MenuItem::new("Preferences", false, None))?;
 
     items
         .auto_launch_check_item
         .set_checked(auto_launch_enabled);
+    menu_id_to_device.insert(
+        items.auto_launch_check_item.id().clone(),
+        MenuItemInfo {
+            name: "Auto-launch".to_string(),
+            action: MenuAction::App(AppAction::ToggleAutoLaunch),
+        },
+    );
     tray_menu.append(items.auto_launch_check_item)?;
 
     items
         .check_updates_on_launch_item
         .set_checked(persistent_state.check_updates_on_launch);
+    menu_id_to_device.insert(
+        items.check_updates_on_launch_item.id().clone(),
+        MenuItemInfo {
+            name: "Check updates on launch".to_string(),
+            action: MenuAction::App(AppAction::ToggleCheckUpdatesOnLaunch),
+        },
+    );
     tray_menu.append(items.check_updates_on_launch_item)?;
     tray_menu.append(&PredefinedMenuItem::separator())?;
 
@@ -526,76 +545,45 @@ fn append_priority_list_to_menu(
         let label = format!("{}. {}", index + 1, device_name);
         let priority_submenu = Submenu::new(&label, true);
 
-        let move_up_item = MenuItem::new("Move up", index > 0, None);
-        menu_id_to_device.insert(
-            move_up_item.id().clone(),
-            MenuItemInfo {
-                name: device_name.clone(),
-                action: MenuAction::Device {
-                    device_id: device_id.clone(),
-                    device_type,
-                    action: DeviceAction::MovePriorityUp,
-                },
-            },
-        );
-        priority_submenu.append(&move_up_item)?;
-
-        let move_down_item = MenuItem::new("Move down", index < priority_list.len() - 1, None);
-        menu_id_to_device.insert(
-            move_down_item.id().clone(),
-            MenuItemInfo {
-                name: device_name.clone(),
-                action: MenuAction::Device {
-                    device_id: device_id.clone(),
-                    device_type,
-                    action: DeviceAction::MovePriorityDown,
-                },
-            },
-        );
-        priority_submenu.append(&move_down_item)?;
-        priority_submenu.append(&PredefinedMenuItem::separator())?;
-
-        let move_to_top_item = MenuItem::new("Move to top", index > 0, None);
-        menu_id_to_device.insert(
-            move_to_top_item.id().clone(),
-            MenuItemInfo {
-                name: device_name.clone(),
-                action: MenuAction::Device {
-                    device_id: device_id.clone(),
-                    device_type,
-                    action: DeviceAction::MovePriorityToTop,
-                },
-            },
-        );
-        priority_submenu.append(&move_to_top_item)?;
-
-        let move_to_bottom_item =
-            MenuItem::new("Move to bottom", index < priority_list.len() - 1, None);
-        menu_id_to_device.insert(
-            move_to_bottom_item.id().clone(),
-            MenuItemInfo {
-                name: device_name.clone(),
-                action: MenuAction::Device {
-                    device_id: device_id.clone(),
-                    device_type,
-                    action: DeviceAction::MovePriorityToBottom,
-                },
-            },
-        );
-        priority_submenu.append(&move_to_bottom_item)?;
+        let move_items: [(&str, bool, DeviceAction); 4] = [
+            ("Move up", index > 0, DeviceAction::MovePriorityUp),
+            (
+                "Move down",
+                index < priority_list.len() - 1,
+                DeviceAction::MovePriorityDown,
+            ),
+            ("Move to top", index > 0, DeviceAction::MovePriorityToTop),
+            (
+                "Move to bottom",
+                index < priority_list.len() - 1,
+                DeviceAction::MovePriorityToBottom,
+            ),
+        ];
+        for (i, (label, enabled, action)) in move_items.into_iter().enumerate() {
+            if i == 2 {
+                priority_submenu.append(&PredefinedMenuItem::separator())?;
+            }
+            let item = MenuItem::new(label, enabled, None);
+            register_menu_item(
+                menu_id_to_device,
+                item.id().clone(),
+                action,
+                device_id,
+                &device_name,
+                device_type,
+            );
+            priority_submenu.append(&item)?;
+        }
         priority_submenu.append(&PredefinedMenuItem::separator())?;
 
         let remove_priority_item = MenuItem::new("Remove device", true, None);
-        menu_id_to_device.insert(
+        register_menu_item(
+            menu_id_to_device,
             remove_priority_item.id().clone(),
-            MenuItemInfo {
-                name: device_name.clone(),
-                action: MenuAction::Device {
-                    device_id: device_id.clone(),
-                    device_type,
-                    action: DeviceAction::RemoveFromPriority,
-                },
-            },
+            DeviceAction::RemoveFromPriority,
+            device_id,
+            &device_name,
+            device_type,
         );
         priority_submenu.append(&remove_priority_item)?;
 
@@ -612,16 +600,13 @@ fn append_priority_list_to_menu(
     let add_device_submenu = Submenu::new("Add device", !devices_to_add.is_empty());
     for (id, name) in devices_to_add {
         let item = MenuItem::new(name, true, None);
-        menu_id_to_device.insert(
+        register_menu_item(
+            menu_id_to_device,
             item.id().clone(),
-            MenuItemInfo {
-                name: name.clone(),
-                action: MenuAction::Device {
-                    device_id: id.clone().into(),
-                    device_type,
-                    action: DeviceAction::AddToPriority,
-                },
-            },
+            DeviceAction::AddToPriority,
+            id,
+            name,
+            device_type,
         );
         add_device_submenu.append(&item)?;
     }
@@ -680,6 +665,7 @@ pub enum MenuEventResult {
     DevicesChanged,
     UpdateCheck,
     UpdatePerform(UpdateInfo),
+    ToggleAutoLaunch(bool),
 }
 
 /// Returns `true` if the device has no active locks or notifications,
@@ -968,6 +954,21 @@ pub fn handle_menu_event(
                     log::error!("Failed to open GitHub repo: {e:#}");
                 }
                 MenuEventResult::NoChange
+            }
+            AppAction::ToggleAutoLaunch => {
+                if let Some(checked) = get_check_item_state(ctx.tray_menu, &event.id) {
+                    MenuEventResult::ToggleAutoLaunch(checked)
+                } else {
+                    MenuEventResult::NoChange
+                }
+            }
+            AppAction::ToggleCheckUpdatesOnLaunch => {
+                if let Some(checked) = get_check_item_state(ctx.tray_menu, &event.id) {
+                    ctx.persistent_state.check_updates_on_launch = checked;
+                    MenuEventResult::SaveConfig
+                } else {
+                    MenuEventResult::NoChange
+                }
             }
             AppAction::OpenAppDirectory => {
                 match get_executable_directory() {
