@@ -247,7 +247,12 @@ impl AppState {
         log::info!("Reloading list of watched devices...");
 
         self.migrate_device_ids_if_needed();
-        sync_device_names(&self.backend, &mut self.persistent_state);
+        for (device_id, new_name, device_type) in sync_device_names(&self.backend) {
+            if let Some(settings) = self.persistent_state.devices.get_mut(&device_id) {
+                settings.name = new_name;
+                settings.device_type = device_type;
+            }
+        }
 
         enforce_priorities(
             &self.backend,
@@ -297,15 +302,28 @@ impl AppState {
 
             match result {
                 MenuEventResult::DevicesChanged => {
-                    let _ = proxy.send_event(UserEvent::DevicesChanged);
+                    if let Err(e) = proxy.send_event(UserEvent::DevicesChanged) {
+                        log::warn!("Failed to send DevicesChanged event: {e:#}");
+                    }
                 }
                 MenuEventResult::SaveConfig => {
-                    let _ = proxy.send_event(UserEvent::ConfigurationChanged);
+                    if let Err(e) = proxy.send_event(UserEvent::ConfigurationChanged) {
+                        log::warn!("Failed to send ConfigurationChanged event: {e:#}");
+                    }
                 }
                 MenuEventResult::UpdatePerform(info) => {
-                    if update::install_update(&info) {
-                        self.tray_icon.take();
-                        *control_flow = ControlFlow::Exit;
+                    match update::install_update(&info) {
+                        Ok(true) => {
+                            self.tray_icon.take();
+                            *control_flow = ControlFlow::Exit;
+                        }
+                        Ok(false) => {}
+                        Err(e) => {
+                            utils::log_and_notify_error(
+                                "Update Failed",
+                                &format!("Update failed: {e:#}"),
+                            );
+                        }
                     }
                 }
                 MenuEventResult::UpdateCheck => {
@@ -520,7 +538,7 @@ fn run() -> anyhow::Result<()> {
         .context("failed to load locked icon")?;
 
     #[cfg(target_os = "windows")]
-    let mut backend =
+    let backend =
         AudioBackendImpl::new(&com_token).context("failed to initialize audio backend")?;
 
     let proxy = event_loop.create_proxy();

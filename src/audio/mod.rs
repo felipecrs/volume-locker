@@ -14,7 +14,7 @@ pub trait AudioBackend {
     fn set_default_device(&self, device_id: &DeviceId, role: DeviceRole) -> anyhow::Result<()>;
 
     fn register_device_change_callback(
-        &mut self,
+        &self,
         callback: Box<dyn Fn() + Send + Sync>,
     ) -> anyhow::Result<()>;
 }
@@ -79,10 +79,10 @@ fn get_unmute_notification_details(device_type: DeviceType) -> (&'static str, &'
     (title, "was unmuted due to Keep unmuted setting.")
 }
 
-pub fn sync_device_names(
-    backend: &impl AudioBackend,
-    persistent_state: &mut crate::config::PersistentState,
-) {
+/// Returns a list of `(device_id, new_name, device_type)` tuples for all
+/// known devices, so the caller can apply updates to persistent state.
+pub fn sync_device_names(backend: &impl AudioBackend) -> Vec<(DeviceId, String, DeviceType)> {
+    let mut updates = Vec::new();
     for device_type in [DeviceType::Output, DeviceType::Input] {
         let devices = backend
             .get_devices(device_type)
@@ -91,12 +91,10 @@ pub fn sync_device_names(
                 Vec::new()
             });
         for device in devices {
-            if let Some(settings) = persistent_state.devices.get_mut(device.id()) {
-                settings.name = device.name();
-                settings.device_type = device_type;
-            }
+            updates.push((device.id().clone(), device.name(), device_type));
         }
     }
+    updates
 }
 
 #[cfg(test)]
@@ -260,7 +258,7 @@ pub(crate) mod tests {
         }
 
         fn register_device_change_callback(
-            &mut self,
+            &self,
             _callback: Box<dyn Fn() + Send + Sync>,
         ) -> anyhow::Result<()> {
             Ok(())

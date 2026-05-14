@@ -118,17 +118,11 @@ pub fn check_for_update(manual_request: bool) -> anyhow::Result<Option<UpdateInf
 
 /// Performs the update.
 /// Returns `true` if the application should exit (update launched successfully),
-/// or `false` on failure.
-pub fn install_update(update_info: &UpdateInfo) -> bool {
+/// or an error on failure.
+pub fn install_update(update_info: &UpdateInfo) -> anyhow::Result<bool> {
     log::info!("Starting update to {}", update_info.latest_version);
-
-    match execute_update_steps(update_info) {
-        Ok(()) => true,
-        Err(e) => {
-            log_and_notify_error("Update Failed", &format!("Update failed: {e:#}"));
-            false
-        }
-    }
+    execute_update_steps(update_info)?;
+    Ok(true)
 }
 
 fn execute_update_steps(update_info: &UpdateInfo) -> anyhow::Result<()> {

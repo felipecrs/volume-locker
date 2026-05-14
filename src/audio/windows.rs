@@ -3,7 +3,7 @@ use crate::types::{DeviceId, DeviceRole, DeviceType, VolumeScalar};
 use regex_lite::Regex;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 
 /// Encodes a string slice as a null-terminated UTF-16 wide string for Win32 APIs.
@@ -30,7 +30,7 @@ pub struct WindowsAudioBackend {
     enumerator: IMMDeviceEnumerator,
     // Keep the callback alive
     #[allow(dead_code)]
-    device_change_callback: Option<IMMNotificationClient>,
+    device_change_callback: Mutex<Option<IMMNotificationClient>>,
 }
 
 impl WindowsAudioBackend {
@@ -38,7 +38,7 @@ impl WindowsAudioBackend {
         let enumerator = create_device_enumerator()?;
         Ok(Self {
             enumerator,
-            device_change_callback: None,
+            device_change_callback: Mutex::new(None),
         })
     }
 }
@@ -117,12 +117,12 @@ impl AudioBackend for WindowsAudioBackend {
     }
 
     fn register_device_change_callback(
-        &mut self,
+        &self,
         callback: Box<dyn Fn() + Send + Sync>,
     ) -> anyhow::Result<()> {
         let cb: IMMNotificationClient = AudioDevicesChangedCallback { callback }.into();
         register_notification_callback(&self.enumerator, &cb)?;
-        self.device_change_callback = Some(cb);
+        *self.device_change_callback.lock().unwrap() = Some(cb);
         Ok(())
     }
 }
