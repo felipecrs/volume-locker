@@ -374,30 +374,48 @@ impl AppState {
         lock: &types::VolumeLockPolicy,
         new_volume: VolumeScalar,
     ) {
-        let new_volume_percent = new_volume.to_percent();
-        let target_volume_percent = lock.target_percent;
-        if new_volume_percent == target_volume_percent {
-            return;
-        }
-
-        let target_volume = target_volume_percent.to_scalar();
-
-        if let Err(e) = device.set_volume(target_volume) {
-            log::error!("Failed to set volume of {device_name} to {target_volume_percent}%: {e:#}");
-            return;
-        }
-        log::info!(
-            "Restored volume of {device_name} from {new_volume_percent}% to {target_volume_percent}%"
+        enforce_volume_lock_for_device(
+            device_id,
+            device,
+            device_name,
+            lock,
+            new_volume,
+            &mut self.notification_throttler,
         );
-        if lock.notify {
-            self.notification_throttler.send_if_not_throttled(
-                &format!("volume_restore_{}", device_id),
-                "Volume Restored",
-                &format!(
-                    "The volume of {device_name} has been restored from {new_volume_percent}% to {target_volume_percent}%."
-                ),
-            );
-        }
+    }
+}
+
+fn enforce_volume_lock_for_device(
+    device_id: &DeviceId,
+    device: &dyn AudioDevice,
+    device_name: &str,
+    lock: &types::VolumeLockPolicy,
+    new_volume: VolumeScalar,
+    throttler: &mut NotificationThrottler,
+) {
+    let new_volume_percent = new_volume.to_percent();
+    let target_volume_percent = lock.target_percent;
+    if new_volume_percent == target_volume_percent {
+        return;
+    }
+
+    let target_volume = target_volume_percent.to_scalar();
+
+    if let Err(e) = device.set_volume(target_volume) {
+        log::error!("Failed to set volume of {device_name} to {target_volume_percent}%: {e:#}");
+        return;
+    }
+    log::info!(
+        "Restored volume of {device_name} from {new_volume_percent}% to {target_volume_percent}%"
+    );
+    if lock.notify {
+        throttler.send_if_not_throttled(
+            &format!("volume_restore_{}", device_id),
+            "Volume Restored",
+            &format!(
+                "The volume of {device_name} has been restored from {new_volume_percent}% to {target_volume_percent}%."
+            ),
+        );
     }
 }
 
@@ -599,4 +617,58 @@ fn run() -> anyhow::Result<()> {
             _ => {}
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio::tests::MockDevice;
+    use crate::types::{DeviceId, VolumeLockPolicy, VolumePercent, VolumeScalar};
+
+    fn make_lock(target_percent: f32, notify: bool) -> VolumeLockPolicy {
+        VolumeLockPolicy {
+            is_locked: true,
+            target_percent: VolumePercent::from(target_percent),
+            notify,
+        }
+    }
+
+    #[test]
+    fn enforce_volume_lock_restores_when_volume_differs() {
+        let device = MockDevice::new("dev1", "Speaker", true);
+        let lock = make_lock(100.0, false);
+        let device_id: DeviceId = "dev1".into();
+        let mut throttler = NotificationThrottler::new();
+
+        enforce_volume_lock_for_device(
+            &device_id,
+            &device,
+            "Speaker",
+            &lock,
+            VolumeScalar::from(0.5_f32),
+            &mut throttler,
+        );
+
+        assert_eq!(*device.volume.borrow(), 1.0_f32);
+    }
+
+    #[test]
+    fn enforce_volume_lock_noop_when_volume_matches() {
+        let device = MockDevice::new("dev1", "Speaker", true);
+        let lock = make_lock(100.0, false);
+        let device_id: DeviceId = "dev1".into();
+        let mut throttler = NotificationThrottler::new();
+
+        enforce_volume_lock_for_device(
+            &device_id,
+            &device,
+            "Speaker",
+            &lock,
+            VolumeScalar::from(1.0_f32),
+            &mut throttler,
+        );
+
+        // Volume should remain unchanged since it already matches target
+        assert_eq!(*device.volume.borrow(), 1.0_f32);
+    }
 }

@@ -66,3 +66,45 @@ pub fn open_path(path: &std::path::Path) -> anyhow::Result<()> {
 pub fn open_url(url: &str) -> anyhow::Result<()> {
     open::that_detached(url).context("failed to open URL")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    #[test]
+    fn throttler_records_key_on_first_send() {
+        let mut throttler = NotificationThrottler::new();
+        // Key should not exist before first send
+        assert!(!throttler.last_times.contains_key("test_key"));
+        throttler.send_if_not_throttled("test_key", "Title", "Message");
+        // Key should be recorded after first send
+        assert!(throttler.last_times.contains_key("test_key"));
+    }
+
+    #[test]
+    fn throttler_suppresses_within_cooldown() {
+        let mut throttler = NotificationThrottler::new();
+        // Pre-populate with a very recent timestamp (1 second ago)
+        throttler
+            .last_times
+            .insert("test_key".to_string(), Instant::now() - Duration::from_secs(1));
+        let before = *throttler.last_times.get("test_key").unwrap();
+        throttler.send_if_not_throttled("test_key", "Title", "Message");
+        // Timestamp should NOT be updated since we are within cooldown
+        assert_eq!(*throttler.last_times.get("test_key").unwrap(), before);
+    }
+
+    #[test]
+    fn throttler_allows_after_cooldown_elapsed() {
+        let mut throttler = NotificationThrottler::new();
+        // Pre-populate with an old timestamp (10 seconds ago, past 5s cooldown)
+        throttler
+            .last_times
+            .insert("test_key".to_string(), Instant::now() - Duration::from_secs(10));
+        let before = *throttler.last_times.get("test_key").unwrap();
+        throttler.send_if_not_throttled("test_key", "Title", "Message");
+        // Timestamp SHOULD be updated since cooldown has elapsed
+        assert_ne!(*throttler.last_times.get("test_key").unwrap(), before);
+    }
+}
