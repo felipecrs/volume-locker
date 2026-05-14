@@ -126,11 +126,7 @@ fn handle_priority_event(
             let list = persistent_state.get_priority_list_mut(device_type);
             if let Some(pos) = list.iter().position(|x| x == device_id) {
                 list.remove(pos);
-                if let Some(settings) = persistent_state.devices.get(device_id)
-                    && device_settings_are_empty(settings)
-                {
-                    persistent_state.devices.remove(device_id);
-                }
+                persistent_state.remove_device_if_unused(device_id);
                 true
             } else {
                 false
@@ -214,22 +210,7 @@ pub fn handle_menu_event(
                         ctx.backend,
                     );
 
-                    if let Some(settings) = ctx.persistent_state.devices.get(device_id)
-                        && device_settings_are_empty(settings)
-                    {
-                        let in_priority = ctx
-                            .persistent_state
-                            .get_priority_list(DeviceType::Output)
-                            .contains(device_id)
-                            || ctx
-                                .persistent_state
-                                .get_priority_list(DeviceType::Input)
-                                .contains(device_id);
-
-                        if !in_priority {
-                            ctx.persistent_state.devices.remove(device_id);
-                        }
-                    }
+                    ctx.persistent_state.remove_device_if_unused(device_id);
                     MenuEventResult::SaveConfig
                 } else {
                     MenuEventResult::NoChange

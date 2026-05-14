@@ -103,6 +103,28 @@ impl PersistentState {
     pub fn set_switch_communication_device(&mut self, device_type: DeviceType, value: bool) {
         *self.fields_mut(device_type).2 = value;
     }
+
+    /// Removes a device's settings entry if it has no active locks/notifications
+    /// and is not referenced by any priority list.
+    pub fn remove_device_if_unused(&mut self, device_id: &DeviceId) {
+        let dominated = self
+            .devices
+            .get(device_id)
+            .is_some_and(|s| {
+                !s.volume_lock.is_locked
+                    && !s.unmute_lock.is_locked
+                    && !s.volume_lock.notify
+                    && !s.unmute_lock.notify
+            });
+        if !dominated {
+            return;
+        }
+        let in_priority = self.output_priority_list.contains(device_id)
+            || self.input_priority_list.contains(device_id);
+        if !in_priority {
+            self.devices.remove(device_id);
+        }
+    }
 }
 
 impl Default for PersistentState {
