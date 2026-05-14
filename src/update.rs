@@ -75,7 +75,7 @@ fn fetch_update_info() -> anyhow::Result<Option<UpdateInfo>> {
 /// Checks for updates and optionally notifies the user.
 /// If `manual_request` is true, shows notifications for all outcomes.
 /// If `manual_request` is false, only logs errors without notifying.
-pub fn check_for_update(manual_request: bool) -> anyhow::Result<Option<UpdateInfo>> {
+pub fn check_for_update(manual_request: bool) -> Option<UpdateInfo> {
     match fetch_update_info() {
         Ok(Some(info)) => {
             log::info!("Update available: v{}", info.latest_version);
@@ -91,7 +91,7 @@ pub fn check_for_update(manual_request: bool) -> anyhow::Result<Option<UpdateInf
                     log::error!("Failed to send update notification: {e:#}");
                 }
             }
-            Ok(Some(info))
+            Some(info)
         }
         Ok(None) => {
             log::info!("No updates available");
@@ -104,7 +104,7 @@ pub fn check_for_update(manual_request: bool) -> anyhow::Result<Option<UpdateInf
                     log::error!("Failed to send no-update notification: {e:#}");
                 }
             }
-            Ok(None)
+            None
         }
         Err(e) => {
             if manual_request {
@@ -115,7 +115,7 @@ pub fn check_for_update(manual_request: bool) -> anyhow::Result<Option<UpdateInf
             } else {
                 log::error!("Failed to check for updates: {e:#}");
             }
-            Err(e)
+            None
         }
     }
 }
@@ -128,7 +128,9 @@ pub fn install_update(update_info: &UpdateInfo) -> anyhow::Result<()> {
 }
 
 fn execute_update_steps(update_info: &UpdateInfo) -> anyhow::Result<()> {
-    let _ = open::that_detached(&update_info.release_url);
+    if let Err(e) = crate::utils::open_url(&update_info.release_url) {
+        log::warn!("Failed to open release URL: {e:#}");
+    }
 
     let exe_str = get_executable_path_str()?;
     let temp_download = format!("{exe_str}.download");

@@ -333,7 +333,7 @@ impl AppState {
                     }
                 }
                 MenuEventResult::UpdateCheck => {
-                    self.update_info = update::check_for_update(true).unwrap_or(None);
+                    self.update_info = update::check_for_update(true);
                 }
                 MenuEventResult::ToggleAutoLaunch(checked) => {
                     let result = if checked {
@@ -606,10 +606,12 @@ fn run() -> anyhow::Result<()> {
                 }
 
                 if app.persistent_state.check_updates_on_launch {
-                    app.update_info = update::check_for_update(false).unwrap_or(None);
+                    app.update_info = update::check_for_update(false);
                 }
 
-                let _ = main_proxy.send_event(UserEvent::DevicesChanged);
+                if let Err(e) = main_proxy.send_event(UserEvent::DevicesChanged) {
+                    log::warn!("Failed to send initial DevicesChanged event: {e:#}");
+                }
             }
 
             Event::UserEvent(UserEvent::Menu(event)) => {
