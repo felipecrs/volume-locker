@@ -14,7 +14,7 @@ mod utils;
 
 use crate::audio::{
     AudioBackend, AudioBackendImpl, AudioDevice, check_and_unmute_device, enforce_priorities,
-    get_unmute_notification_details, migrate_device_ids,
+    get_unmute_notification_details, migrate_device_ids, sync_device_names,
 };
 use crate::config::{PersistentState, load_state, save_state};
 use crate::consts::{APP_NAME, APP_UID, CURRENT_VERSION, LOG_FILE_NAME};
@@ -24,7 +24,7 @@ use crate::types::{
 };
 use crate::ui::{
     MenuContext, MenuEventContext, MenuEventResult, TrayMenuItems, handle_menu_event,
-    rebuild_tray_menu, sync_device_names,
+    rebuild_tray_menu,
 };
 use crate::update::UpdateInfo;
 use crate::utils::{
@@ -151,7 +151,7 @@ impl AppState {
 
     fn rebuild_watched_devices(&mut self, proxy: &EventLoopProxy<UserEvent>) -> bool {
         self.watched_devices.clear();
-        let mut some_locked = false;
+        let mut any_device_locked = false;
 
         for (device_id, device_settings) in self.persistent_state.devices.iter() {
             if !device_settings.volume_lock.is_locked && !device_settings.unmute_lock.is_locked {
@@ -225,20 +225,20 @@ impl AppState {
                 log::warn!("Failed to send VolumeChanged event: {e:#}");
             }
 
-            some_locked = true;
+            any_device_locked = true;
         }
 
-        some_locked
+        any_device_locked
     }
 
     fn update_tray_icon(
         &self,
-        some_locked: bool,
+        any_device_locked: bool,
         locked_icon: &tray_icon::Icon,
         unlocked_icon: &tray_icon::Icon,
     ) {
         if let Some(tray_icon) = &self.tray_icon {
-            let icon = if some_locked { locked_icon } else { unlocked_icon };
+            let icon = if any_device_locked { locked_icon } else { unlocked_icon };
             if let Err(e) = tray_icon.set_icon(Some(icon.clone())) {
                 log::error!("Failed to update tray icon: {e:#}");
             }
@@ -262,9 +262,9 @@ impl AppState {
             &self.temporary_priorities,
         );
 
-        let some_locked = self.rebuild_watched_devices(proxy);
+        let any_device_locked = self.rebuild_watched_devices(proxy);
 
-        self.update_tray_icon(some_locked, locked_icon, unlocked_icon);
+        self.update_tray_icon(any_device_locked, locked_icon, unlocked_icon);
     }
 
     fn handle_configuration_changed(&mut self, proxy: &EventLoopProxy<UserEvent>) {
@@ -326,13 +326,13 @@ impl AppState {
                     let _ = proxy.send_event(UserEvent::ConfigurationChanged);
                 }
                 MenuEventResult::UpdatePerform(info) => {
-                    if update::perform(&info) {
+                    if update::install_update(&info).unwrap_or(false) {
                         self.tray_icon.take();
                         *control_flow = ControlFlow::Exit;
                     }
                 }
                 MenuEventResult::UpdateCheck => {
-                    self.update_info = update::check(true).unwrap_or(None);
+                    self.update_info = update::check_for_update(true).unwrap_or(None);
                 }
                 MenuEventResult::NoChange => {}
             }
@@ -345,7 +345,10 @@ impl AppState {
             backend: &self.backend,
             persistent_state: &self.persistent_state,
             temporary_priorities: &self.temporary_priorities,
-            auto_launch_enabled: refs.auto_launch.is_enabled().unwrap_or(false),
+            auto_launch_enabled: refs.auto_launch.is_enabled().unwrap_or_else(|e| {
+                log::warn!("Failed to check auto-launch state: {e:#}");
+                false
+            }),
             update_info: &self.update_info,
         };
         match rebuild_tray_menu(
@@ -545,6 +548,16 @@ fn run() -> anyhow::Result<()> {
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
 
+        let make_refs = || EventLoopRefs {
+            auto_launch: &auto_launch,
+            auto_launch_check_item: &auto_launch_check_item,
+            check_updates_on_launch_item: &check_updates_on_launch_item,
+            quit_item: &quit_item,
+            tray_menu: &tray_menu,
+            output_devices_heading_item: &output_devices_heading_item,
+            input_devices_heading_item: &input_devices_heading_item,
+        };
+
         match event {
             Event::NewEvents(tao::event::StartCause::Init) => {
                 let tooltip = format!("{APP_NAME} v{CURRENT_VERSION}");
@@ -562,22 +575,14 @@ fn run() -> anyhow::Result<()> {
                 }
 
                 if app.persistent_state.check_updates_on_launch {
-                    app.update_info = update::check(false).unwrap_or(None);
+                    app.update_info = update::check_for_update(false).unwrap_or(None);
                 }
 
                 let _ = main_proxy.send_event(UserEvent::DevicesChanged);
             }
 
             Event::UserEvent(UserEvent::Menu(event)) => {
-                let refs = EventLoopRefs {
-                    auto_launch: &auto_launch,
-                    auto_launch_check_item: &auto_launch_check_item,
-                    check_updates_on_launch_item: &check_updates_on_launch_item,
-                    quit_item: &quit_item,
-                    tray_menu: &tray_menu,
-                    output_devices_heading_item: &output_devices_heading_item,
-                    input_devices_heading_item: &input_devices_heading_item,
-                };
+                let refs = make_refs();
                 app.handle_menu_click(&event, &refs, &main_proxy, control_flow);
             }
 
@@ -586,15 +591,7 @@ fn run() -> anyhow::Result<()> {
                 button_state: MouseButtonState::Down,
                 ..
             })) if button == MouseButton::Right || button == MouseButton::Left => {
-                let refs = EventLoopRefs {
-                    auto_launch: &auto_launch,
-                    auto_launch_check_item: &auto_launch_check_item,
-                    check_updates_on_launch_item: &check_updates_on_launch_item,
-                    quit_item: &quit_item,
-                    tray_menu: &tray_menu,
-                    output_devices_heading_item: &output_devices_heading_item,
-                    input_devices_heading_item: &input_devices_heading_item,
-                };
+                let refs = make_refs();
                 app.handle_tray_click(&refs);
             }
 

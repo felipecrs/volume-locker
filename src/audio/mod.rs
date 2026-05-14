@@ -78,6 +78,26 @@ pub fn get_unmute_notification_details(device_type: DeviceType) -> (&'static str
     (title, "was unmuted due to Keep unmuted setting.")
 }
 
+pub fn sync_device_names(
+    backend: &impl AudioBackend,
+    persistent_state: &mut crate::config::PersistentState,
+) {
+    for device_type in [DeviceType::Output, DeviceType::Input] {
+        let devices = backend
+            .get_devices(device_type)
+            .unwrap_or_else(|e| {
+                log::warn!("Failed to get {device_type:?} devices: {e:#}");
+                Vec::new()
+            });
+        for device in devices {
+            if let Some(settings) = persistent_state.devices.get_mut(device.id()) {
+                settings.name = device.name();
+                settings.device_type = device_type;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -173,10 +193,10 @@ pub(crate) mod tests {
             &self,
             device_type: DeviceType,
         ) -> anyhow::Result<Vec<Box<dyn AudioDevice>>> {
-            let _ = device_type;
             Ok(self
                 .devices
                 .iter()
+                .filter(|d| d.device_type == device_type)
                 .map(|d| {
                     Box::new(MockDevice::new(&d.id, &d.name, d.active)) as Box<dyn AudioDevice>
                 })

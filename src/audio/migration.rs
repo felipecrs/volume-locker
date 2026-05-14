@@ -160,7 +160,9 @@ mod tests {
 
     #[test]
     fn migrate_updates_input_priority_list() {
-        let backend = MockAudioBackend::new(vec![MockDevice::new("mic_new", "Microphone", true)]);
+        let mut mic = MockDevice::new("mic_new", "Microphone", true);
+        mic.device_type = DeviceType::Input;
+        let backend = MockAudioBackend::new(vec![mic]);
         let mut state = PersistentState::default();
         state.devices.insert(
             "mic_old".into(),

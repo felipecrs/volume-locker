@@ -75,7 +75,7 @@ fn check_for_updates() -> anyhow::Result<Option<UpdateInfo>> {
 /// Checks for updates and optionally notifies the user.
 /// If `manual_request` is true, shows notifications for all outcomes.
 /// If `manual_request` is false, only logs errors without notifying.
-pub fn check(manual_request: bool) -> anyhow::Result<Option<UpdateInfo>> {
+pub fn check_for_update(manual_request: bool) -> anyhow::Result<Option<UpdateInfo>> {
     match check_for_updates() {
         Ok(Some(info)) => {
             log::info!("Update available: v{}", info.latest_version);
@@ -116,16 +116,17 @@ pub fn check(manual_request: bool) -> anyhow::Result<Option<UpdateInfo>> {
     }
 }
 
-/// Performs the update or shows error notification on failure.
-/// Returns `true` if the application should exit (update launched successfully).
-pub fn perform(update_info: &UpdateInfo) -> bool {
+/// Performs the update.
+/// Returns `Ok(true)` if the application should exit (update launched successfully),
+/// `Ok(false)` on failure, or `Err` if an unexpected error occurred.
+pub fn install_update(update_info: &UpdateInfo) -> anyhow::Result<bool> {
     log::info!("Starting update to {}", update_info.latest_version);
 
     match try_perform(update_info) {
-        Ok(()) => true,
+        Ok(()) => Ok(true),
         Err(e) => {
             log_and_notify_error("Update Failed", &format!("Update failed: {e:#}"));
-            false
+            Ok(false)
         }
     }
 }

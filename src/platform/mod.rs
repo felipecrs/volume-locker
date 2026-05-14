@@ -47,8 +47,10 @@ mod tests {
     use super::NotificationDuration;
 
     #[test]
-    fn notification_duration_variants_exist() {
-        let _short = NotificationDuration::Short;
-        let _long = NotificationDuration::Long;
+    fn notification_duration_short_is_not_long() {
+        assert!(matches!(NotificationDuration::Short, NotificationDuration::Short));
+        assert!(!matches!(NotificationDuration::Short, NotificationDuration::Long));
+        assert!(matches!(NotificationDuration::Long, NotificationDuration::Long));
+        assert!(!matches!(NotificationDuration::Long, NotificationDuration::Short));
     }
 }

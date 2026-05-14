@@ -266,7 +266,7 @@ pub enum UserEvent {
 
 #[cfg(test)]
 mod tests {
-    use super::{DeviceRole, DeviceSettings, DeviceType};
+    use super::{DeviceRole, DeviceSettings, DeviceType, VolumePercent, VolumeScalar};
 
     #[test]
     fn device_type_serialization_roundtrip() {
@@ -352,5 +352,64 @@ mod tests {
         assert_ne!(DeviceRole::Console, DeviceRole::Multimedia);
         assert_ne!(DeviceRole::Console, DeviceRole::Communications);
         assert_ne!(DeviceRole::Multimedia, DeviceRole::Communications);
+    }
+
+    #[test]
+    fn convert_float_to_percent_zero() {
+        assert_eq!(VolumeScalar::from(0.0).to_percent().as_f32(), 0.0);
+    }
+
+    #[test]
+    fn convert_float_to_percent_full() {
+        assert_eq!(VolumeScalar::from(1.0).to_percent().as_f32(), 100.0);
+    }
+
+    #[test]
+    fn convert_float_to_percent_half() {
+        assert_eq!(VolumeScalar::from(0.5).to_percent().as_f32(), 50.0);
+    }
+
+    #[test]
+    fn convert_float_to_percent_rounds() {
+        assert_eq!(VolumeScalar::from(0.333).to_percent().as_f32(), 33.0);
+        assert_eq!(VolumeScalar::from(0.335).to_percent().as_f32(), 34.0);
+    }
+
+    #[test]
+    fn convert_percent_to_float_zero() {
+        assert_eq!(VolumePercent::from(0.0).to_scalar().as_f32(), 0.0);
+    }
+
+    #[test]
+    fn convert_percent_to_float_full() {
+        assert_eq!(VolumePercent::from(100.0).to_scalar().as_f32(), 1.0);
+    }
+
+    #[test]
+    fn convert_percent_to_float_half() {
+        assert_eq!(VolumePercent::from(50.0).to_scalar().as_f32(), 0.5);
+    }
+
+    #[test]
+    fn roundtrip_float_percent() {
+        let original = 0.75;
+        let percent = VolumeScalar::from(original).to_percent();
+        let back = percent.to_scalar().as_f32();
+        assert_eq!(back, original);
+    }
+
+    #[test]
+    fn convert_float_to_percent_over_100() {
+        assert_eq!(VolumeScalar::from(1.5).to_percent().as_f32(), 150.0);
+    }
+
+    #[test]
+    fn convert_percent_to_float_over_100() {
+        assert_eq!(VolumePercent::from(200.0).to_scalar().as_f32(), 2.0);
+    }
+
+    #[test]
+    fn convert_float_to_percent_negative() {
+        assert_eq!(VolumeScalar::from(-0.1).to_percent().as_f32(), -10.0);
     }
 }

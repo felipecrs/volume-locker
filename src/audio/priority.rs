@@ -96,7 +96,10 @@ fn enforce_priority_for_type(
         let device_name = backend
             .get_device_by_id(&target_id)
             .map(|d| d.name())
-            .unwrap_or_else(|_| "Unknown Device".to_string());
+            .unwrap_or_else(|e| {
+                log::warn!("Could not get name for device {target_id}: {e:#}");
+                "Unknown Device".to_string()
+            });
         let title = match device_type {
             DeviceType::Output => "Default Output Device Restored",
             DeviceType::Input => "Default Input Device Restored",

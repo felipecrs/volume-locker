@@ -32,25 +32,6 @@ pub fn log_and_notify_error(title: &str, message: &str) {
     }
 }
 
-fn send_notification_debounced(
-    key: &str,
-    title: &str,
-    message: &str,
-    last_notification_times: &mut HashMap<String, Instant>,
-) {
-    let now = Instant::now();
-    let should_notify = match last_notification_times.get(key) {
-        Some(&last_time) => now.duration_since(last_time) > Duration::from_secs(5),
-        None => true,
-    };
-    if should_notify {
-        if let Err(e) = send_notification(title, message, NotificationDuration::Short) {
-            log::error!("Failed to show notification for {title}: {e:#}");
-        }
-        last_notification_times.insert(key.to_string(), now);
-    }
-}
-
 /// Manages debounced notifications, preventing repeated notifications within a cooldown period.
 pub struct NotificationThrottler {
     last_times: HashMap<String, Instant>,
@@ -64,80 +45,24 @@ impl NotificationThrottler {
     }
 
     pub fn send_if_not_throttled(&mut self, key: &str, title: &str, message: &str) {
-        send_notification_debounced(key, title, message, &mut self.last_times);
+        let now = Instant::now();
+        let should_notify = match self.last_times.get(key) {
+            Some(&last_time) => now.duration_since(last_time) > Duration::from_secs(5),
+            None => true,
+        };
+        if should_notify {
+            if let Err(e) = send_notification(title, message, NotificationDuration::Short) {
+                log::error!("Failed to show notification for {title}: {e:#}");
+            }
+            self.last_times.insert(key.to_string(), now);
+        }
     }
 }
 
-/// Open a path in the system file explorer.
 pub fn open_path(path: &std::path::Path) -> anyhow::Result<()> {
     open::that_detached(path).context("failed to open path")
 }
 
-/// Open a URL in the default browser.
 pub fn open_url(url: &str) -> anyhow::Result<()> {
     open::that_detached(url).context("failed to open URL")
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::types::{VolumePercent, VolumeScalar};
-
-    #[test]
-    fn convert_float_to_percent_zero() {
-        assert_eq!(VolumeScalar::from(0.0).to_percent().as_f32(), 0.0);
-    }
-
-    #[test]
-    fn convert_float_to_percent_full() {
-        assert_eq!(VolumeScalar::from(1.0).to_percent().as_f32(), 100.0);
-    }
-
-    #[test]
-    fn convert_float_to_percent_half() {
-        assert_eq!(VolumeScalar::from(0.5).to_percent().as_f32(), 50.0);
-    }
-
-    #[test]
-    fn convert_float_to_percent_rounds() {
-        assert_eq!(VolumeScalar::from(0.333).to_percent().as_f32(), 33.0);
-        assert_eq!(VolumeScalar::from(0.335).to_percent().as_f32(), 34.0);
-    }
-
-    #[test]
-    fn convert_percent_to_float_zero() {
-        assert_eq!(VolumePercent::from(0.0).to_scalar().as_f32(), 0.0);
-    }
-
-    #[test]
-    fn convert_percent_to_float_full() {
-        assert_eq!(VolumePercent::from(100.0).to_scalar().as_f32(), 1.0);
-    }
-
-    #[test]
-    fn convert_percent_to_float_half() {
-        assert_eq!(VolumePercent::from(50.0).to_scalar().as_f32(), 0.5);
-    }
-
-    #[test]
-    fn roundtrip_float_percent() {
-        let original = 0.75;
-        let percent = VolumeScalar::from(original).to_percent();
-        let back = percent.to_scalar().as_f32();
-        assert_eq!(back, original);
-    }
-
-    #[test]
-    fn convert_float_to_percent_over_100() {
-        assert_eq!(VolumeScalar::from(1.5).to_percent().as_f32(), 150.0);
-    }
-
-    #[test]
-    fn convert_percent_to_float_over_100() {
-        assert_eq!(VolumePercent::from(200.0).to_scalar().as_f32(), 2.0);
-    }
-
-    #[test]
-    fn convert_float_to_percent_negative() {
-        assert_eq!(VolumeScalar::from(-0.1).to_percent().as_f32(), -10.0);
-    }
 }
