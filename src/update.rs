@@ -80,25 +80,29 @@ pub fn check_for_update(manual_request: bool) -> anyhow::Result<Option<UpdateInf
         Ok(Some(info)) => {
             log::info!("Update available: v{}", info.latest_version);
             if manual_request {
-                let _ = send_notification(
+                if let Err(e) = send_notification(
                     "Update Available",
                     &format!(
                         "Version {} is available. Click 'Update' in the menu to install.",
                         info.latest_version
                     ),
                     NotificationDuration::Long,
-                );
+                ) {
+                    log::error!("Failed to send update notification: {e:#}");
+                }
             }
             Ok(Some(info))
         }
         Ok(None) => {
             log::info!("No updates available");
             if manual_request {
-                let _ = send_notification(
+                if let Err(e) = send_notification(
                     "No Updates Available",
                     "You are running the latest version of Volume Locker.",
                     NotificationDuration::Short,
-                );
+                ) {
+                    log::error!("Failed to send no-update notification: {e:#}");
+                }
             }
             Ok(None)
         }
@@ -116,17 +120,14 @@ pub fn check_for_update(manual_request: bool) -> anyhow::Result<Option<UpdateInf
     }
 }
 
-/// Performs the update.
-/// Returns `true` if the application should exit (update launched successfully),
-/// or an error on failure.
-pub fn install_update(update_info: &UpdateInfo) -> anyhow::Result<bool> {
+/// Performs the update and returns `Ok(())` when the application should exit
+/// (update launched successfully).
+pub fn install_update(update_info: &UpdateInfo) -> anyhow::Result<()> {
     log::info!("Starting update to {}", update_info.latest_version);
-    execute_update_steps(update_info)?;
-    Ok(true)
+    execute_update_steps(update_info)
 }
 
 fn execute_update_steps(update_info: &UpdateInfo) -> anyhow::Result<()> {
-    // Open release notes
     let _ = open::that_detached(&update_info.release_url);
 
     let exe_str = get_executable_path_str()?;
@@ -134,11 +135,9 @@ fn execute_update_steps(update_info: &UpdateInfo) -> anyhow::Result<()> {
 
     log::info!("Downloading from {}", update_info.download_url);
 
-    // Download the update
     let agent = create_agent();
     let mut response = agent.get(&update_info.download_url).call()?;
 
-    // Write to temporary file
     let mut file = File::create(&temp_download)?;
     let mut reader = response.body_mut().as_reader();
     io::copy(&mut reader, &mut file)?;
@@ -146,7 +145,8 @@ fn execute_update_steps(update_info: &UpdateInfo) -> anyhow::Result<()> {
 
     log::info!("Download complete, launching post-update script");
 
-    // Launch PowerShell script to complete the update (no window)
+    // Spawns a detached process that waits for this app to exit, then replaces
+    // the executable and relaunches it.
     Command::new("powershell.exe")
         .args([
             "-NoProfile",

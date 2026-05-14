@@ -840,9 +840,14 @@ pub fn handle_menu_event(
                     );
 
                     if should_remove {
-                        let is_in_priority =
-                            ctx.persistent_state.output_priority_list.contains(device_id)
-                                || ctx.persistent_state.input_priority_list.contains(device_id);
+                        let is_in_priority = ctx
+                            .persistent_state
+                            .get_priority_list(DeviceType::Output)
+                            .contains(device_id)
+                            || ctx
+                                .persistent_state
+                                .get_priority_list(DeviceType::Input)
+                                .contains(device_id);
 
                         if !is_in_priority {
                             ctx.persistent_state.devices.remove(device_id);

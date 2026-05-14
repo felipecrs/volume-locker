@@ -37,6 +37,8 @@ pub struct PersistentState {
 }
 
 impl PersistentState {
+    /// Returns an owned snapshot of settings for the given device type.
+    /// Callers that need a borrowed view should use the individual accessors instead.
     pub fn settings(&self, device_type: DeviceType) -> DeviceTypeSettings {
         match device_type {
             DeviceType::Output => DeviceTypeSettings {
@@ -153,12 +155,12 @@ pub fn load_state() -> anyhow::Result<PersistentState> {
         }
         Err(e) => {
             return Err(anyhow::anyhow!(e))
-                .with_context(|| format!("Failed to read state file '{}'", path.display()));
+                .with_context(|| format!("failed to read state file '{}'", path.display()));
         }
     };
 
     serde_json::from_str(&data)
-        .with_context(|| format!("Failed to parse state file '{}'", path.display()))
+        .with_context(|| format!("failed to parse state file '{}'", path.display()))
 }
 
 #[cfg(test)]

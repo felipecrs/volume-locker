@@ -10,10 +10,10 @@ pub fn migrate_device_ids(
     let mut devices_to_migrate: Vec<(DeviceId, DeviceSettings)> = Vec::new();
     let mut devices_to_update: Vec<(DeviceId, DeviceSettings)> = Vec::new();
 
-    // Check which devices need migration
+    // Collect first, then mutate — avoids borrowing `persistent_state.devices`
+    // while iterating over it.
     for (device_id, device_settings) in persistent_state.devices.iter() {
         if let Ok(device) = backend.get_device_by_id(device_id) {
-            // Device exists, check if name has changed
             let current_name = device.name();
             if current_name != device_settings.name {
                 log::info!(
@@ -31,37 +31,31 @@ pub fn migrate_device_ids(
         }
     }
 
-    // Check if any migrations will occur
-    let migrations_occurred = !devices_to_update.is_empty() || !devices_to_migrate.is_empty();
+    let mut state_changed = false;
 
-    // Apply the name updates
     for (device_id, updated_settings) in devices_to_update {
         persistent_state.devices.insert(device_id, updated_settings);
+        state_changed = true;
     }
 
-    // Attempt to migrate each device
     for (old_device_id, device_settings) in devices_to_migrate {
         let device_name = device_settings.name.clone();
         if let Ok(new_device_id) =
             find_device_by_name_and_type(backend, &device_name, device_settings.device_type)
         {
-            // Swap the old device with the new one
             persistent_state.devices.remove(&old_device_id);
             persistent_state
                 .devices
                 .insert(new_device_id.clone(), device_settings.clone());
 
-            // Update priority lists
-            let priority_list = match device_settings.device_type {
-                DeviceType::Output => &mut persistent_state.output_priority_list,
-                DeviceType::Input => &mut persistent_state.input_priority_list,
-            };
-
+            let priority_list =
+                persistent_state.get_priority_list_mut(device_settings.device_type);
             if let Some(pos) = priority_list.iter().position(|id| id == &old_device_id) {
                 priority_list[pos] = new_device_id.clone();
             }
 
             log::info!("Migrated device {device_name} from ID {old_device_id} to {new_device_id}");
+            state_changed = true;
         } else {
             log::warn!(
                 "Device {device_name} with ID {old_device_id} could not be found, keeping it in case it returns"
@@ -69,7 +63,7 @@ pub fn migrate_device_ids(
         }
     }
 
-    migrations_occurred
+    state_changed
 }
 
 fn find_device_by_name_and_type(
@@ -154,7 +148,7 @@ mod tests {
         );
 
         let changed = migrate_device_ids(&backend, &mut state);
-        assert!(changed);
+        assert!(!changed);
         assert!(state.devices.contains_key("id_gone"));
     }
 

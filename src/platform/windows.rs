@@ -1,5 +1,5 @@
 use crate::consts::{APP_AUMID, APP_NAME, PNG_ICON_BYTES, PNG_ICON_FILE_NAME};
-use crate::types::DeviceType;
+use crate::types::{DeviceId, DeviceType};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -90,7 +90,7 @@ pub fn open_sound_settings() -> anyhow::Result<()> {
     )
 }
 
-pub fn open_device_settings(device_id: &str) -> anyhow::Result<()> {
+pub fn open_device_settings(device_id: &DeviceId) -> anyhow::Result<()> {
     spawn_rundll32(
         "url.dll",
         "FileProtocolHandler",

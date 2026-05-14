@@ -314,11 +314,10 @@ impl AppState {
                 }
                 MenuEventResult::UpdatePerform(info) => {
                     match update::install_update(&info) {
-                        Ok(true) => {
+                        Ok(()) => {
                             self.tray_icon.take();
                             *control_flow = ControlFlow::Exit;
                         }
-                        Ok(false) => {}
                         Err(e) => {
                             utils::log_and_notify_error(
                                 "Update Failed",
