@@ -8,20 +8,50 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
+/// Per-device-type priority and notification settings.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DeviceTypeSettings {
+    pub priority_list: Vec<DeviceId>,
+    pub notify_on_priority_restore: bool,
+    pub switch_communication_device: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PersistentState {
     pub devices: HashMap<DeviceId, DeviceSettings>,
-    pub output_priority_list: Vec<DeviceId>,
-    pub input_priority_list: Vec<DeviceId>,
-    pub notify_on_priority_restore_output: bool,
-    pub notify_on_priority_restore_input: bool,
-    pub switch_communication_device_output: bool,
-    pub switch_communication_device_input: bool,
+    #[serde(rename = "output_priority_list")]
+    pub(crate) output_priority_list: Vec<DeviceId>,
+    #[serde(rename = "input_priority_list")]
+    pub(crate) input_priority_list: Vec<DeviceId>,
+    #[serde(rename = "notify_on_priority_restore_output")]
+    pub(crate) notify_on_priority_restore_output: bool,
+    #[serde(rename = "notify_on_priority_restore_input")]
+    pub(crate) notify_on_priority_restore_input: bool,
+    #[serde(rename = "switch_communication_device_output")]
+    pub(crate) switch_communication_device_output: bool,
+    #[serde(rename = "switch_communication_device_input")]
+    pub(crate) switch_communication_device_input: bool,
     pub check_updates_on_launch: bool,
 }
 
 impl PersistentState {
+    pub fn settings(&self, device_type: DeviceType) -> DeviceTypeSettings {
+        match device_type {
+            DeviceType::Output => DeviceTypeSettings {
+                priority_list: self.output_priority_list.clone(),
+                notify_on_priority_restore: self.notify_on_priority_restore_output,
+                switch_communication_device: self.switch_communication_device_output,
+            },
+            DeviceType::Input => DeviceTypeSettings {
+                priority_list: self.input_priority_list.clone(),
+                notify_on_priority_restore: self.notify_on_priority_restore_input,
+                switch_communication_device: self.switch_communication_device_input,
+            },
+        }
+    }
+
     pub fn get_priority_list_mut(&mut self, device_type: DeviceType) -> &mut Vec<DeviceId> {
         match device_type {
             DeviceType::Output => &mut self.output_priority_list,

@@ -1,4 +1,4 @@
-use crate::config::PersistentState;
+use crate::config::{DeviceTypeSettings, PersistentState};
 use crate::types::{DeviceId, DeviceRole, DeviceType, TemporaryPriorities};
 use crate::utils::NotificationThrottler;
 
@@ -13,8 +13,8 @@ pub fn enforce_priorities(
     for device_type in [DeviceType::Output, DeviceType::Input] {
         enforce_priority_for_type(
             backend,
-            state,
             device_type,
+            &state.settings(device_type),
             temporary_priorities.get(device_type),
             throttler,
         );
@@ -39,12 +39,12 @@ fn is_default_device(
 
 fn enforce_priority_for_type(
     backend: &impl AudioBackend,
-    state: &PersistentState,
     device_type: DeviceType,
+    settings: &DeviceTypeSettings,
     temporary_priority: Option<&DeviceId>,
     throttler: &mut NotificationThrottler,
 ) {
-    let mut priority_list = state.get_priority_list(device_type).to_vec();
+    let mut priority_list = settings.priority_list.clone();
     if let Some(temp_id) = temporary_priority {
         priority_list.insert(0, temp_id.clone());
     }
@@ -74,7 +74,7 @@ fn enforce_priority_for_type(
     }
 
     // Enforce Communications role if enabled
-    if state.get_switch_communication_device(device_type)
+    if settings.switch_communication_device
         && !is_default_device(
             backend,
             device_type,
@@ -92,7 +92,7 @@ fn enforce_priority_for_type(
         switched = true;
     }
 
-    if switched && state.get_notify_on_priority_restore(device_type) {
+    if switched && settings.notify_on_priority_restore {
         let device_name = backend
             .get_device_by_id(&target_id)
             .map(|d| d.name())
