@@ -165,6 +165,10 @@ pub(crate) mod tests {
         pub(crate) default_console: RefCell<HashMap<DeviceType, String>>,
         pub(crate) default_multimedia: RefCell<HashMap<DeviceType, String>>,
         pub(crate) default_communications: RefCell<HashMap<DeviceType, String>>,
+        /// Device IDs for which get_device_by_id will return Err.
+        pub(crate) failing_device_ids: RefCell<Vec<String>>,
+        /// If true, set_default_device will return Err.
+        pub(crate) set_default_fails: RefCell<bool>,
     }
 
     impl MockAudioBackend {
@@ -174,6 +178,8 @@ pub(crate) mod tests {
                 default_console: RefCell::new(HashMap::new()),
                 default_multimedia: RefCell::new(HashMap::new()),
                 default_communications: RefCell::new(HashMap::new()),
+                failing_device_ids: RefCell::new(Vec::new()),
+                set_default_fails: RefCell::new(false),
             }
         }
 
@@ -203,6 +209,9 @@ pub(crate) mod tests {
         }
 
         fn get_device_by_id(&self, id: &DeviceId) -> anyhow::Result<Box<dyn AudioDevice>> {
+            if self.failing_device_ids.borrow().iter().any(|f| **f == **id) {
+                return Err(anyhow::anyhow!("Injected error for device: {id}"));
+            }
             self.devices
                 .iter()
                 .find(|d| d.id == **id)
@@ -231,6 +240,9 @@ pub(crate) mod tests {
         }
 
         fn set_default_device(&self, device_id: &DeviceId, role: DeviceRole) -> anyhow::Result<()> {
+            if *self.set_default_fails.borrow() {
+                return Err(anyhow::anyhow!("Injected set_default_device failure"));
+            }
             let device_type = self
                 .devices
                 .iter()
@@ -312,6 +324,71 @@ pub(crate) mod tests {
         let (title, suffix) = get_unmute_notification_details(DeviceType::Input);
         assert_eq!(title, "Input Device Unmuted");
         assert!(suffix.contains("unmuted"));
+    }
+
+    // --- Error path tests ---
+
+    #[test]
+    fn enforce_priorities_continues_when_device_lookup_fails() {
+        let backend = MockAudioBackend::new(vec![
+            MockDevice::new("dev1", "Speaker", true),
+            MockDevice::new("dev2", "Headphones", true),
+        ]);
+        backend.set_default("dev2", DeviceType::Output);
+        // Make dev1 fail on lookup — enforce should skip it and not switch
+        backend.failing_device_ids.borrow_mut().push("dev1".into());
+
+        let mut state = PersistentState::default();
+        state.output_priority_list = vec!["dev1".into(), "dev2".into()];
+        let mut throttler = NotificationThrottler::new();
+        let temp = TemporaryPriorities { output: None, input: None };
+
+        // Should not panic; dev1 lookup fails, but dev2 is already default
+        enforce_priorities(&backend, &state, &mut throttler, &temp);
+
+        let default = backend.get_default_device(DeviceType::Output, DeviceRole::Console).unwrap();
+        assert_eq!(default.id(), "dev2");
+    }
+
+    #[test]
+    fn enforce_priorities_skips_failed_lookups_and_uses_next() {
+        // dev1 is higher priority but its lookup fails — should fall back to dev2
+        let backend = MockAudioBackend::new(vec![
+            MockDevice::new("dev1", "Speaker", true),
+            MockDevice::new("dev2", "Headphones", true),
+            MockDevice::new("dev3", "Monitor", true),
+        ]);
+        backend.set_default("dev3", DeviceType::Output);
+        backend.failing_device_ids.borrow_mut().push("dev1".into());
+
+        let mut state = PersistentState::default();
+        state.output_priority_list = vec!["dev1".into(), "dev2".into()];
+        let mut throttler = NotificationThrottler::new();
+        let temp = TemporaryPriorities { output: None, input: None };
+
+        enforce_priorities(&backend, &state, &mut throttler, &temp);
+
+        // dev1 failed lookup, so dev2 should become default
+        let default = backend.get_default_device(DeviceType::Output, DeviceRole::Console).unwrap();
+        assert_eq!(*default.id(), *DeviceId::from("dev2"));
+    }
+
+    #[test]
+    fn enforce_priorities_handles_set_default_failure() {
+        let backend = MockAudioBackend::new(vec![
+            MockDevice::new("dev1", "Speaker", true),
+            MockDevice::new("dev2", "Headphones", true),
+        ]);
+        backend.set_default("dev2", DeviceType::Output);
+        *backend.set_default_fails.borrow_mut() = true;
+
+        let mut state = PersistentState::default();
+        state.output_priority_list = vec!["dev1".into(), "dev2".into()];
+        let mut throttler = NotificationThrottler::new();
+        let temp = TemporaryPriorities { output: None, input: None };
+
+        // Should not panic even though set_default_device fails
+        enforce_priorities(&backend, &state, &mut throttler, &temp);
     }
 
     // --- Integration test ---
