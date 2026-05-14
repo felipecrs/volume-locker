@@ -528,4 +528,163 @@ mod tests {
         assert!(state.get_priority_list(DeviceType::Output).is_empty());
         assert_eq!(state.get_priority_list(DeviceType::Input), &["mic1"]);
     }
+
+    // --- apply_device_lock_toggle tests ---
+
+    use crate::audio::tests::MockAudioBackend;
+    use crate::audio::tests::MockDevice;
+    use super::apply_device_lock_toggle;
+
+    fn make_backend_with_device(id: &str, name: &str) -> MockAudioBackend {
+        let mut dev = MockDevice::new(id, name, true);
+        dev.device_type = DeviceType::Output;
+        MockAudioBackend::new(vec![dev])
+    }
+
+    #[test]
+    fn volume_lock_enable_captures_current_volume() {
+        let backend = make_backend_with_device("dev1", "Speaker");
+        let mut state = PersistentState::default();
+
+        apply_device_lock_toggle(
+            &DeviceAction::VolumeLock,
+            true,
+            &DeviceId::from("dev1"),
+            "Speaker",
+            DeviceType::Output,
+            &mut state,
+            &backend,
+        );
+
+        let settings = state.devices.get("dev1").unwrap();
+        assert!(settings.volume_lock.is_locked);
+        // MockDevice::new creates devices with volume 1.0 (100%)
+        assert_eq!(settings.volume_lock.target_percent, 100.0);
+    }
+
+    #[test]
+    fn volume_lock_disable_clears_locked_state() {
+        let backend = make_backend_with_device("dev1", "Speaker");
+        let mut state = PersistentState::default();
+
+        // Enable first
+        apply_device_lock_toggle(
+            &DeviceAction::VolumeLock,
+            true,
+            &DeviceId::from("dev1"),
+            "Speaker",
+            DeviceType::Output,
+            &mut state,
+            &backend,
+        );
+        assert!(state.devices.get("dev1").unwrap().volume_lock.is_locked);
+
+        // Disable
+        apply_device_lock_toggle(
+            &DeviceAction::VolumeLock,
+            false,
+            &DeviceId::from("dev1"),
+            "Speaker",
+            DeviceType::Output,
+            &mut state,
+            &backend,
+        );
+        assert!(!state.devices.get("dev1").unwrap().volume_lock.is_locked);
+    }
+
+    #[test]
+    fn volume_lock_fails_when_device_not_found() {
+        // Empty backend — device lookup will fail
+        let backend = MockAudioBackend::new(vec![]);
+        let mut state = PersistentState::default();
+
+        apply_device_lock_toggle(
+            &DeviceAction::VolumeLock,
+            true,
+            &DeviceId::from("missing"),
+            "Ghost",
+            DeviceType::Output,
+            &mut state,
+            &backend,
+        );
+
+        let settings = state.devices.get("missing").unwrap();
+        assert!(!settings.volume_lock.is_locked);
+    }
+
+    #[test]
+    fn unmute_lock_toggle() {
+        let backend = make_backend_with_device("dev1", "Speaker");
+        let mut state = PersistentState::default();
+
+        apply_device_lock_toggle(
+            &DeviceAction::UnmuteLock,
+            true,
+            &DeviceId::from("dev1"),
+            "Speaker",
+            DeviceType::Output,
+            &mut state,
+            &backend,
+        );
+        assert!(state.devices.get("dev1").unwrap().unmute_lock.is_locked);
+
+        apply_device_lock_toggle(
+            &DeviceAction::UnmuteLock,
+            false,
+            &DeviceId::from("dev1"),
+            "Speaker",
+            DeviceType::Output,
+            &mut state,
+            &backend,
+        );
+        assert!(!state.devices.get("dev1").unwrap().unmute_lock.is_locked);
+    }
+
+    #[test]
+    fn notify_toggles_independent_of_lock() {
+        let backend = make_backend_with_device("dev1", "Speaker");
+        let mut state = PersistentState::default();
+
+        apply_device_lock_toggle(
+            &DeviceAction::VolumeLockNotify,
+            true,
+            &DeviceId::from("dev1"),
+            "Speaker",
+            DeviceType::Output,
+            &mut state,
+            &backend,
+        );
+        let settings = state.devices.get("dev1").unwrap();
+        assert!(settings.volume_lock.notify);
+        assert!(!settings.volume_lock.is_locked);
+    }
+
+    #[test]
+    fn empty_settings_detected_after_all_unlocked() {
+        let backend = make_backend_with_device("dev1", "Speaker");
+        let mut state = PersistentState::default();
+
+        // Lock then unlock — settings should be empty
+        apply_device_lock_toggle(
+            &DeviceAction::VolumeLock,
+            true,
+            &DeviceId::from("dev1"),
+            "Speaker",
+            DeviceType::Output,
+            &mut state,
+            &backend,
+        );
+        apply_device_lock_toggle(
+            &DeviceAction::VolumeLock,
+            false,
+            &DeviceId::from("dev1"),
+            "Speaker",
+            DeviceType::Output,
+            &mut state,
+            &backend,
+        );
+
+        let settings = state.devices.get("dev1").unwrap();
+        assert!(device_settings_are_empty(settings));
+    }
 }
