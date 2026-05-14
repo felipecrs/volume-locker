@@ -54,7 +54,7 @@ use tray_icon::{
 
 struct AppState {
     persistent_state: PersistentState,
-    menu_id_to_device: HashMap<MenuId, MenuItemInfo>,
+    menu_id_map: HashMap<MenuId, MenuItemInfo>,
     watched_devices: Vec<Box<dyn AudioDevice>>,
     notification_throttler: NotificationThrottler,
     temporary_priorities: TemporaryPriorities,
@@ -297,7 +297,7 @@ impl AppState {
         if event.id == refs.quit_item.id() {
             self.tray_icon.take();
             *control_flow = ControlFlow::Exit;
-        } else if let Some(menu_info) = self.menu_id_to_device.get(&event.id) {
+        } else if let Some(menu_info) = self.menu_id_map.get(&event.id) {
             let mut ctx = MenuEventContext {
                 tray_menu: refs.tray_menu,
                 persistent_state: &mut self.persistent_state,
@@ -376,7 +376,7 @@ impl AppState {
             },
         ) {
             Ok(map) => {
-                self.menu_id_to_device = map;
+                self.menu_id_map = map;
                 if let Some(tray_icon) = &self.tray_icon {
                     tray_icon.show_menu();
                 }
@@ -564,7 +564,7 @@ fn run() -> anyhow::Result<()> {
 
     let mut app = AppState {
         persistent_state,
-        menu_id_to_device: HashMap::new(),
+        menu_id_map: HashMap::new(),
         watched_devices: Vec::new(),
         notification_throttler: NotificationThrottler::new(),
         temporary_priorities: TemporaryPriorities {
