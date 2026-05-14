@@ -19,6 +19,22 @@ fn get_check_item_state(menu: &Menu, id: &tray_icon::menu::MenuId) -> Option<boo
     find_menu_item(menu, id).and_then(|item| item.as_check_menuitem().map(|c| c.is_checked()))
 }
 
+/// Reads a check-menu-item's state, applies `f` with it, and returns `SaveConfig`.
+/// Returns `NoChange` if the menu item can't be found.
+fn with_check_state(
+    menu: &Menu,
+    id: &tray_icon::menu::MenuId,
+    f: impl FnOnce(bool),
+) -> MenuEventResult {
+    match get_check_item_state(menu, id) {
+        Some(checked) => {
+            f(checked);
+            MenuEventResult::SaveConfig
+        }
+        None => MenuEventResult::NoChange,
+    }
+}
+
 pub enum MenuEventResult {
     NoChange,
     SaveConfig,
@@ -271,20 +287,16 @@ pub fn handle_menu_event(
             action,
         } => match action {
             PreferenceAction::PriorityRestoreNotify => {
-                if let Some(is_checked) = get_check_item_state(ctx.tray_menu, &event.id) {
-                    ctx.persistent_state.set_notify_on_priority_restore(*device_type, is_checked);
-                    MenuEventResult::SaveConfig
-                } else {
-                    MenuEventResult::NoChange
-                }
+                let dt = *device_type;
+                with_check_state(ctx.tray_menu, &event.id, |checked| {
+                    ctx.persistent_state.set_notify_on_priority_restore(dt, checked);
+                })
             }
             PreferenceAction::SwitchCommunicationDevice => {
-                if let Some(is_checked) = get_check_item_state(ctx.tray_menu, &event.id) {
-                    ctx.persistent_state.set_switch_communication_device(*device_type, is_checked);
-                    MenuEventResult::SaveConfig
-                } else {
-                    MenuEventResult::NoChange
-                }
+                let dt = *device_type;
+                with_check_state(ctx.tray_menu, &event.id, |checked| {
+                    ctx.persistent_state.set_switch_communication_device(dt, checked);
+                })
             }
             PreferenceAction::OpenDevicesList => {
                 if let Err(e) = open_devices_list(*device_type) {
@@ -328,12 +340,9 @@ pub fn handle_menu_event(
                 }
             }
             AppAction::ToggleCheckUpdatesOnLaunch => {
-                if let Some(checked) = get_check_item_state(ctx.tray_menu, &event.id) {
+                with_check_state(ctx.tray_menu, &event.id, |checked| {
                     ctx.persistent_state.check_updates_on_launch = checked;
-                    MenuEventResult::SaveConfig
-                } else {
-                    MenuEventResult::NoChange
-                }
+                })
             }
             AppAction::OpenAppDirectory => {
                 match get_executable_directory() {
