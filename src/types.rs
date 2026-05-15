@@ -128,11 +128,30 @@ pub enum DeviceType {
     Output,
 }
 
+impl fmt::Display for DeviceType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Input => f.write_str("input"),
+            Self::Output => f.write_str("output"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeviceRole {
     Console,
     Multimedia,
     Communications,
+}
+
+impl fmt::Display for DeviceRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Console => f.write_str("Console"),
+            Self::Multimedia => f.write_str("Multimedia"),
+            Self::Communications => f.write_str("Communications"),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
@@ -192,8 +211,8 @@ pub struct VolumeChangedEvent {
 
 #[derive(Default)]
 pub struct TemporaryPriorities {
-    pub output: Option<DeviceId>,
-    pub input: Option<DeviceId>,
+    pub(crate) output: Option<DeviceId>,
+    pub(crate) input: Option<DeviceId>,
 }
 
 impl TemporaryPriorities {

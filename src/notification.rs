@@ -22,15 +22,22 @@ impl NotificationThrottler {
 
     /// Returns `true` if the given key has not been seen within the cooldown period.
     pub fn should_notify(&mut self, key: &str) -> bool {
+        use std::collections::hash_map::Entry;
         let now = Instant::now();
-        let allowed = match self.last_times.get(key) {
-            Some(&last_time) => now.duration_since(last_time) > Duration::from_secs(5),
-            None => true,
-        };
-        if allowed {
-            self.last_times.insert(key.to_string(), now);
+        match self.last_times.entry(key.to_string()) {
+            Entry::Occupied(mut e) => {
+                if now.duration_since(*e.get()) > Duration::from_secs(5) {
+                    e.insert(now);
+                    true
+                } else {
+                    false
+                }
+            }
+            Entry::Vacant(e) => {
+                e.insert(now);
+                true
+            }
         }
-        allowed
     }
 
     pub fn send_if_not_throttled(&mut self, key: &str, title: &str, message: &str) {
