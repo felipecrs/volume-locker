@@ -28,8 +28,8 @@ use windows::core::{PCWSTR, Result, implement};
 
 pub struct WindowsAudioBackend {
     enumerator: IMMDeviceEnumerator,
-    /// Prevents the COM callback from dropping. Written-only field.
-    #[expect(dead_code, reason = "field must stay alive to keep the COM callback registered")]
+    /// Prevents the COM callback from dropping — the field is written to in
+    /// `register_device_change_callback` and must remain alive for the COM callback.
     device_change_callback: Mutex<Option<IMMNotificationClient>>,
 }
 

@@ -108,7 +108,7 @@ fn handle_priority_event(
 ) -> bool {
     match action {
         DeviceAction::AddToPriority => {
-            let list = persistent_state.get_priority_list_mut(device_type);
+            let list = persistent_state.priority_list_mut(device_type);
             if !list.iter().any(|x| *x == **device_id) {
                 list.push(device_id.clone());
                 persistent_state
@@ -121,7 +121,7 @@ fn handle_priority_event(
             }
         }
         DeviceAction::RemoveFromPriority => {
-            let list = persistent_state.get_priority_list_mut(device_type);
+            let list = persistent_state.priority_list_mut(device_type);
             if let Some(pos) = list.iter().position(|x| x == device_id) {
                 list.remove(pos);
                 persistent_state.remove_device_if_unused(device_id);
@@ -146,7 +146,7 @@ fn move_priority_item(
     device_type: DeviceType,
     persistent_state: &mut PersistentState,
 ) -> bool {
-    let list = persistent_state.get_priority_list_mut(device_type);
+    let list = persistent_state.priority_list_mut(device_type);
     let Some(pos) = list.iter().position(|x| x == device_id) else {
         return false;
     };
@@ -379,7 +379,7 @@ mod tests {
             &mut state,
         );
         assert!(changed);
-        assert_eq!(state.get_priority_list(DeviceType::Output), &["dev1"]);
+        assert_eq!(state.priority_list(DeviceType::Output), &["dev1"]);
         assert!(state.devices.contains_key("dev1"));
     }
 
@@ -387,7 +387,7 @@ mod tests {
     fn priority_add_duplicate_no_op() {
         let mut state = PersistentState::default();
         state
-            .get_priority_list_mut(DeviceType::Output)
+            .priority_list_mut(DeviceType::Output)
             .push("dev1".into());
         let changed = handle_priority_event(
             &DeviceAction::AddToPriority,
@@ -403,7 +403,7 @@ mod tests {
     fn priority_remove_cleans_empty_device() {
         let mut state = make_state_with_device("dev1", DeviceType::Output);
         state
-            .get_priority_list_mut(DeviceType::Output)
+            .priority_list_mut(DeviceType::Output)
             .push("dev1".into());
         let changed = handle_priority_event(
             &DeviceAction::RemoveFromPriority,
@@ -413,14 +413,14 @@ mod tests {
             &mut state,
         );
         assert!(changed);
-        assert!(state.get_priority_list(DeviceType::Output).is_empty());
+        assert!(state.priority_list(DeviceType::Output).is_empty());
         assert!(!state.devices.contains_key("dev1"));
     }
 
     #[test]
     fn priority_move_up() {
         let mut state = PersistentState::default();
-        *state.get_priority_list_mut(DeviceType::Output) =
+        *state.priority_list_mut(DeviceType::Output) =
             vec!["a".into(), "b".into(), "c".into()];
         let changed = handle_priority_event(
             &DeviceAction::MovePriorityUp,
@@ -430,13 +430,13 @@ mod tests {
             &mut state,
         );
         assert!(changed);
-        assert_eq!(state.get_priority_list(DeviceType::Output), &["b", "a", "c"]);
+        assert_eq!(state.priority_list(DeviceType::Output), &["b", "a", "c"]);
     }
 
     #[test]
     fn priority_move_up_already_top() {
         let mut state = PersistentState::default();
-        *state.get_priority_list_mut(DeviceType::Output) = vec!["a".into(), "b".into()];
+        *state.priority_list_mut(DeviceType::Output) = vec!["a".into(), "b".into()];
         let changed = handle_priority_event(
             &DeviceAction::MovePriorityUp,
             &DeviceId::from("a"),
@@ -450,7 +450,7 @@ mod tests {
     #[test]
     fn priority_move_down() {
         let mut state = PersistentState::default();
-        *state.get_priority_list_mut(DeviceType::Output) =
+        *state.priority_list_mut(DeviceType::Output) =
             vec!["a".into(), "b".into(), "c".into()];
         let changed = handle_priority_event(
             &DeviceAction::MovePriorityDown,
@@ -460,13 +460,13 @@ mod tests {
             &mut state,
         );
         assert!(changed);
-        assert_eq!(state.get_priority_list(DeviceType::Output), &["a", "c", "b"]);
+        assert_eq!(state.priority_list(DeviceType::Output), &["a", "c", "b"]);
     }
 
     #[test]
     fn priority_move_to_top() {
         let mut state = PersistentState::default();
-        *state.get_priority_list_mut(DeviceType::Output) =
+        *state.priority_list_mut(DeviceType::Output) =
             vec!["a".into(), "b".into(), "c".into()];
         let changed = handle_priority_event(
             &DeviceAction::MovePriorityToTop,
@@ -476,13 +476,13 @@ mod tests {
             &mut state,
         );
         assert!(changed);
-        assert_eq!(state.get_priority_list(DeviceType::Output), &["c", "a", "b"]);
+        assert_eq!(state.priority_list(DeviceType::Output), &["c", "a", "b"]);
     }
 
     #[test]
     fn priority_move_to_bottom() {
         let mut state = PersistentState::default();
-        *state.get_priority_list_mut(DeviceType::Output) =
+        *state.priority_list_mut(DeviceType::Output) =
             vec!["a".into(), "b".into(), "c".into()];
         let changed = handle_priority_event(
             &DeviceAction::MovePriorityToBottom,
@@ -492,7 +492,7 @@ mod tests {
             &mut state,
         );
         assert!(changed);
-        assert_eq!(state.get_priority_list(DeviceType::Output), &["b", "c", "a"]);
+        assert_eq!(state.priority_list(DeviceType::Output), &["b", "c", "a"]);
     }
 
     #[test]
@@ -505,8 +505,8 @@ mod tests {
             "Mic",
             &mut state,
         );
-        assert!(state.get_priority_list(DeviceType::Output).is_empty());
-        assert_eq!(state.get_priority_list(DeviceType::Input), &["mic1"]);
+        assert!(state.priority_list(DeviceType::Output).is_empty());
+        assert_eq!(state.priority_list(DeviceType::Input), &["mic1"]);
     }
 
     // --- apply_device_lock_toggle tests ---

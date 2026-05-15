@@ -49,7 +49,7 @@ pub fn migrate_device_ids(
                 .insert(new_device_id.clone(), device_settings.clone());
 
             let priority_list =
-                persistent_state.get_priority_list_mut(device_settings.device_type);
+                persistent_state.priority_list_mut(device_settings.device_type);
             if let Some(pos) = priority_list.iter().position(|id| id == &old_device_id) {
                 priority_list[pos] = new_device_id.clone();
             }

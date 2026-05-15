@@ -80,15 +80,15 @@ impl PersistentState {
         }
     }
 
-    pub fn get_priority_list(&self, device_type: DeviceType) -> &[DeviceId] {
+    pub fn priority_list(&self, device_type: DeviceType) -> &[DeviceId] {
         self.fields_ref(device_type).0
     }
 
-    pub fn get_priority_list_mut(&mut self, device_type: DeviceType) -> &mut Vec<DeviceId> {
+    pub fn priority_list_mut(&mut self, device_type: DeviceType) -> &mut Vec<DeviceId> {
         self.fields_mut(device_type).0
     }
 
-    pub fn get_notify_on_priority_restore(&self, device_type: DeviceType) -> bool {
+    pub fn notify_on_priority_restore(&self, device_type: DeviceType) -> bool {
         self.fields_ref(device_type).1
     }
 
@@ -96,7 +96,7 @@ impl PersistentState {
         *self.fields_mut(device_type).1 = value;
     }
 
-    pub fn get_switch_communication_device(&self, device_type: DeviceType) -> bool {
+    pub fn switch_communication_device(&self, device_type: DeviceType) -> bool {
         self.fields_ref(device_type).2
     }
 
@@ -105,12 +105,12 @@ impl PersistentState {
     }
 
     /// Returns the settings for a specific device, if it exists.
-    pub fn get_device_settings(&self, device_id: &DeviceId) -> Option<&DeviceSettings> {
+    pub fn device_settings(&self, device_id: &DeviceId) -> Option<&DeviceSettings> {
         self.devices.get(device_id)
     }
 
     /// Returns a mutable reference to the settings for a specific device, if it exists.
-    pub fn get_device_settings_mut(&mut self, device_id: &DeviceId) -> Option<&mut DeviceSettings> {
+    pub fn device_settings_mut(&mut self, device_id: &DeviceId) -> Option<&mut DeviceSettings> {
         self.devices.get_mut(device_id)
     }
 
@@ -160,7 +160,7 @@ pub fn load_state() -> anyhow::Result<PersistentState> {
 }
 
 /// Writes `state` to `path` via a temp file + rename for crash safety.
-pub(crate) fn save_state_to(path: &PathBuf, state: &PersistentState) -> anyhow::Result<()> {
+pub(crate) fn save_state_to(path: &std::path::Path, state: &PersistentState) -> anyhow::Result<()> {
     let tmp_path = path.with_extension("json.tmp");
 
     let json = serde_json::to_string_pretty(state).context("failed to serialize state")?;
@@ -187,7 +187,7 @@ pub(crate) fn save_state_to(path: &PathBuf, state: &PersistentState) -> anyhow::
 }
 
 /// Loads state from `path`, returning defaults if the file doesn't exist.
-pub(crate) fn load_state_from(path: &PathBuf) -> anyhow::Result<PersistentState> {
+pub(crate) fn load_state_from(path: &std::path::Path) -> anyhow::Result<PersistentState> {
     let data = match fs::read_to_string(path) {
         Ok(data) => data,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -270,18 +270,18 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(state.get_priority_list(DeviceType::Output), &["out1"]);
-        assert_eq!(state.get_priority_list(DeviceType::Input), &["in1", "in2"]);
+        assert_eq!(state.priority_list(DeviceType::Output), &["out1"]);
+        assert_eq!(state.priority_list(DeviceType::Input), &["in1", "in2"]);
     }
 
     #[test]
     fn get_priority_list_mut_modifies_correct_type() {
         let mut state = PersistentState::default();
         state
-            .get_priority_list_mut(DeviceType::Output)
+            .priority_list_mut(DeviceType::Output)
             .push("new_out".into());
         state
-            .get_priority_list_mut(DeviceType::Input)
+            .priority_list_mut(DeviceType::Input)
             .push("new_in".into());
 
         assert_eq!(state.output_priority_list, vec!["new_out"]);
@@ -291,19 +291,19 @@ mod tests {
     #[test]
     fn notify_on_priority_restore_accessors() {
         let mut state = PersistentState::default();
-        assert!(!state.get_notify_on_priority_restore(DeviceType::Output));
+        assert!(!state.notify_on_priority_restore(DeviceType::Output));
         state.set_notify_on_priority_restore(DeviceType::Output, true);
-        assert!(state.get_notify_on_priority_restore(DeviceType::Output));
-        assert!(!state.get_notify_on_priority_restore(DeviceType::Input));
+        assert!(state.notify_on_priority_restore(DeviceType::Output));
+        assert!(!state.notify_on_priority_restore(DeviceType::Input));
     }
 
     #[test]
     fn switch_communication_device_accessors() {
         let mut state = PersistentState::default();
-        assert!(state.get_switch_communication_device(DeviceType::Input));
+        assert!(state.switch_communication_device(DeviceType::Input));
         state.set_switch_communication_device(DeviceType::Input, false);
-        assert!(!state.get_switch_communication_device(DeviceType::Input));
-        assert!(state.get_switch_communication_device(DeviceType::Output));
+        assert!(!state.switch_communication_device(DeviceType::Input));
+        assert!(state.switch_communication_device(DeviceType::Output));
     }
 
     #[test]

@@ -21,10 +21,10 @@ use crate::config::{PersistentState, load_state, save_state};
 use crate::consts::{APP_NAME, APP_UID, CURRENT_VERSION, LOG_FILE_NAME};
 use crate::platform::{NotificationDuration, init_platform, send_notification};
 use crate::types::{
-    DeviceId, MenuItemInfo, TemporaryPriorities, UserEvent, VolumeChangedEvent, VolumeScalar,
+    DeviceId, TemporaryPriorities, UserEvent, VolumeChangedEvent, VolumeScalar,
 };
 use crate::ui::{
-    MenuContext, MenuEventContext, MenuEventResult, TrayMenuItems, handle_menu_event,
+    MenuContext, MenuEventContext, MenuEventResult, MenuIdMap, TrayMenuItems, handle_menu_event,
     rebuild_tray_menu,
 };
 use crate::notification::{NotificationThrottler, log_and_notify_error};
@@ -41,7 +41,7 @@ use simplelog::{
     WriteLogger,
 };
 use single_instance::SingleInstance;
-use std::collections::HashMap;
+
 use std::fs::File;
 use tao::{
     event::Event,
@@ -49,12 +49,12 @@ use tao::{
 };
 use tray_icon::{
     MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent,
-    menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem},
+    menu::{CheckMenuItem, Menu, MenuEvent, MenuItem},
 };
 
 struct AppState {
     persistent_state: PersistentState,
-    menu_id_map: HashMap<MenuId, MenuItemInfo>,
+    menu_id_map: MenuIdMap,
     watched_devices: Vec<Box<dyn AudioDevice>>,
     notification_throttler: NotificationThrottler,
     temporary_priorities: TemporaryPriorities,
@@ -80,7 +80,7 @@ impl AppState {
             new_volume,
         } = event;
 
-        let device_settings = match self.persistent_state.get_device_settings(&device_id) {
+        let device_settings = match self.persistent_state.device_settings(&device_id) {
             Some(s) => s,
             None => return,
         };
@@ -176,7 +176,7 @@ impl AppState {
         device_id: &DeviceId,
         proxy: &EventLoopProxy<UserEvent>,
     ) -> Option<Box<dyn AudioDevice>> {
-        let device_settings = self.persistent_state.get_device_settings(device_id)?;
+        let device_settings = self.persistent_state.device_settings(device_id)?;
         let device_name = &device_settings.name;
 
         let device = match self.backend.get_device_by_id(device_id) {
@@ -255,7 +255,7 @@ impl AppState {
 
         self.migrate_device_ids_if_needed();
         for (device_id, new_name, device_type) in collect_device_names(&self.backend) {
-            if let Some(settings) = self.persistent_state.get_device_settings_mut(&device_id) {
+            if let Some(settings) = self.persistent_state.device_settings_mut(&device_id) {
                 settings.name = new_name;
                 settings.device_type = device_type;
             }
@@ -564,7 +564,7 @@ fn run() -> anyhow::Result<()> {
 
     let mut app = AppState {
         persistent_state,
-        menu_id_map: HashMap::new(),
+        menu_id_map: MenuIdMap::new(),
         watched_devices: Vec::new(),
         notification_throttler: NotificationThrottler::new(),
         temporary_priorities: TemporaryPriorities {

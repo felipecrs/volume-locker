@@ -76,7 +76,7 @@ fn lookup_device_name(
     persistent_state: &PersistentState,
     backend: &impl AudioBackend,
 ) -> String {
-    if let Some(settings) = persistent_state.get_device_settings(device_id) {
+    if let Some(settings) = persistent_state.device_settings(device_id) {
         settings.name.clone()
     } else {
         match backend.get_device_by_id(device_id) {
@@ -203,7 +203,7 @@ fn build_device_submenu(
         .is_some_and(|id| **device_id == **id);
 
     let (is_volume_locked, notify_on_volume_lock, is_unmute_locked, notify_on_unmute_lock) =
-        if let Some(settings) = persistent_state.get_device_settings(device_id) {
+        if let Some(settings) = persistent_state.device_settings(device_id) {
             (
                 settings.volume_lock.is_locked,
                 settings.volume_lock.notify,
@@ -480,7 +480,7 @@ fn append_priority_list_to_menu(
     temporary_priority: Option<&DeviceId>,
     map: &mut MenuIdMap,
 ) -> anyhow::Result<()> {
-    let priority_list = persistent_state.get_priority_list(device_type);
+    let priority_list = persistent_state.priority_list(device_type);
     let priority_label = match device_type {
         DeviceType::Output => "Default output device priority",
         DeviceType::Input => "Default input device priority",
@@ -573,7 +573,7 @@ fn append_priority_list_to_menu(
     }
     tray_menu.append(&add_device_submenu)?;
 
-    let notify_on_restore = persistent_state.get_notify_on_priority_restore(device_type);
+    let notify_on_restore = persistent_state.notify_on_priority_restore(device_type);
 
     let notify_item = CheckMenuItem::new(
         "Notify on priority restore",
@@ -594,7 +594,7 @@ fn append_priority_list_to_menu(
     );
     tray_menu.append(&notify_item)?;
 
-    let switch_communication = persistent_state.get_switch_communication_device(device_type);
+    let switch_communication = persistent_state.switch_communication_device(device_type);
 
     let switch_comm_item = CheckMenuItem::new(
         "Also switch default communication device",
