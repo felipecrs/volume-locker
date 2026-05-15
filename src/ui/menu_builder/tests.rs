@@ -58,3 +58,4 @@ fn to_label_all_indicators() {
         is_muted: true,
     });
     assert_eq!(label, "Headset · ☆ · 42% 🚫 · 🔒");
+}

@@ -324,3 +324,4 @@ fn empty_settings_detected_after_all_unlocked() {
 
     let settings = state.devices.get("dev1").unwrap();
     assert!(device_settings_are_empty(settings));
+}
