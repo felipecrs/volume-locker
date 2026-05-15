@@ -90,7 +90,7 @@ impl AppState {
         let volume_lock = device_settings.volume_lock;
         let unmute_lock = device_settings.unmute_lock;
 
-        let device = match self.backend.get_device_by_id(&device_id) {
+        let device = match self.backend.device_by_id(&device_id) {
             Ok(d) => d,
             Err(e) => {
                 log::error!("Failed to get device by id for {device_name}: {e}");
@@ -148,7 +148,6 @@ impl AppState {
 
     fn rebuild_watched_devices(&mut self, proxy: &EventLoopProxy<UserEvent>) -> bool {
         self.watched_devices.clear();
-        let mut any_device_locked = false;
 
         // Collect device IDs first to avoid borrow conflict with `self`.
         let locked_device_ids: Vec<_> = self
@@ -162,11 +161,10 @@ impl AppState {
         for device_id in locked_device_ids {
             if let Some(device) = self.try_watch_device(&device_id, proxy) {
                 self.watched_devices.push(device);
-                any_device_locked = true;
             }
         }
 
-        any_device_locked
+        !self.watched_devices.is_empty()
     }
 
     /// Attempts to set up volume monitoring for a single locked device.
@@ -179,7 +177,7 @@ impl AppState {
         let device_settings = self.persistent_state.device_settings(device_id)?;
         let device_name = &device_settings.name;
 
-        let device = match self.backend.get_device_by_id(device_id) {
+        let device = match self.backend.device_by_id(device_id) {
             Ok(d) => d,
             Err(e) => {
                 log::warn!("Not watching {device_name}: failed to get device by id: {e}");
@@ -281,7 +279,7 @@ impl AppState {
             );
             return;
         }
-        log::info!("Saved: {:?}", self.persistent_state);
+        log::info!("Configuration saved ({} devices tracked)", self.persistent_state.devices.len());
         if let Err(e) = proxy.send_event(UserEvent::DevicesChanged) {
             log::warn!("Failed to send DevicesChanged event: {e:#}");
         }
@@ -560,7 +558,7 @@ fn run() -> anyhow::Result<()> {
 
     let persistent_state = load_state()
         .context("failed to load preferences — exiting to prevent overwriting your preferences")?;
-    log::info!("Loaded: {persistent_state:?}");
+    log::info!("Loaded state ({} devices tracked)", persistent_state.devices.len());
 
     let mut app = AppState {
         persistent_state,

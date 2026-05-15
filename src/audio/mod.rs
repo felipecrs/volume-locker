@@ -4,9 +4,9 @@ use crate::types::{DeviceId, DeviceRole, DeviceType, VolumeScalar};
 mod windows_com_policy_config;
 
 pub trait AudioBackend {
-    fn get_devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>>;
-    fn get_device_by_id(&self, id: &DeviceId) -> anyhow::Result<Box<dyn AudioDevice>>;
-    fn get_default_device(
+    fn devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>>;
+    fn device_by_id(&self, id: &DeviceId) -> anyhow::Result<Box<dyn AudioDevice>>;
+    fn default_device(
         &self,
         device_type: DeviceType,
         role: DeviceRole,
@@ -85,7 +85,7 @@ pub fn collect_device_names(backend: &impl AudioBackend) -> Vec<(DeviceId, Strin
     let mut updates = Vec::new();
     for device_type in [DeviceType::Output, DeviceType::Input] {
         let devices = backend
-            .get_devices(device_type)
+            .devices(device_type)
             .unwrap_or_else(|e| {
                 log::warn!("Failed to get {device_type:?} devices: {e:#}");
                 Vec::new()
@@ -194,7 +194,7 @@ pub(crate) mod tests {
     }
 
     impl AudioBackend for MockAudioBackend {
-        fn get_devices(
+        fn devices(
             &self,
             device_type: DeviceType,
         ) -> anyhow::Result<Vec<Box<dyn AudioDevice>>> {
@@ -208,7 +208,7 @@ pub(crate) mod tests {
                 .collect())
         }
 
-        fn get_device_by_id(&self, id: &DeviceId) -> anyhow::Result<Box<dyn AudioDevice>> {
+        fn device_by_id(&self, id: &DeviceId) -> anyhow::Result<Box<dyn AudioDevice>> {
             if self.failing_device_ids.borrow().iter().any(|f| **f == **id) {
                 return Err(anyhow::anyhow!("Injected error for device: {id}"));
             }
@@ -221,7 +221,7 @@ pub(crate) mod tests {
                 .ok_or_else(|| anyhow::anyhow!("Device not found: {id}"))
         }
 
-        fn get_default_device(
+        fn default_device(
             &self,
             device_type: DeviceType,
             role: DeviceRole,
@@ -236,7 +236,7 @@ pub(crate) mod tests {
                 .ok_or_else(|| anyhow::anyhow!("No default device"))?
                 .clone();
             drop(map);
-            self.get_device_by_id(&DeviceId::from(id))
+            self.device_by_id(&DeviceId::from(id))
         }
 
         fn set_default_device(&self, device_id: &DeviceId, role: DeviceRole) -> anyhow::Result<()> {
@@ -347,7 +347,7 @@ pub(crate) mod tests {
         // Should not panic; dev1 lookup fails, but dev2 is already default
         enforce_priorities(&backend, &state, &mut throttler, &temp);
 
-        let default = backend.get_default_device(DeviceType::Output, DeviceRole::Console).unwrap();
+        let default = backend.default_device(DeviceType::Output, DeviceRole::Console).unwrap();
         assert_eq!(default.id(), "dev2");
     }
 
@@ -372,7 +372,7 @@ pub(crate) mod tests {
         enforce_priorities(&backend, &state, &mut throttler, &temp);
 
         // dev1 failed lookup, so dev2 should become default
-        let default = backend.get_default_device(DeviceType::Output, DeviceRole::Console).unwrap();
+        let default = backend.default_device(DeviceType::Output, DeviceRole::Console).unwrap();
         assert_eq!(*default.id(), *DeviceId::from("dev2"));
     }
 
@@ -433,7 +433,7 @@ pub(crate) mod tests {
         );
 
         let default = backend
-            .get_default_device(DeviceType::Output, DeviceRole::Console)
+            .default_device(DeviceType::Output, DeviceRole::Console)
             .unwrap();
         assert_eq!(default.id(), "new_id");
     }

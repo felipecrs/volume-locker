@@ -79,7 +79,7 @@ fn lookup_device_name(
     if let Some(settings) = persistent_state.device_settings(device_id) {
         settings.name.clone()
     } else {
-        match backend.get_device_by_id(device_id) {
+        match backend.device_by_id(device_id) {
             Ok(d) => d.name(),
             Err(e) => {
                 log::warn!("Failed to look up device name for {device_id}: {e:#}");
@@ -291,14 +291,14 @@ fn append_device_list_to_menu(
     tray_menu.append(heading_item)?;
 
     let devices = backend
-        .get_devices(device_type)
+        .devices(device_type)
         .unwrap_or_else(|e| {
             log::warn!("Failed to get {device_type:?} devices: {e:#}");
             Vec::new()
         });
 
     let default_device_id = backend
-        .get_default_device(device_type, DeviceRole::Console)
+        .default_device(device_type, DeviceRole::Console)
         .map(|d| d.id().clone())
         .ok();
 
@@ -347,7 +347,7 @@ fn append_temporary_priority_section(
 
     for device_type in [DeviceType::Output, DeviceType::Input] {
         let devices = backend
-            .get_devices(device_type)
+            .devices(device_type)
             .unwrap_or_else(|e| {
                 log::warn!("Failed to get {device_type:?} devices: {e:#}");
                 Vec::new()
@@ -490,7 +490,7 @@ fn append_priority_list_to_menu(
     tray_menu.append(&priority_header)?;
 
     let devices = backend
-        .get_devices(device_type)
+        .devices(device_type)
         .unwrap_or_else(|e| {
             log::warn!("Failed to get {device_type:?} devices: {e:#}");
             Vec::new()

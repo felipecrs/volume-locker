@@ -13,7 +13,7 @@ pub fn migrate_device_ids(
     // Collect first, then mutate — avoids borrowing `persistent_state.devices`
     // while iterating over it.
     for (device_id, device_settings) in &persistent_state.devices {
-        if let Ok(device) = backend.get_device_by_id(device_id) {
+        if let Ok(device) = backend.device_by_id(device_id) {
             let current_name = device.name();
             if current_name != device_settings.name {
                 log::info!(
@@ -71,7 +71,7 @@ fn find_device_by_name_and_type(
     target_name: &str,
     device_type: DeviceType,
 ) -> anyhow::Result<DeviceId> {
-    let devices = backend.get_devices(device_type)?;
+    let devices = backend.devices(device_type)?;
     for device in devices {
         if device.name() == target_name {
             return Ok(device.id().clone());

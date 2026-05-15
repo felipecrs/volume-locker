@@ -70,7 +70,7 @@ fn apply_device_lock_toggle(
     match action {
         DeviceAction::VolumeLock => {
             if is_checked {
-                if let Ok(device) = backend.get_device_by_id(device_id)
+                if let Ok(device) = backend.device_by_id(device_id)
                     && let Ok(vol) = device.volume()
                 {
                     device_settings.volume_lock.target_percent = vol.to_percent();

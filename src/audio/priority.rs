@@ -28,7 +28,7 @@ fn is_default_device(
     target_id: &DeviceId,
     type_str: &str,
 ) -> bool {
-    match backend.get_default_device(device_type, role) {
+    match backend.default_device(device_type, role) {
         Ok(d) => *target_id == *d.id(),
         Err(e) => {
             log::warn!("Failed to get default {type_str} {role:?} device: {e:#}");
@@ -93,7 +93,7 @@ fn enforce_priority_for_type(
     }
 
     if switched && settings.notify_on_priority_restore {
-        let device_name = backend.get_device_by_id(&target_id).map_or_else(
+        let device_name = backend.device_by_id(&target_id).map_or_else(
             |e| {
                 log::warn!("Could not get name for device {target_id}: {e:#}");
                 "Unknown Device".to_string()
@@ -118,7 +118,7 @@ fn find_highest_priority_active_device(
 ) -> Option<DeviceId> {
     priority_list
         .iter()
-        .find_map(|device_id| match backend.get_device_by_id(device_id) {
+        .find_map(|device_id| match backend.device_by_id(device_id) {
             Ok(device) => match device.is_active() {
                 Ok(true) => Some(device_id.clone()),
                 Ok(false) => None,

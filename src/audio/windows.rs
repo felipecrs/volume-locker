@@ -65,7 +65,7 @@ impl WindowsAudioDevice {
 }
 
 impl AudioBackend for WindowsAudioBackend {
-    fn get_devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>> {
+    fn devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>> {
         let endpoint_type = match device_type {
             DeviceType::Output => eRender,
             DeviceType::Input => eCapture,
@@ -81,12 +81,12 @@ impl AudioBackend for WindowsAudioBackend {
         Ok(devices)
     }
 
-    fn get_device_by_id(&self, id: &DeviceId) -> anyhow::Result<Box<dyn AudioDevice>> {
+    fn device_by_id(&self, id: &DeviceId) -> anyhow::Result<Box<dyn AudioDevice>> {
         let device = get_device_by_id(&self.enumerator, id)?;
         Ok(Box::new(WindowsAudioDevice::new(device)?))
     }
 
-    fn get_default_device(
+    fn default_device(
         &self,
         device_type: DeviceType,
         role: DeviceRole,
