@@ -2814,6 +2814,7 @@ dependencies = [
  "serde_json",
  "simplelog",
  "tao",
+ "tempfile",
  "tray-icon",
  "ureq",
  "windows 0.62.2",
