@@ -172,6 +172,16 @@ impl DeviceSettings {
             name,
         }
     }
+
+    /// Returns true if the device has any active volume/unmute lock or notification setting.
+    /// Used to decide whether a `DeviceSettings` entry can be pruned when no longer referenced
+    /// by a priority list.
+    pub fn has_active_locks_or_notifications(&self) -> bool {
+        self.volume_lock.is_locked
+            || self.unmute_lock.is_locked
+            || self.volume_lock.notify
+            || self.unmute_lock.notify
+    }
 }
 
 #[derive(Debug)]
@@ -267,6 +277,7 @@ pub enum UserEvent {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::{DeviceSettings, DeviceType, VolumePercent, VolumeScalar};
 

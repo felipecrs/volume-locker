@@ -47,11 +47,9 @@ pub enum MenuEventResult {
 
 /// Returns `true` if the device has no active locks or notifications,
 /// meaning its settings entry can be removed when not in a priority list.
+#[cfg(test)]
 fn device_settings_are_empty(settings: &DeviceSettings) -> bool {
-    !settings.volume_lock.is_locked
-        && !settings.unmute_lock.is_locked
-        && !settings.volume_lock.notify
-        && !settings.unmute_lock.notify
+    !settings.has_active_locks_or_notifications()
 }
 
 /// Applies a device lock/notify toggle to the device's settings entry.
@@ -342,6 +340,7 @@ pub fn handle_menu_event(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::{
         DeviceAction, DeviceId, DeviceSettings, DeviceType, PersistentState,

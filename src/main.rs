@@ -119,15 +119,15 @@ impl AppState {
             );
         }
 
-        if unmute_lock.is_locked {
-            if let Err(e) = check_and_unmute_device(
+        if unmute_lock.is_locked
+            && let Err(e) = check_and_unmute_device(
                 device.as_ref(),
                 device_type,
                 unmute_lock.notify,
                 &mut self.notification_throttler,
-            ) {
-                log::error!("Failed to unmute {device_name}: {e:#}");
-            }
+            )
+        {
+            log::error!("Failed to unmute {device_name}: {e:#}");
         }
     }
 
@@ -204,15 +204,15 @@ impl AppState {
             return None;
         }
 
-        if device_settings.unmute_lock.is_locked {
-            if let Err(e) = check_and_unmute_device(
+        if device_settings.unmute_lock.is_locked
+            && let Err(e) = check_and_unmute_device(
                 device.as_ref(),
                 device_settings.device_type,
                 device_settings.unmute_lock.notify,
                 &mut self.notification_throttler,
-            ) {
-                log::error!("Failed to unmute {device_name}: {e:#}");
-            }
+            )
+        {
+            log::error!("Failed to unmute {device_name}: {e:#}");
         }
 
         log::info!(

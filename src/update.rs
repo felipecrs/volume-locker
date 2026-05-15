@@ -80,30 +80,30 @@ pub fn check_for_update(manual_request: bool) -> Option<UpdateInfo> {
     match fetch_update_info() {
         Ok(Some(info)) => {
             log::info!("Update available: v{}", info.latest_version);
-            if manual_request {
-                if let Err(e) = send_notification(
+            if manual_request
+                && let Err(e) = send_notification(
                     "Update Available",
                     &format!(
                         "Version {} is available. Click 'Update' in the menu to install.",
                         info.latest_version
                     ),
                     NotificationDuration::Long,
-                ) {
-                    log::error!("Failed to send update notification: {e:#}");
-                }
+                )
+            {
+                log::error!("Failed to send update notification: {e:#}");
             }
             Some(info)
         }
         Ok(None) => {
             log::info!("No updates available");
-            if manual_request {
-                if let Err(e) = send_notification(
+            if manual_request
+                && let Err(e) = send_notification(
                     "No Updates Available",
                     "You are running the latest version of Volume Locker.",
                     NotificationDuration::Short,
-                ) {
-                    log::error!("Failed to send no-update notification: {e:#}");
-                }
+                )
+            {
+                log::error!("Failed to send no-update notification: {e:#}");
             }
             None
         }
@@ -174,7 +174,7 @@ mod tests {
         let (tag, version) = extract_version_from_url(
             "https://github.com/felipecrs/volume-locker/releases/tag/v1.2.3",
         )
-        .unwrap();
+        .expect("should extract version from URL");
         assert_eq!(tag, "v1.2.3");
         assert_eq!(version, "1.2.3");
     }
@@ -184,7 +184,7 @@ mod tests {
         let (tag, version) = extract_version_from_url(
             "https://github.com/felipecrs/volume-locker/releases/tag/1.0.0",
         )
-        .unwrap();
+        .expect("should extract version from URL");
         assert_eq!(tag, "1.0.0");
         assert_eq!(version, "1.0.0");
     }

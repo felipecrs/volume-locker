@@ -246,7 +246,7 @@ fn build_device_submenu(
             map,
             menu_id,
             action,
-            &device_id,
+            device_id,
             &name,
             device_type,
         );
@@ -621,6 +621,7 @@ fn append_priority_list_to_menu(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::{DeviceDisplayInfo, VolumePercent, format_device_menu_label};
 

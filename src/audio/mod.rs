@@ -165,9 +165,9 @@ pub(crate) mod tests {
         pub(crate) default_console: RefCell<HashMap<DeviceType, String>>,
         pub(crate) default_multimedia: RefCell<HashMap<DeviceType, String>>,
         pub(crate) default_communications: RefCell<HashMap<DeviceType, String>>,
-        /// Device IDs for which get_device_by_id will return Err.
+        /// Device IDs for which `get_device_by_id` will return `Err`.
         pub(crate) failing_device_ids: RefCell<Vec<String>>,
-        /// If true, set_default_device will return Err.
+        /// If true, `set_default_device` will return `Err`.
         pub(crate) set_default_fails: RefCell<bool>,
     }
 
@@ -247,8 +247,7 @@ pub(crate) mod tests {
                 .devices
                 .iter()
                 .find(|d| d.id == **device_id)
-                .map(|d| d.device_type)
-                .unwrap_or(DeviceType::Output);
+                .map_or(DeviceType::Output, |d| d.device_type);
             match role {
                 DeviceRole::Console => {
                     self.default_console

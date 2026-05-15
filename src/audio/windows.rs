@@ -122,7 +122,7 @@ impl AudioBackend for WindowsAudioBackend {
     ) -> anyhow::Result<()> {
         let cb: IMMNotificationClient = AudioDevicesChangedCallback { callback }.into();
         register_notification_callback(&self.enumerator, &cb)?;
-        *self.device_change_callback.lock().unwrap() = Some(cb);
+        *self.device_change_callback.lock().expect("device_change_callback lock poisoned") = Some(cb);
         Ok(())
     }
 }
@@ -295,10 +295,10 @@ fn clean_device_name(name: &str) -> String {
     static NAME_CLEANER: OnceLock<Regex> = OnceLock::new();
 
     let name_splitter = NAME_SPLITTER.get_or_init(|| {
-        Regex::new(r"(?P<friendlyName>.+)\s\([\d\s\-|]*(?P<deviceName>.+)\)").unwrap()
+        Regex::new(r"(?P<friendlyName>.+)\s\([\d\s\-|]*(?P<deviceName>.+)\)").expect("invalid name splitter regex")
     });
 
-    let name_cleaner = NAME_CLEANER.get_or_init(|| Regex::new(r"\s?\(\d\)|^\d+\s?-\s?").unwrap());
+    let name_cleaner = NAME_CLEANER.get_or_init(|| Regex::new(r"\s?\(\d\)|^\d+\s?-\s?").expect("invalid name cleaner regex"));
 
     if let Some(captures) = name_splitter.captures(name) {
         let friendly_name = captures.name("friendlyName").map_or("", |m| m.as_str());
@@ -368,6 +368,7 @@ fn set_default_device(device_id: &str, role: ERole) -> Result<()> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::clean_device_name;
 

@@ -110,12 +110,7 @@ impl PersistentState {
         let dominated = self
             .devices
             .get(device_id)
-            .is_some_and(|s| {
-                !s.volume_lock.is_locked
-                    && !s.unmute_lock.is_locked
-                    && !s.volume_lock.notify
-                    && !s.unmute_lock.notify
-            });
+            .is_some_and(|s| !s.has_active_locks_or_notifications());
         if !dominated {
             return;
         }
@@ -169,7 +164,7 @@ pub(crate) fn save_state_to(path: &PathBuf, state: &PersistentState) -> anyhow::
         )
     })?;
 
-    if let Err(e) = fs::rename(&tmp_path, &path) {
+    if let Err(e) = fs::rename(&tmp_path, path) {
         let _ = fs::remove_file(&tmp_path);
         return Err(anyhow::anyhow!(e).context(format!(
             "failed to rename temporary state file '{}' to '{}'",
@@ -199,6 +194,7 @@ pub(crate) fn load_state_from(path: &PathBuf) -> anyhow::Result<PersistentState>
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::types::VolumePercent;
