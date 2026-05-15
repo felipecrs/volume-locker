@@ -337,8 +337,10 @@ pub(crate) mod tests {
         // Make dev1 fail on lookup — enforce should skip it and not switch
         backend.failing_device_ids.borrow_mut().push("dev1".into());
 
-        let mut state = PersistentState::default();
-        state.output_priority_list = vec!["dev1".into(), "dev2".into()];
+        let state = PersistentState {
+            output_priority_list: vec!["dev1".into(), "dev2".into()],
+            ..Default::default()
+        };
         let mut throttler = NotificationThrottler::new();
         let temp = TemporaryPriorities { output: None, input: None };
 
@@ -360,8 +362,10 @@ pub(crate) mod tests {
         backend.set_default("dev3", DeviceType::Output);
         backend.failing_device_ids.borrow_mut().push("dev1".into());
 
-        let mut state = PersistentState::default();
-        state.output_priority_list = vec!["dev1".into(), "dev2".into()];
+        let state = PersistentState {
+            output_priority_list: vec!["dev1".into(), "dev2".into()],
+            ..Default::default()
+        };
         let mut throttler = NotificationThrottler::new();
         let temp = TemporaryPriorities { output: None, input: None };
 
@@ -381,8 +385,10 @@ pub(crate) mod tests {
         backend.set_default("dev2", DeviceType::Output);
         *backend.set_default_fails.borrow_mut() = true;
 
-        let mut state = PersistentState::default();
-        state.output_priority_list = vec!["dev1".into(), "dev2".into()];
+        let state = PersistentState {
+            output_priority_list: vec!["dev1".into(), "dev2".into()],
+            ..Default::default()
+        };
         let mut throttler = NotificationThrottler::new();
         let temp = TemporaryPriorities { output: None, input: None };
 
@@ -400,12 +406,14 @@ pub(crate) mod tests {
         ]);
         backend.set_default("other", DeviceType::Output);
 
-        let mut state = PersistentState::default();
+        let mut state = PersistentState {
+            output_priority_list: vec![DeviceId::from("old_id")],
+            ..Default::default()
+        };
         state.devices.insert(
             DeviceId::from("old_id"),
             make_device_settings("Speakers", DeviceType::Output),
         );
-        state.output_priority_list = vec![DeviceId::from("old_id")];
 
         migrate_device_ids(&backend, &mut state);
         assert!(state.devices.contains_key("new_id"));

@@ -105,9 +105,9 @@ fn enforce_priority_for_type(
             DeviceType::Input => "Default Input Device Restored",
         };
         throttler.send_if_not_throttled(
-            &format!("priority_restore_{}", target_id),
+            &format!("priority_restore_{target_id}"),
             title,
-            &format!("Switched to {} based on priority list.", device_name),
+            &format!("Switched to {device_name} based on priority list."),
         );
     }
 }

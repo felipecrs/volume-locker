@@ -28,8 +28,9 @@ use windows::core::{PCWSTR, Result, implement};
 
 pub struct WindowsAudioBackend {
     enumerator: IMMDeviceEnumerator,
-    // Keep the callback alive — written-only field prevents the COM callback from dropping.
-    _device_change_callback: Mutex<Option<IMMNotificationClient>>,
+    /// Prevents the COM callback from dropping. Written-only field.
+    #[expect(dead_code, reason = "field must stay alive to keep the COM callback registered")]
+    device_change_callback: Mutex<Option<IMMNotificationClient>>,
 }
 
 impl WindowsAudioBackend {
@@ -37,7 +38,7 @@ impl WindowsAudioBackend {
         let enumerator = create_device_enumerator()?;
         Ok(Self {
             enumerator,
-            _device_change_callback: Mutex::new(None),
+            device_change_callback: Mutex::new(None),
         })
     }
 }
@@ -121,7 +122,7 @@ impl AudioBackend for WindowsAudioBackend {
     ) -> anyhow::Result<()> {
         let cb: IMMNotificationClient = AudioDevicesChangedCallback { callback }.into();
         register_notification_callback(&self.enumerator, &cb)?;
-        *self._device_change_callback.lock().expect("device_change_callback lock poisoned") = Some(cb);
+        *self.device_change_callback.lock().expect("device_change_callback lock poisoned") = Some(cb);
         Ok(())
     }
 }

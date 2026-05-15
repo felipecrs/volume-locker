@@ -433,9 +433,11 @@ mod tests {
         let _ = fs::create_dir_all(&dir);
         let path = dir.join("state.json");
 
-        let mut state = PersistentState::default();
-        state.output_priority_list = vec!["dev_a".into(), "dev_b".into()];
-        state.check_updates_on_launch = false;
+        let mut state = PersistentState {
+            output_priority_list: vec!["dev_a".into(), "dev_b".into()],
+            check_updates_on_launch: false,
+            ..Default::default()
+        };
         state.devices.insert(
             "dev_a".into(),
             DeviceSettings {
@@ -502,8 +504,10 @@ mod tests {
         let path = dir.join("state.json");
 
         // Save initial
-        let mut state = PersistentState::default();
-        state.check_updates_on_launch = false;
+        let mut state = PersistentState {
+            check_updates_on_launch: false,
+            ..Default::default()
+        };
         super::save_state_to(&path, &state).unwrap();
 
         // Save modified
