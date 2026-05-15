@@ -66,6 +66,7 @@ impl SingleInstanceGuard {
         // SAFETY: CreateMutexW with no security attributes and no initial ownership
         // is a standard Win32 call. The wide_name lives on the stack for the call duration.
         let handle = unsafe { CreateMutexW(None, false, &wide_name)? };
+        // SAFETY: GetLastError retrieves the thread-local error code set by CreateMutexW.
         let last_error = unsafe { windows::Win32::Foundation::GetLastError() };
         if last_error == ERROR_ALREADY_EXISTS {
             anyhow::bail!("Another instance is already running.");

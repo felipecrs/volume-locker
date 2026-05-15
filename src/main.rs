@@ -341,6 +341,35 @@ impl AppState {
         }
     }
 
+    fn handle_init(
+        &mut self,
+        tray_menu: &Menu,
+        unlocked_icon: &tray_icon::Icon,
+        proxy: &EventLoopProxy<UserEvent>,
+    ) {
+        let tooltip = format!("{APP_NAME} v{CURRENT_VERSION}");
+        match TrayIconBuilder::new()
+            .with_menu(Box::new(tray_menu.clone()))
+            .with_tooltip(&tooltip)
+            .with_icon(unlocked_icon.clone())
+            .with_id(APP_UID)
+            .with_menu_on_left_click(false)
+            .with_menu_on_right_click(false)
+            .build()
+        {
+            Ok(icon) => self.tray_icon = Some(icon),
+            Err(e) => log::error!("Failed to build tray icon: {e:#}"),
+        }
+
+        if self.persistent_state.check_updates_on_launch {
+            self.update_info = update::check_for_update(false).unwrap_or(None);
+        }
+
+        if let Err(e) = proxy.send_event(UserEvent::DevicesChanged) {
+            log::warn!("Failed to send initial DevicesChanged event: {e:#}");
+        }
+    }
+
     fn handle_tray_click(&mut self, refs: &EventLoopRefs) {
         let ctx = MenuContext {
             backend: &self.backend,
@@ -428,17 +457,7 @@ fn ensure_writable_directory(executable_directory: &std::path::Path) -> anyhow::
     Ok(())
 }
 
-fn run() -> anyhow::Result<()> {
-    let executable_directory = get_executable_directory()?;
-    setup_logging(&executable_directory)?;
-
-    let com_token = init_platform(&executable_directory)?;
-    ensure_writable_directory(&executable_directory)?;
-    let _instance = SingleInstanceGuard::acquire(APP_UID)
-        .context("failed to acquire single instance lock")?;
-
-    let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
-
+fn wire_event_proxies(event_loop: &tao::event_loop::EventLoop<UserEvent>) {
     let proxy = event_loop.create_proxy();
     TrayIconEvent::set_event_handler(Some(move |event| {
         if let Err(e) = proxy.send_event(UserEvent::TrayIcon(event)) {
@@ -454,13 +473,30 @@ fn run() -> anyhow::Result<()> {
         }
     }));
     MenuEvent::receiver();
+}
 
+fn create_auto_launch() -> anyhow::Result<AutoLaunch> {
     let app_path = get_executable_path_str()?;
-    let auto_launch = AutoLaunchBuilder::new()
+    AutoLaunchBuilder::new()
         .set_app_name(APP_NAME)
         .set_app_path(&app_path)
         .build()
-        .context("failed to build auto-launch")?;
+        .context("failed to build auto-launch")
+}
+
+fn run() -> anyhow::Result<()> {
+    let executable_directory = get_executable_directory()?;
+    setup_logging(&executable_directory)?;
+
+    let com_token = init_platform(&executable_directory)?;
+    ensure_writable_directory(&executable_directory)?;
+    let _instance = SingleInstanceGuard::acquire(APP_UID)
+        .context("failed to acquire single instance lock")?;
+
+    let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+    wire_event_proxies(&event_loop);
+
+    let auto_launch = create_auto_launch()?;
 
     let output_devices_heading_item = MenuItem::new("Output devices", false, None);
     let input_devices_heading_item = MenuItem::new("Input devices", false, None);
@@ -527,27 +563,7 @@ fn run() -> anyhow::Result<()> {
 
         match event {
             Event::NewEvents(tao::event::StartCause::Init) => {
-                let tooltip = format!("{APP_NAME} v{CURRENT_VERSION}");
-                match TrayIconBuilder::new()
-                    .with_menu(Box::new(tray_menu.clone()))
-                    .with_tooltip(&tooltip)
-                    .with_icon(unlocked_icon.clone())
-                    .with_id(APP_UID)
-                    .with_menu_on_left_click(false)
-                    .with_menu_on_right_click(false)
-                    .build()
-                {
-                    Ok(icon) => app.tray_icon = Some(icon),
-                    Err(e) => log::error!("Failed to build tray icon: {e:#}"),
-                }
-
-                if app.persistent_state.check_updates_on_launch {
-                    app.update_info = update::check_for_update(false).unwrap_or(None);
-                }
-
-                if let Err(e) = main_proxy.send_event(UserEvent::DevicesChanged) {
-                    log::warn!("Failed to send initial DevicesChanged event: {e:#}");
-                }
+                app.handle_init(&tray_menu, &unlocked_icon, &main_proxy);
             }
 
             Event::UserEvent(UserEvent::Menu(event)) => {
