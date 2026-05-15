@@ -3,7 +3,7 @@ use crate::types::{DeviceId, DeviceRole, DeviceType, VolumeScalar};
 use regex_lite::Regex;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{LazyLock, Mutex};
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 
 /// Encodes a string slice as a null-terminated UTF-16 wide string for Win32 APIs.
@@ -122,7 +122,12 @@ impl AudioBackend for WindowsAudioBackend {
     ) -> anyhow::Result<()> {
         let cb: IMMNotificationClient = AudioDevicesChangedCallback { callback }.into();
         register_notification_callback(&self.enumerator, &cb)?;
-        *self.device_change_callback.lock().expect("device_change_callback lock poisoned") = Some(cb);
+        // Recover from mutex poisoning — the callback must be stored regardless.
+        let mut guard = match self.device_change_callback.lock() {
+            Ok(g) => g,
+            Err(e) => e.into_inner(),
+        };
+        *guard = Some(cb);
         Ok(())
     }
 }
@@ -291,14 +296,18 @@ pub(crate) fn get_device_name(device: &IMMDevice) -> Result<String> {
 
 // Reimplemented from https://github.com/Belphemur/SoundSwitch/blob/50063dd35d3e648192cbcaa1f9a82a5856302562/SoundSwitch.Common/Framework/Audio/Device/DeviceInfo.cs#L33-L56
 fn clean_device_name(name: &str) -> String {
-    static NAME_SPLITTER: OnceLock<Regex> = OnceLock::new();
-    static NAME_CLEANER: OnceLock<Regex> = OnceLock::new();
-
-    let name_splitter = NAME_SPLITTER.get_or_init(|| {
-        Regex::new(r"(?P<friendlyName>.+)\s\([\d\s\-|]*(?P<deviceName>.+)\)").expect("invalid name splitter regex")
+    // SAFETY: These patterns are compile-time constants — Regex::new cannot fail.
+    static NAME_SPLITTER: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?P<friendlyName>.+)\s\([\d\s\-|]*(?P<deviceName>.+)\)")
+            .unwrap_or_else(|_| unreachable!("constant regex pattern"))
+    });
+    static NAME_CLEANER: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"\s?\(\d\)|^\d+\s?-\s?")
+            .unwrap_or_else(|_| unreachable!("constant regex pattern"))
     });
 
-    let name_cleaner = NAME_CLEANER.get_or_init(|| Regex::new(r"\s?\(\d\)|^\d+\s?-\s?").expect("invalid name cleaner regex"));
+    let name_splitter = &*NAME_SPLITTER;
+    let name_cleaner = &*NAME_CLEANER;
 
     if let Some(captures) = name_splitter.captures(name) {
         let friendly_name = captures.name("friendlyName").map_or("", |m| m.as_str());
