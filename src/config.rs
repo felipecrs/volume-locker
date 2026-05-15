@@ -10,7 +10,6 @@ use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct PersistentState {
     pub(crate) devices: HashMap<DeviceId, DeviceSettings>,
     #[serde(rename = "output_priority_list")]

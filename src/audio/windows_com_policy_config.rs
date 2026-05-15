@@ -199,7 +199,6 @@ unsafe impl Interface for IPolicyConfig {
 
 #[repr(C)]
 #[doc(hidden)]
-#[allow(non_camel_case_types)]
 pub struct IPolicyConfig_Vtbl {
     pub base__: ::windows::core::IUnknown_Vtbl,
     pub GetMixFormat:
