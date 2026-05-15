@@ -61,7 +61,13 @@ fn enforce_priority_for_type(
     };
 
     // Enforce Console and Multimedia roles together
-    if !is_default_device(backend, device_type, DeviceRole::Console, &target_id, type_str) {
+    if !is_default_device(
+        backend,
+        device_type,
+        DeviceRole::Console,
+        &target_id,
+        type_str,
+    ) {
         log::info!("Enforcing {type_str} priority: Switching to {target_id}");
         for role in [DeviceRole::Console, DeviceRole::Multimedia] {
             if let Err(e) = backend.set_default_device(&target_id, role) {

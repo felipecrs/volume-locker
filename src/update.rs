@@ -1,6 +1,6 @@
 use crate::consts::{CURRENT_VERSION, GITHUB_RELEASE_ASSET, GITHUB_REPO_URL};
-use crate::platform::{NotificationDuration, send_notification};
 use crate::notification::log_and_notify_error;
+use crate::platform::{NotificationDuration, send_notification};
 use crate::utils::get_executable_path_str;
 use anyhow::Context;
 use semver::Version;

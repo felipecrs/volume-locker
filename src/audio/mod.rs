@@ -130,12 +130,10 @@ fn get_unmute_notification_details(device_type: DeviceType) -> (&'static str, &'
 pub fn collect_device_names(backend: &impl AudioBackend) -> Vec<(DeviceId, String, DeviceType)> {
     let mut updates = Vec::new();
     for device_type in [DeviceType::Output, DeviceType::Input] {
-        let devices = backend
-            .devices(device_type)
-            .unwrap_or_else(|e| {
-                log::warn!("Failed to get {device_type:?} devices: {e:#}");
-                Vec::new()
-            });
+        let devices = backend.devices(device_type).unwrap_or_else(|e| {
+            log::warn!("Failed to get {device_type:?} devices: {e:#}");
+            Vec::new()
+        });
         for device in devices {
             updates.push((device.id().clone(), device.name(), device_type));
         }
@@ -147,8 +145,10 @@ pub fn collect_device_names(backend: &impl AudioBackend) -> Vec<(DeviceId, Strin
 pub(crate) mod tests {
     use super::*;
     use crate::config::PersistentState;
-    use crate::types::{DeviceId, DeviceSettings, TemporaryPriorities, VolumePercent, VolumeScalar};
     use crate::notification::NotificationThrottler;
+    use crate::types::{
+        DeviceId, DeviceSettings, TemporaryPriorities, VolumePercent, VolumeScalar,
+    };
     use std::cell::RefCell;
     use std::collections::HashMap;
 
@@ -240,10 +240,7 @@ pub(crate) mod tests {
     }
 
     impl AudioBackend for MockAudioBackend {
-        fn devices(
-            &self,
-            device_type: DeviceType,
-        ) -> anyhow::Result<Vec<Box<dyn AudioDevice>>> {
+        fn devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>> {
             Ok(self
                 .devices
                 .iter()
@@ -386,12 +383,17 @@ pub(crate) mod tests {
             ..Default::default()
         };
         let mut throttler = NotificationThrottler::new();
-        let temp = TemporaryPriorities { output: None, input: None };
+        let temp = TemporaryPriorities {
+            output: None,
+            input: None,
+        };
 
         // Should not panic; dev1 lookup fails, but dev2 is already default
         enforce_priorities(&backend, &state, &mut throttler, &temp);
 
-        let default = backend.default_device(DeviceType::Output, DeviceRole::Console).unwrap();
+        let default = backend
+            .default_device(DeviceType::Output, DeviceRole::Console)
+            .unwrap();
         assert_eq!(default.id(), "dev2");
     }
 
@@ -411,12 +413,17 @@ pub(crate) mod tests {
             ..Default::default()
         };
         let mut throttler = NotificationThrottler::new();
-        let temp = TemporaryPriorities { output: None, input: None };
+        let temp = TemporaryPriorities {
+            output: None,
+            input: None,
+        };
 
         enforce_priorities(&backend, &state, &mut throttler, &temp);
 
         // dev1 failed lookup, so dev2 should become default
-        let default = backend.default_device(DeviceType::Output, DeviceRole::Console).unwrap();
+        let default = backend
+            .default_device(DeviceType::Output, DeviceRole::Console)
+            .unwrap();
         assert_eq!(*default.id(), *DeviceId::from("dev2"));
     }
 
@@ -434,7 +441,10 @@ pub(crate) mod tests {
             ..Default::default()
         };
         let mut throttler = NotificationThrottler::new();
-        let temp = TemporaryPriorities { output: None, input: None };
+        let temp = TemporaryPriorities {
+            output: None,
+            input: None,
+        };
 
         // Should not panic even though set_default_device fails
         enforce_priorities(&backend, &state, &mut throttler, &temp);
@@ -469,12 +479,7 @@ pub(crate) mod tests {
             output: None,
             input: None,
         };
-        enforce_priorities(
-            &backend,
-            &state,
-            &mut throttler,
-            &temp_priorities,
-        );
+        enforce_priorities(&backend, &state, &mut throttler, &temp_priorities);
 
         let default = backend
             .default_device(DeviceType::Output, DeviceRole::Console)

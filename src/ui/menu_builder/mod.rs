@@ -1,16 +1,10 @@
+use super::{AppAction, DeviceAction, MenuAction, MenuItemInfo, PreferenceAction};
 use crate::audio::AudioBackend;
 use crate::config::PersistentState;
-use crate::types::{
-    DeviceId, DeviceRole, DeviceType, TemporaryPriorities, VolumePercent,
-};
+use crate::types::{DeviceId, DeviceRole, DeviceType, TemporaryPriorities, VolumePercent};
 use crate::update::UpdateInfo;
-use super::{
-    AppAction, DeviceAction, MenuAction, MenuItemInfo, PreferenceAction,
-};
 use std::collections::HashMap;
-use tray_icon::menu::{
-    CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu,
-};
+use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 
 use super::MenuIdMap;
 
@@ -187,19 +181,15 @@ fn build_device_submenu(
 ) -> anyhow::Result<Submenu> {
     let name = device.name();
     let device_id = device.id();
-    let volume = device
-        .volume()
-        .unwrap_or_else(|e| {
-            log::warn!("Failed to get volume for device {name}: {e:#}");
-            0.0.into()
-        });
+    let volume = device.volume().unwrap_or_else(|e| {
+        log::warn!("Failed to get volume for device {name}: {e:#}");
+        0.0.into()
+    });
     let volume_percent = volume.to_percent();
-    let is_muted = device
-        .is_muted()
-        .unwrap_or_else(|e| {
-            log::warn!("Failed to get mute state for device {name}: {e:#}");
-            false
-        });
+    let is_muted = device.is_muted().unwrap_or_else(|e| {
+        log::warn!("Failed to get mute state for device {name}: {e:#}");
+        false
+    });
     let is_default = default_device_id.is_some_and(|id| **device_id == **id);
 
     let (is_volume_locked, notify_on_volume_lock, is_unmute_locked, notify_on_unmute_lock) =
@@ -225,8 +215,7 @@ fn build_device_submenu(
 
     let submenu = Submenu::new(&label, true);
 
-    let volume_lock_item =
-        CheckMenuItem::new("Keep volume locked", true, is_volume_locked, None);
+    let volume_lock_item = CheckMenuItem::new("Keep volume locked", true, is_volume_locked, None);
     let volume_notify_item = CheckMenuItem::new(
         "Notify on volume restore",
         is_volume_locked,
@@ -242,14 +231,7 @@ fn build_device_submenu(
     );
 
     let mut register = |menu_id: MenuId, action: DeviceAction| {
-        register_menu_item(
-            map,
-            menu_id,
-            action,
-            device_id,
-            &name,
-            device_type,
-        );
+        register_menu_item(map, menu_id, action, device_id, &name, device_type);
     };
     register(volume_lock_item.id().clone(), DeviceAction::VolumeLock);
     register(
@@ -290,12 +272,10 @@ fn append_device_list_to_menu(
 ) -> anyhow::Result<()> {
     tray_menu.append(heading_item)?;
 
-    let devices = backend
-        .devices(device_type)
-        .unwrap_or_else(|e| {
-            log::warn!("Failed to get {device_type:?} devices: {e:#}");
-            Vec::new()
-        });
+    let devices = backend.devices(device_type).unwrap_or_else(|e| {
+        log::warn!("Failed to get {device_type:?} devices: {e:#}");
+        Vec::new()
+    });
 
     let default_device_id = backend
         .default_device(device_type, DeviceRole::Console)
@@ -346,12 +326,10 @@ fn append_temporary_priority_section(
     ))?;
 
     for device_type in [DeviceType::Output, DeviceType::Input] {
-        let devices = backend
-            .devices(device_type)
-            .unwrap_or_else(|e| {
-                log::warn!("Failed to get {device_type:?} devices: {e:#}");
-                Vec::new()
-            });
+        let devices = backend.devices(device_type).unwrap_or_else(|e| {
+            log::warn!("Failed to get {device_type:?} devices: {e:#}");
+            Vec::new()
+        });
         let available_devices: Vec<_> = devices.iter().map(|d| (d.id(), d.name())).collect();
 
         let temp_id_opt = temporary_priorities.get(device_type);
@@ -399,9 +377,7 @@ fn append_preferences_section(
 ) -> anyhow::Result<()> {
     tray_menu.append(&MenuItem::new("Preferences", false, None))?;
 
-    items
-        .auto_launch_check
-        .set_checked(auto_launch_enabled);
+    items.auto_launch_check.set_checked(auto_launch_enabled);
     map.insert(
         items.auto_launch_check.id().clone(),
         MenuItemInfo {
@@ -459,12 +435,7 @@ fn append_footer_section(
         None => ("Check for updates".to_string(), AppAction::CheckForUpdates),
     };
 
-    append_action_item(
-        tray_menu,
-        map,
-        &label,
-        MenuAction::App(action),
-    )?;
+    append_action_item(tray_menu, map, &label, MenuAction::App(action))?;
 
     tray_menu.append(&PredefinedMenuItem::separator())?;
     tray_menu.append(items.quit)?;
@@ -545,12 +516,10 @@ fn append_priority_list_to_menu(
     let priority_header = MenuItem::new(priority_label, false, None);
     tray_menu.append(&priority_header)?;
 
-    let devices = backend
-        .devices(device_type)
-        .unwrap_or_else(|e| {
-            log::warn!("Failed to get {device_type:?} devices: {e:#}");
-            Vec::new()
-        });
+    let devices = backend.devices(device_type).unwrap_or_else(|e| {
+        log::warn!("Failed to get {device_type:?} devices: {e:#}");
+        Vec::new()
+    });
     let mut available_devices = Vec::new();
     for device in devices {
         available_devices.push((device.id().clone(), device.name()));
@@ -637,7 +606,6 @@ fn append_priority_list_to_menu(
 
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests;

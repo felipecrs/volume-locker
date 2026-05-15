@@ -1,6 +1,6 @@
 use super::{
-    DeviceAction, DeviceId, DeviceType, PersistentState,
-    device_settings_are_empty, handle_priority_event,
+    DeviceAction, DeviceId, DeviceType, PersistentState, device_settings_are_empty,
+    handle_priority_event,
 };
 use crate::types::DeviceSettings;
 
@@ -78,8 +78,7 @@ fn priority_remove_cleans_empty_device() {
 #[test]
 fn priority_move_up() {
     let mut state = PersistentState::default();
-    *state.priority_list_mut(DeviceType::Output) =
-        vec!["a".into(), "b".into(), "c".into()];
+    *state.priority_list_mut(DeviceType::Output) = vec!["a".into(), "b".into(), "c".into()];
     let changed = handle_priority_event(
         &DeviceAction::MovePriorityUp,
         &DeviceId::from("b"),
@@ -108,8 +107,7 @@ fn priority_move_up_already_top() {
 #[test]
 fn priority_move_down() {
     let mut state = PersistentState::default();
-    *state.priority_list_mut(DeviceType::Output) =
-        vec!["a".into(), "b".into(), "c".into()];
+    *state.priority_list_mut(DeviceType::Output) = vec!["a".into(), "b".into(), "c".into()];
     let changed = handle_priority_event(
         &DeviceAction::MovePriorityDown,
         &DeviceId::from("b"),
@@ -124,8 +122,7 @@ fn priority_move_down() {
 #[test]
 fn priority_move_to_top() {
     let mut state = PersistentState::default();
-    *state.priority_list_mut(DeviceType::Output) =
-        vec!["a".into(), "b".into(), "c".into()];
+    *state.priority_list_mut(DeviceType::Output) = vec!["a".into(), "b".into(), "c".into()];
     let changed = handle_priority_event(
         &DeviceAction::MovePriorityToTop,
         &DeviceId::from("c"),
@@ -140,8 +137,7 @@ fn priority_move_to_top() {
 #[test]
 fn priority_move_to_bottom() {
     let mut state = PersistentState::default();
-    *state.priority_list_mut(DeviceType::Output) =
-        vec!["a".into(), "b".into(), "c".into()];
+    *state.priority_list_mut(DeviceType::Output) = vec!["a".into(), "b".into(), "c".into()];
     let changed = handle_priority_event(
         &DeviceAction::MovePriorityToBottom,
         &DeviceId::from("a"),
@@ -169,9 +165,9 @@ fn priority_input_type_uses_input_list() {
 
 // --- apply_device_lock_toggle tests ---
 
+use super::apply_device_lock_toggle;
 use crate::audio::tests::MockAudioBackend;
 use crate::audio::tests::MockDevice;
-use super::apply_device_lock_toggle;
 
 fn make_backend_with_device(id: &str, name: &str) -> MockAudioBackend {
     let mut dev = MockDevice::new(id, name, true);

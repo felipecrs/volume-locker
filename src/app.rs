@@ -2,12 +2,10 @@ use crate::audio::{
     AudioBackend, AudioBackendImpl, AudioDevice, check_and_unmute_device, collect_device_names,
     enforce_priorities, enforce_volume_lock, migrate_device_ids,
 };
-use crate::config::{save_state, PersistentState};
+use crate::config::{PersistentState, save_state};
 use crate::consts::{APP_NAME, APP_UID, CURRENT_VERSION};
-use crate::notification::{log_and_notify_error, NotificationThrottler};
-use crate::types::{
-    DeviceId, TemporaryPriorities, UserEvent, VolumeChangedEvent, VolumeScalar,
-};
+use crate::notification::{NotificationThrottler, log_and_notify_error};
+use crate::types::{DeviceId, TemporaryPriorities, UserEvent, VolumeChangedEvent, VolumeScalar};
 use crate::ui::{
     MenuContext, MenuEventContext, MenuEventResult, MenuIdMap, TrayMenuItems, handle_menu_event,
     rebuild_tray_menu,
@@ -16,8 +14,8 @@ use crate::update;
 use crate::update::UpdateInfo;
 use auto_launch::AutoLaunch;
 use tao::event_loop::{ControlFlow, EventLoopProxy};
-use tray_icon::menu::{CheckMenuItem, Menu, MenuItem};
 use tray_icon::TrayIconBuilder;
+use tray_icon::menu::{CheckMenuItem, Menu, MenuItem};
 
 pub struct AppState {
     pub persistent_state: PersistentState,
@@ -190,7 +188,11 @@ impl AppState {
         unlocked_icon: &tray_icon::Icon,
     ) {
         if let Some(tray_icon) = &self.tray_icon {
-            let icon = if any_device_locked { locked_icon } else { unlocked_icon };
+            let icon = if any_device_locked {
+                locked_icon
+            } else {
+                unlocked_icon
+            };
             if let Err(e) = tray_icon.set_icon(Some(icon.clone())) {
                 log::error!("Failed to update tray icon: {e:#}");
             }
@@ -233,7 +235,10 @@ impl AppState {
             );
             return;
         }
-        log::info!("Configuration saved ({} devices tracked)", self.persistent_state.device_count());
+        log::info!(
+            "Configuration saved ({} devices tracked)",
+            self.persistent_state.device_count()
+        );
         if let Err(e) = proxy.send_event(UserEvent::DevicesChanged) {
             log::warn!("Failed to send DevicesChanged event: {e:#}");
         }
@@ -270,20 +275,15 @@ impl AppState {
                         log::warn!("Failed to send ConfigurationChanged event: {e:#}");
                     }
                 }
-                MenuEventResult::UpdatePerform(info) => {
-                    match update::install_update(&info) {
-                        Ok(()) => {
-                            self.tray_icon.take();
-                            *control_flow = ControlFlow::Exit;
-                        }
-                        Err(e) => {
-                            log_and_notify_error(
-                                "Update Failed",
-                                &format!("Update failed: {e:#}"),
-                            );
-                        }
+                MenuEventResult::UpdatePerform(info) => match update::install_update(&info) {
+                    Ok(()) => {
+                        self.tray_icon.take();
+                        *control_flow = ControlFlow::Exit;
                     }
-                }
+                    Err(e) => {
+                        log_and_notify_error("Update Failed", &format!("Update failed: {e:#}"));
+                    }
+                },
                 MenuEventResult::UpdateCheck => {
                     self.update_info = update::check_for_update(true).unwrap_or(None);
                 }

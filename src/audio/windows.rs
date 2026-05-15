@@ -11,8 +11,8 @@ use windows::Win32::Media::Audio::Endpoints::{
 };
 use windows::Win32::Media::Audio::{
     AUDIO_VOLUME_NOTIFICATION_DATA, DEVICE_STATE, DEVICE_STATE_ACTIVE, EDataFlow, ERole, IMMDevice,
-    IMMDeviceEnumerator, IMMNotificationClient, IMMNotificationClient_Impl,
-    MMDeviceEnumerator, eCapture, eCommunications, eConsole, eMultimedia, eRender,
+    IMMDeviceEnumerator, IMMNotificationClient, IMMNotificationClient_Impl, MMDeviceEnumerator,
+    eCapture, eCommunications, eConsole, eMultimedia, eRender,
 };
 use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance, STGM_READ};
@@ -78,8 +78,10 @@ impl AudioBackend for WindowsAudioBackend {
             DeviceType::Input => eCapture,
         };
         // SAFETY: enumerator obtained from CoCreateInstance; COM manages the returned collection.
-        let collection =
-            unsafe { self.enumerator.EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE)? };
+        let collection = unsafe {
+            self.enumerator
+                .EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE)?
+        };
         let count = unsafe { collection.GetCount()? };
         let mut devices = Vec::new();
         for i in 0..count {
@@ -174,7 +176,10 @@ impl AudioDevice for WindowsAudioDevice {
 
     fn set_volume(&self, volume: VolumeScalar) -> anyhow::Result<()> {
         // SAFETY: endpoint from IMMDevice::Activate; null event context means no specific caller.
-        unsafe { self.endpoint.SetMasterVolumeLevelScalar(volume.as_f32(), std::ptr::null())? };
+        unsafe {
+            self.endpoint
+                .SetMasterVolumeLevelScalar(volume.as_f32(), std::ptr::null())?
+        };
         Ok(())
     }
 
@@ -195,7 +200,10 @@ impl AudioDevice for WindowsAudioDevice {
         Ok(state == DEVICE_STATE_ACTIVE)
     }
 
-    fn watch_volume(&self, callback: Box<dyn Fn(Option<VolumeScalar>) + Send + Sync>) -> anyhow::Result<()> {
+    fn watch_volume(
+        &self,
+        callback: Box<dyn Fn(Option<VolumeScalar>) + Send + Sync>,
+    ) -> anyhow::Result<()> {
         let cb: IAudioEndpointVolumeCallback = VolumeChangeCallback { callback }.into();
         // SAFETY: endpoint from IMMDevice::Activate, callback from windows::core::implement.
         // COM ref-counting manages lifetimes; registration persists until the endpoint is dropped.
@@ -252,7 +260,11 @@ impl IAudioEndpointVolumeCallback_Impl for VolumeChangeCallback_Impl {
     ) -> ::windows::core::Result<()> {
         // SAFETY: pnotify is provided by the COM runtime and points to a valid
         // AUDIO_VOLUME_NOTIFICATION_DATA for the duration of this callback invocation.
-        let new_volume = unsafe { pnotify.as_ref().map(|p| VolumeScalar::from(p.fMasterVolume)) };
+        let new_volume = unsafe {
+            pnotify
+                .as_ref()
+                .map(|p| VolumeScalar::from(p.fMasterVolume))
+        };
         (self.callback)(new_volume);
         Ok(())
     }

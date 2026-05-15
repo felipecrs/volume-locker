@@ -44,11 +44,9 @@ pub fn migrate_device_ids(
             find_device_by_name_and_type(backend, &device_name, device_settings.device_type)
         {
             persistent_state.remove_device(&old_device_id);
-            persistent_state
-                .insert_device(new_device_id.clone(), device_settings.clone());
+            persistent_state.insert_device(new_device_id.clone(), device_settings.clone());
 
-            let priority_list =
-                persistent_state.priority_list_mut(device_settings.device_type);
+            let priority_list = persistent_state.priority_list_mut(device_settings.device_type);
             if let Some(pos) = priority_list.iter().position(|id| id == &old_device_id) {
                 priority_list[pos] = new_device_id.clone();
             }

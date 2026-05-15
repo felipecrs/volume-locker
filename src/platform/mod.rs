@@ -9,9 +9,8 @@ mod windows;
 
 #[cfg(target_os = "windows")]
 pub use self::windows::{
-    ComToken, SingleInstanceGuard, init_platform, is_directory_writable,
-    open_sound_control_panel, open_device_settings, open_devices_list,
-    open_sound_settings, open_volume_mixer,
+    ComToken, SingleInstanceGuard, init_platform, is_directory_writable, open_device_settings,
+    open_devices_list, open_sound_control_panel, open_sound_settings, open_volume_mixer,
 };
 
 #[cfg(not(target_os = "windows"))]
@@ -43,4 +42,3 @@ pub fn send_notification(
         .map_err(|e| anyhow::anyhow!("failed to show notification: {e:#}"))?;
     Ok(())
 }
-

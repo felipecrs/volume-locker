@@ -109,7 +109,10 @@ mod tests {
         save_state_to(&path, &state2).unwrap();
 
         let loaded = load_state_from(&path).unwrap();
-        assert_eq!(loaded.output_priority_list, vec![crate::types::DeviceId::from("device_b")]);
+        assert_eq!(
+            loaded.output_priority_list,
+            vec![crate::types::DeviceId::from("device_b")]
+        );
     }
 
     #[test]
@@ -134,7 +137,10 @@ mod tests {
         let state = PersistentState::default();
         save_state_to(&path, &state).unwrap();
 
-        assert!(!tmp_path.exists(), "temp file should be cleaned up after successful write");
+        assert!(
+            !tmp_path.exists(),
+            "temp file should be cleaned up after successful write"
+        );
         assert!(path.exists(), "target file should exist after save");
     }
 }

@@ -392,5 +392,4 @@ mod tests {
         let _ = fs::remove_file(&path);
         let _ = fs::remove_dir(&dir);
     }
-
 }

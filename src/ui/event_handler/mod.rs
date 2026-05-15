@@ -1,24 +1,24 @@
+use super::{AppAction, DeviceAction, MenuAction, MenuItemInfo, PreferenceAction};
 use crate::audio::AudioBackend;
 use crate::config::PersistentState;
 use crate::consts::GITHUB_REPO_URL;
+use crate::notification::log_and_notify_error;
 use crate::platform::{
     open_device_settings, open_devices_list, open_sound_control_panel, open_sound_settings,
     open_volume_mixer,
 };
 use crate::types::{DeviceId, DeviceType, TemporaryPriorities};
-use super::{
-    AppAction, DeviceAction, MenuAction, MenuItemInfo, PreferenceAction,
-};
 use crate::update::UpdateInfo;
-use crate::notification::log_and_notify_error;
 use crate::utils::{get_executable_directory, open_path, open_url};
 use tray_icon::menu::Menu;
 
 use super::find_menu_item;
 
 fn get_check_item_state(menu: &Menu, id: &tray_icon::menu::MenuId) -> Option<bool> {
-    find_menu_item(menu, id)
-        .and_then(|item| item.as_check_menuitem().map(tray_icon::menu::CheckMenuItem::is_checked))
+    find_menu_item(menu, id).and_then(|item| {
+        item.as_check_menuitem()
+            .map(tray_icon::menu::CheckMenuItem::is_checked)
+    })
 }
 
 /// Reads a check-menu-item's state, applies `f` with it, and returns `SaveConfig`.
@@ -63,8 +63,11 @@ fn apply_device_lock_toggle(
     persistent_state: &mut PersistentState,
     backend: &impl AudioBackend,
 ) {
-    let device_settings = persistent_state
-        .ensure_device_settings(device_id.clone(), device_name.to_string(), device_type);
+    let device_settings = persistent_state.ensure_device_settings(
+        device_id.clone(),
+        device_name.to_string(),
+        device_type,
+    );
 
     match action {
         DeviceAction::VolumeLock => {
@@ -112,8 +115,11 @@ fn handle_priority_event(
                 false
             } else {
                 list.push(device_id.clone());
-                persistent_state
-                    .ensure_device_settings(device_id.clone(), device_name.to_string(), device_type);
+                persistent_state.ensure_device_settings(
+                    device_id.clone(),
+                    device_name.to_string(),
+                    device_type,
+                );
                 true
             }
         }
@@ -233,7 +239,13 @@ fn handle_device_event(
         | DeviceAction::MovePriorityDown
         | DeviceAction::MovePriorityToTop
         | DeviceAction::MovePriorityToBottom => {
-            if handle_priority_event(action, device_id, device_type, device_name, ctx.persistent_state) {
+            if handle_priority_event(
+                action,
+                device_id,
+                device_type,
+                device_name,
+                ctx.persistent_state,
+            ) {
                 MenuEventResult::SaveConfig
             } else {
                 MenuEventResult::NoChange
@@ -243,7 +255,11 @@ fn handle_device_event(
             let is_checked = get_check_item_state(ctx.tray_menu, &event.id).unwrap_or(false);
             ctx.temporary_priorities.set(
                 device_type,
-                if is_checked { Some(device_id.clone()) } else { None },
+                if is_checked {
+                    Some(device_id.clone())
+                } else {
+                    None
+                },
             );
             MenuEventResult::DevicesChanged
         }
@@ -275,12 +291,14 @@ fn handle_preference_event(
     match action {
         PreferenceAction::PriorityRestoreNotify => {
             with_check_state(ctx.tray_menu, &event.id, |checked| {
-                ctx.persistent_state.set_notify_on_priority_restore(device_type, checked);
+                ctx.persistent_state
+                    .set_notify_on_priority_restore(device_type, checked);
             })
         }
         PreferenceAction::SwitchCommunicationDevice => {
             with_check_state(ctx.tray_menu, &event.id, |checked| {
-                ctx.persistent_state.set_switch_communication_device(device_type, checked);
+                ctx.persistent_state
+                    .set_switch_communication_device(device_type, checked);
             })
         }
         PreferenceAction::OpenDevicesList => {
@@ -349,7 +367,6 @@ fn handle_app_event(
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests;

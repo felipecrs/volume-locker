@@ -15,17 +15,20 @@ mod update;
 mod utils;
 
 use crate::app::{AppState, EventLoopRefs};
+use crate::audio::AudioBackend;
 use crate::audio::AudioBackendImpl;
 use crate::config::load_state;
 use crate::consts::{APP_NAME, APP_UID, LOG_FILE_NAME};
 use crate::notification::NotificationThrottler;
-use crate::platform::{NotificationDuration, SingleInstanceGuard, init_platform, is_directory_writable, send_notification};
+use crate::platform::{
+    NotificationDuration, SingleInstanceGuard, init_platform, is_directory_writable,
+    send_notification,
+};
 use crate::types::{TemporaryPriorities, UserEvent};
 use crate::ui::MenuIdMap;
 use crate::utils::{get_executable_directory, get_executable_path_str};
 use anyhow::Context;
 use auto_launch::{AutoLaunch, AutoLaunchBuilder};
-use crate::audio::AudioBackend;
 use simplelog::{
     ColorChoice, CombinedLogger, Config, LevelFilter, SharedLogger, TermLogger, TerminalMode,
     WriteLogger,
@@ -39,8 +42,6 @@ use tray_icon::{
     MouseButton, MouseButtonState, TrayIconEvent,
     menu::{CheckMenuItem, Menu, MenuEvent, MenuItem},
 };
-
-
 
 fn main() -> std::process::ExitCode {
     if let Err(e) = run() {
@@ -123,8 +124,8 @@ fn run() -> anyhow::Result<()> {
 
     let com_token = init_platform(&executable_directory)?;
     ensure_writable_directory(&executable_directory)?;
-    let _instance = SingleInstanceGuard::acquire(APP_UID)
-        .context("failed to acquire single instance lock")?;
+    let _instance =
+        SingleInstanceGuard::acquire(APP_UID).context("failed to acquire single instance lock")?;
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     wire_event_proxies(&event_loop);
@@ -168,7 +169,10 @@ fn run() -> anyhow::Result<()> {
 
     let persistent_state = load_state()
         .context("failed to load preferences — exiting to prevent overwriting your preferences")?;
-    log::info!("Loaded state ({} devices tracked)", persistent_state.device_count());
+    log::info!(
+        "Loaded state ({} devices tracked)",
+        persistent_state.device_count()
+    );
 
     let mut app = AppState {
         persistent_state,

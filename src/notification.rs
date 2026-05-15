@@ -57,9 +57,10 @@ mod tests {
     #[test]
     fn throttler_suppresses_within_cooldown() {
         let mut throttler = NotificationThrottler::new();
-        throttler
-            .last_times
-            .insert("test_key".to_string(), Instant::now() - Duration::from_secs(1));
+        throttler.last_times.insert(
+            "test_key".to_string(),
+            Instant::now() - Duration::from_secs(1),
+        );
         let before = *throttler.last_times.get("test_key").unwrap();
         assert!(!throttler.should_notify("test_key"));
         assert_eq!(*throttler.last_times.get("test_key").unwrap(), before);
@@ -68,9 +69,10 @@ mod tests {
     #[test]
     fn throttler_allows_after_cooldown_elapsed() {
         let mut throttler = NotificationThrottler::new();
-        throttler
-            .last_times
-            .insert("test_key".to_string(), Instant::now() - Duration::from_secs(10));
+        throttler.last_times.insert(
+            "test_key".to_string(),
+            Instant::now() - Duration::from_secs(10),
+        );
         let before = *throttler.last_times.get("test_key").unwrap();
         assert!(throttler.should_notify("test_key"));
         assert_ne!(*throttler.last_times.get("test_key").unwrap(), before);
