@@ -533,4 +533,25 @@ mod tests {
         let _ = fs::remove_file(&path);
         let _ = fs::remove_dir(&dir);
     }
+
+    #[test]
+    fn save_state_uses_atomic_write() {
+        let dir = std::env::temp_dir().join("vl_test_atomic_write");
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("state.json");
+        let tmp_path = path.with_extension("json.tmp");
+
+        let state = PersistentState::default();
+        super::save_state_to(&path, &state).unwrap();
+
+        // After a successful save, the temp file should not exist
+        assert!(!tmp_path.exists(), "temp file should be cleaned up after successful write");
+        // The target file should exist with valid content
+        assert!(path.exists(), "target file should exist after save");
+        let loaded = super::load_state_from(&path).unwrap();
+        assert!(loaded.devices.is_empty());
+
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_dir(&dir);
+    }
 }
