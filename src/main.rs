@@ -150,13 +150,7 @@ impl AppState {
         self.watched_devices.clear();
 
         // Collect device IDs first to avoid borrow conflict with `self`.
-        let locked_device_ids: Vec<_> = self
-            .persistent_state
-            .devices
-            .iter()
-            .filter(|(_, s)| s.volume_lock.is_locked || s.unmute_lock.is_locked)
-            .map(|(id, _)| id.clone())
-            .collect();
+        let locked_device_ids = self.persistent_state.locked_device_ids();
 
         for device_id in locked_device_ids {
             if let Some(device) = self.try_watch_device(&device_id, proxy) {
@@ -279,7 +273,7 @@ impl AppState {
             );
             return;
         }
-        log::info!("Configuration saved ({} devices tracked)", self.persistent_state.devices.len());
+        log::info!("Configuration saved ({} devices tracked)", self.persistent_state.device_count());
         if let Err(e) = proxy.send_event(UserEvent::DevicesChanged) {
             log::warn!("Failed to send DevicesChanged event: {e:#}");
         }
@@ -331,7 +325,7 @@ impl AppState {
                     }
                 }
                 MenuEventResult::UpdateCheck => {
-                    self.update_info = update::check_for_update(true);
+                    self.update_info = update::check_for_update(true).unwrap_or(None);
                 }
                 MenuEventResult::ToggleAutoLaunch(checked) => {
                     let result = if checked {
@@ -516,7 +510,7 @@ fn run() -> anyhow::Result<()> {
 
     let persistent_state = load_state()
         .context("failed to load preferences — exiting to prevent overwriting your preferences")?;
-    log::info!("Loaded state ({} devices tracked)", persistent_state.devices.len());
+    log::info!("Loaded state ({} devices tracked)", persistent_state.device_count());
 
     let mut app = AppState {
         persistent_state,
@@ -559,7 +553,7 @@ fn run() -> anyhow::Result<()> {
                 }
 
                 if app.persistent_state.check_updates_on_launch {
-                    app.update_info = update::check_for_update(false);
+                    app.update_info = update::check_for_update(false).unwrap_or(None);
                 }
 
                 if let Err(e) = main_proxy.send_event(UserEvent::DevicesChanged) {

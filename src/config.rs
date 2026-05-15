@@ -12,7 +12,7 @@ use std::path::PathBuf;
 #[serde(default)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct PersistentState {
-    pub devices: HashMap<DeviceId, DeviceSettings>,
+    pub(crate) devices: HashMap<DeviceId, DeviceSettings>,
     #[serde(rename = "output_priority_list")]
     pub(crate) output_priority_list: Vec<DeviceId>,
     #[serde(rename = "input_priority_list")]
@@ -91,6 +91,41 @@ impl PersistentState {
 
     pub fn device_settings_mut(&mut self, device_id: &DeviceId) -> Option<&mut DeviceSettings> {
         self.devices.get_mut(device_id)
+    }
+
+    pub fn ensure_device_settings(
+        &mut self,
+        device_id: DeviceId,
+        name: String,
+        device_type: DeviceType,
+    ) -> &mut DeviceSettings {
+        self.devices
+            .entry(device_id)
+            .or_insert_with(|| DeviceSettings::new(name, device_type))
+    }
+
+    pub fn insert_device(&mut self, device_id: DeviceId, settings: DeviceSettings) {
+        self.devices.insert(device_id, settings);
+    }
+
+    pub fn remove_device(&mut self, device_id: &DeviceId) {
+        self.devices.remove(device_id);
+    }
+
+    pub fn device_count(&self) -> usize {
+        self.devices.len()
+    }
+
+    pub fn locked_device_ids(&self) -> Vec<DeviceId> {
+        self.devices
+            .iter()
+            .filter(|(_, s)| s.volume_lock.is_locked || s.unmute_lock.is_locked)
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
+    pub fn devices_iter(&self) -> impl Iterator<Item = (&DeviceId, &DeviceSettings)> {
+        self.devices.iter()
     }
 
     /// Removes a device's settings entry if it has no active locks/notifications

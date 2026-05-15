@@ -1,10 +1,12 @@
 use crate::audio::AudioBackend;
 use crate::config::PersistentState;
 use crate::types::{
-    AppAction, DeviceAction, DeviceId, DeviceRole, DeviceType, MenuAction, MenuItemInfo,
-    PreferenceAction, TemporaryPriorities, VolumePercent,
+    DeviceId, DeviceRole, DeviceType, TemporaryPriorities, VolumePercent,
 };
 use crate::update::UpdateInfo;
+use super::{
+    AppAction, DeviceAction, MenuAction, MenuItemInfo, PreferenceAction,
+};
 use std::collections::HashMap;
 use tray_icon::menu::{
     CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu,

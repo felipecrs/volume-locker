@@ -12,7 +12,7 @@ pub fn migrate_device_ids(
 
     // Collect first, then mutate — avoids borrowing `persistent_state.devices`
     // while iterating over it.
-    for (device_id, device_settings) in &persistent_state.devices {
+    for (device_id, device_settings) in persistent_state.devices_iter() {
         if let Ok(device) = backend.device_by_id(device_id) {
             let current_name = device.name();
             if current_name != device_settings.name {
@@ -34,7 +34,7 @@ pub fn migrate_device_ids(
     let mut state_changed = false;
 
     for (device_id, updated_settings) in devices_to_update {
-        persistent_state.devices.insert(device_id, updated_settings);
+        persistent_state.insert_device(device_id, updated_settings);
         state_changed = true;
     }
 
@@ -43,10 +43,9 @@ pub fn migrate_device_ids(
         if let Ok(new_device_id) =
             find_device_by_name_and_type(backend, &device_name, device_settings.device_type)
         {
-            persistent_state.devices.remove(&old_device_id);
+            persistent_state.remove_device(&old_device_id);
             persistent_state
-                .devices
-                .insert(new_device_id.clone(), device_settings.clone());
+                .insert_device(new_device_id.clone(), device_settings.clone());
 
             let priority_list =
                 persistent_state.priority_list_mut(device_settings.device_type);

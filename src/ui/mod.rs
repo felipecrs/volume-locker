@@ -4,9 +4,65 @@ mod menu_builder;
 pub use event_handler::{MenuEventContext, MenuEventResult, handle_menu_event};
 pub use menu_builder::{MenuContext, TrayMenuItems, rebuild_tray_menu};
 
-use crate::types::MenuItemInfo;
+use crate::types::{DeviceId, DeviceType};
 use std::collections::HashMap;
 use tray_icon::menu::{Menu, MenuId, MenuItemKind};
+
+#[derive(Debug)]
+pub enum DeviceAction {
+    VolumeLock,
+    VolumeLockNotify,
+    UnmuteLock,
+    UnmuteLockNotify,
+    AddToPriority,
+    RemoveFromPriority,
+    MovePriorityUp,
+    MovePriorityDown,
+    MovePriorityToTop,
+    MovePriorityToBottom,
+    SetTemporaryPriority,
+    OpenProperties,
+    OpenSettings,
+}
+
+#[derive(Debug)]
+pub enum PreferenceAction {
+    PriorityRestoreNotify,
+    SwitchCommunicationDevice,
+    OpenDevicesList,
+}
+
+#[derive(Debug)]
+pub enum AppAction {
+    OpenSoundSettings,
+    OpenVolumeMixer,
+    CheckForUpdates,
+    PerformUpdate,
+    OpenGitHubRepo,
+    OpenAppDirectory,
+    ToggleAutoLaunch,
+    ToggleCheckUpdatesOnLaunch,
+}
+
+#[derive(Debug)]
+pub enum MenuAction {
+    Device {
+        device_id: DeviceId,
+        device_type: DeviceType,
+        action: DeviceAction,
+    },
+    Preference {
+        device_type: DeviceType,
+        action: PreferenceAction,
+    },
+    App(AppAction),
+}
+
+#[derive(Debug)]
+pub struct MenuItemInfo {
+    pub name: String,
+    pub action: MenuAction,
+}
 
 pub type MenuIdMap = HashMap<MenuId, MenuItemInfo>;
 

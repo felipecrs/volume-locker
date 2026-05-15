@@ -5,9 +5,9 @@ use crate::platform::{
     open_device_settings, open_devices_list, open_sound_control_panel, open_sound_settings,
     open_volume_mixer,
 };
-use crate::types::{
-    AppAction, DeviceAction, DeviceId, DeviceSettings, DeviceType, MenuAction, MenuItemInfo,
-    PreferenceAction, TemporaryPriorities,
+use crate::types::{DeviceId, DeviceType, TemporaryPriorities};
+use super::{
+    AppAction, DeviceAction, MenuAction, MenuItemInfo, PreferenceAction,
 };
 use crate::update::UpdateInfo;
 use crate::notification::log_and_notify_error;
@@ -49,7 +49,7 @@ pub enum MenuEventResult {
 /// Returns `true` if the device has no active locks or notifications,
 /// meaning its settings entry can be removed when not in a priority list.
 #[cfg(test)]
-fn device_settings_are_empty(settings: &DeviceSettings) -> bool {
+fn device_settings_are_empty(settings: &crate::types::DeviceSettings) -> bool {
     !settings.has_active_locks_or_notifications()
 }
 
@@ -64,9 +64,7 @@ fn apply_device_lock_toggle(
     backend: &impl AudioBackend,
 ) {
     let device_settings = persistent_state
-        .devices
-        .entry(device_id.clone())
-        .or_insert_with(|| DeviceSettings::new(device_name.to_string(), device_type));
+        .ensure_device_settings(device_id.clone(), device_name.to_string(), device_type);
 
     match action {
         DeviceAction::VolumeLock => {
@@ -115,9 +113,7 @@ fn handle_priority_event(
             } else {
                 list.push(device_id.clone());
                 persistent_state
-                    .devices
-                    .entry(device_id.clone())
-                    .or_insert_with(|| DeviceSettings::new(device_name.to_string(), device_type));
+                    .ensure_device_settings(device_id.clone(), device_name.to_string(), device_type);
                 true
             }
         }
@@ -357,9 +353,10 @@ fn handle_app_event(
 #[cfg(test)]
 mod tests {
     use super::{
-        DeviceAction, DeviceId, DeviceSettings, DeviceType, PersistentState,
+        DeviceAction, DeviceId, DeviceType, PersistentState,
         device_settings_are_empty, handle_priority_event,
     };
+    use crate::types::DeviceSettings;
 
     #[test]
     fn device_settings_empty_when_all_false() {

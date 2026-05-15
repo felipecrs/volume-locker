@@ -27,20 +27,24 @@ fn setup_app_aumid(executable_directory: &Path) -> Result<()> {
     let registry_path = format!(r"SOFTWARE\Classes\AppUserModelId\{APP_AUMID}");
     let _ = CURRENT_USER.remove_tree(registry_path.clone());
     let key = CURRENT_USER.create(&registry_path)?;
-    let _ = key.set_string("DisplayName", APP_NAME);
+    if let Err(e) = key.set_string("DisplayName", APP_NAME) {
+        log::warn!("Failed to set AUMID DisplayName: {e:#}");
+    }
 
     // We need an icon file for the AUMID to work properly
     let png_path = executable_directory.join(PNG_ICON_FILE_NAME);
     if let Err(e) = fs::write(&png_path, PNG_ICON_BYTES) {
         log::warn!("Failed to write {PNG_ICON_FILE_NAME} icon: {e:#}");
         let _ = key.remove_value("IconUri");
-    } else {
-        let _ = key.set_hstring("IconUri", &png_path.as_path().into());
+    } else if let Err(e) = key.set_hstring("IconUri", &png_path.as_path().into()) {
+        log::warn!("Failed to set AUMID IconUri: {e:#}");
     }
 
     // SAFETY: APP_AUMID is a valid static string; setting the AUMID is a standard shell API call.
     unsafe {
-        let _ = SetCurrentProcessExplicitAppUserModelID(&HSTRING::from(APP_AUMID));
+        if let Err(e) = SetCurrentProcessExplicitAppUserModelID(&HSTRING::from(APP_AUMID)) {
+            log::warn!("Failed to set explicit AppUserModelID: {e:#}");
+        }
     }
 
     Ok(())
