@@ -3,7 +3,9 @@ use crate::types::{DeviceId, DeviceType};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use windows::Win32::Foundation::ERROR_ALREADY_EXISTS;
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
+use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 use windows::core::{HSTRING, Result};
 use windows_registry::CURRENT_USER;
@@ -48,6 +50,40 @@ fn setup_app_aumid(executable_directory: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// RAII guard that holds a named mutex for single-instance enforcement.
+/// The mutex is released when this struct is dropped.
+pub struct SingleInstanceGuard {
+    _handle: windows::Win32::Foundation::HANDLE,
+}
+
+impl SingleInstanceGuard {
+    /// Creates a named mutex. Returns `Ok(guard)` if this is the only instance,
+    /// or `Err` if another instance already holds the mutex.
+    pub fn acquire(name: &str) -> anyhow::Result<Self> {
+        let wide_name = HSTRING::from(name);
+        // SAFETY: CreateMutexW with no security attributes and no initial ownership
+        // is a standard Win32 call. The wide_name lives on the stack for the call duration.
+        let handle = unsafe { CreateMutexW(None, false, &wide_name)? };
+        let last_error = unsafe { windows::Win32::Foundation::GetLastError() };
+        if last_error == ERROR_ALREADY_EXISTS {
+            anyhow::bail!("Another instance is already running.");
+        }
+        Ok(Self { _handle: handle })
+    }
+}
+
+/// Checks if a directory is writable by attempting to create and delete a temp file.
+pub fn is_directory_writable(dir: &Path) -> bool {
+    let test_path = dir.join(".volume_locker_write_test");
+    match fs::write(&test_path, b"") {
+        Ok(()) => {
+            let _ = fs::remove_file(&test_path);
+            true
+        }
+        Err(_) => false,
+    }
 }
 
 fn spawn_rundll32(dll: &str, function: &str, arg: &str, context: &str) -> anyhow::Result<()> {

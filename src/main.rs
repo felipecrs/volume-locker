@@ -35,12 +35,12 @@ use crate::utils::{
 use anyhow::Context;
 use auto_launch::AutoLaunch;
 use auto_launch::AutoLaunchBuilder;
-use faccess::PathExt;
+use crate::platform::{SingleInstanceGuard, is_directory_writable};
 use simplelog::{
     ColorChoice, CombinedLogger, Config, LevelFilter, SharedLogger, TermLogger, TerminalMode,
     WriteLogger,
 };
-use single_instance::SingleInstance;
+
 
 use std::fs::File;
 use tao::{
@@ -420,7 +420,7 @@ fn setup_logging(executable_directory: &std::path::Path) -> anyhow::Result<()> {
 }
 
 fn ensure_writable_directory(executable_directory: &std::path::Path) -> anyhow::Result<()> {
-    if !executable_directory.writable() {
+    if !is_directory_writable(executable_directory) {
         let error_title = "Volume Locker Directory Not Writable";
         let error_message = format!(
             "Please move Volume Locker to a directory that is writable or fix the permissions of '{}'.",
@@ -432,21 +432,14 @@ fn ensure_writable_directory(executable_directory: &std::path::Path) -> anyhow::
     Ok(())
 }
 
-fn ensure_single_instance() -> anyhow::Result<SingleInstance> {
-    let instance = SingleInstance::new(APP_UID).context("failed to create single instance")?;
-    if !instance.is_single() {
-        anyhow::bail!("Another instance is already running.");
-    }
-    Ok(instance)
-}
-
 fn run() -> anyhow::Result<()> {
     let executable_directory = get_executable_directory()?;
     setup_logging(&executable_directory)?;
 
     let com_token = init_platform(&executable_directory)?;
     ensure_writable_directory(&executable_directory)?;
-    let _instance = ensure_single_instance()?;
+    let _instance = SingleInstanceGuard::acquire(APP_UID)
+        .context("failed to acquire single instance lock")?;
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
