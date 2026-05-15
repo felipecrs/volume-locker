@@ -113,7 +113,7 @@ impl AppState {
                 &device_id,
                 device.as_ref(),
                 &device_name,
-                &volume_lock,
+                volume_lock,
                 new_volume,
                 &mut self.notification_throttler,
             );
@@ -399,9 +399,7 @@ fn main() -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 
-fn run() -> anyhow::Result<()> {
-    let executable_directory = get_executable_directory()?;
-
+fn setup_logging(executable_directory: &std::path::Path) -> anyhow::Result<()> {
     let log_path = executable_directory.join(LOG_FILE_NAME);
     let loggers: Vec<Box<dyn SharedLogger>> = vec![
         WriteLogger::new(
@@ -417,7 +415,6 @@ fn run() -> anyhow::Result<()> {
             ColorChoice::Auto,
         ),
     ];
-
     CombinedLogger::init(loggers).context("failed to init logger")?;
 
     // windows_subsystem = "windows" suppresses stderr, so log panics before exit
@@ -425,25 +422,37 @@ fn run() -> anyhow::Result<()> {
         log::error!("Panic occurred: {panic_info}");
     }));
 
-    let com_token = init_platform(&executable_directory)?;
+    Ok(())
+}
 
+fn ensure_writable_directory(executable_directory: &std::path::Path) -> anyhow::Result<()> {
     if !executable_directory.writable() {
         let error_title = "Volume Locker Directory Not Writable";
         let error_message = format!(
             "Please move Volume Locker to a directory that is writable or fix the permissions of '{}'.",
             executable_directory.display(),
         );
-
         let _ = send_notification(error_title, &error_message, NotificationDuration::Long);
-
         anyhow::bail!("{error_title}: {error_message}");
     }
+    Ok(())
+}
 
-    // Only allow one instance of the application to run at a time
+fn ensure_single_instance() -> anyhow::Result<SingleInstance> {
     let instance = SingleInstance::new(APP_UID).context("failed to create single instance")?;
     if !instance.is_single() {
         anyhow::bail!("Another instance is already running.");
     }
+    Ok(instance)
+}
+
+fn run() -> anyhow::Result<()> {
+    let executable_directory = get_executable_directory()?;
+    setup_logging(&executable_directory)?;
+
+    let com_token = init_platform(&executable_directory)?;
+    ensure_writable_directory(&executable_directory)?;
+    let _instance = ensure_single_instance()?;
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
@@ -614,7 +623,7 @@ mod tests {
             &device_id,
             &device,
             "Speaker",
-            &lock,
+            lock,
             VolumeScalar::from(0.5_f32),
             &mut throttler,
         );
@@ -633,7 +642,7 @@ mod tests {
             &device_id,
             &device,
             "Speaker",
-            &lock,
+            lock,
             VolumeScalar::from(1.0_f32),
             &mut throttler,
         );

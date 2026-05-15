@@ -75,7 +75,7 @@ pub fn enforce_volume_lock(
     device_id: &DeviceId,
     device: &dyn AudioDevice,
     device_name: &str,
-    lock: &crate::types::VolumeLockPolicy,
+    lock: crate::types::VolumeLockPolicy,
     new_volume: VolumeScalar,
     throttler: &mut NotificationThrottler,
 ) {

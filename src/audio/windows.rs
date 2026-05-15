@@ -200,8 +200,8 @@ pub(crate) fn register_control_change_notify(
     unsafe { endpoint.RegisterControlChangeNotify(callback) }
 }
 
-#[implement(IMMNotificationClient)]
 #[allow(clippy::inline_always)]
+#[implement(IMMNotificationClient)]
 pub struct AudioDevicesChangedCallback {
     pub callback: Box<dyn Fn() + Send + Sync>,
 }
@@ -237,8 +237,8 @@ impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
     }
 }
 
-#[implement(IAudioEndpointVolumeCallback)]
 #[allow(clippy::inline_always)]
+#[implement(IAudioEndpointVolumeCallback)]
 pub struct VolumeChangeCallback {
     pub callback: Box<dyn Fn(Option<VolumeScalar>) + Send + Sync>,
 }
