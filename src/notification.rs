@@ -10,15 +10,14 @@ pub fn log_and_notify_error(title: &str, message: &str) {
 }
 
 /// Manages debounced notifications, preventing repeated notifications within a cooldown period.
+#[derive(Default)]
 pub struct NotificationThrottler {
-    pub(crate) last_times: HashMap<String, Instant>,
+    last_times: HashMap<String, Instant>,
 }
 
 impl NotificationThrottler {
     pub fn new() -> Self {
-        Self {
-            last_times: HashMap::new(),
-        }
+        Self::default()
     }
 
     pub fn send_if_not_throttled(&mut self, key: &str, title: &str, message: &str) {
