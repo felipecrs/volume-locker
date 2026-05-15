@@ -277,7 +277,6 @@ pub enum UserEvent {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::{DeviceSettings, DeviceType, VolumePercent, VolumeScalar};
 

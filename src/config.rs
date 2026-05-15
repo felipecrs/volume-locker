@@ -194,7 +194,6 @@ pub(crate) fn load_state_from(path: &PathBuf) -> anyhow::Result<PersistentState>
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::types::VolumePercent;

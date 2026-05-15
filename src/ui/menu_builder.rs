@@ -621,7 +621,6 @@ fn append_priority_list_to_menu(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::{DeviceDisplayInfo, VolumePercent, format_device_menu_label};
 

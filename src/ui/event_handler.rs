@@ -340,7 +340,6 @@ pub fn handle_menu_event(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::{
         DeviceAction, DeviceId, DeviceSettings, DeviceType, PersistentState,
