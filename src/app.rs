@@ -371,3 +371,39 @@ impl AppState {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::types::{DeviceType, TemporaryPriorities};
+
+    #[test]
+    fn temporary_priorities_get_returns_none_by_default() {
+        let tp = TemporaryPriorities::default();
+        assert!(tp.get(DeviceType::Output).is_none());
+        assert!(tp.get(DeviceType::Input).is_none());
+    }
+
+    #[test]
+    fn temporary_priorities_set_and_get_output() {
+        let mut tp = TemporaryPriorities::default();
+        tp.set(DeviceType::Output, Some("dev_a".into()));
+        assert_eq!(tp.get(DeviceType::Output).unwrap(), "dev_a");
+        assert!(tp.get(DeviceType::Input).is_none());
+    }
+
+    #[test]
+    fn temporary_priorities_set_and_get_input() {
+        let mut tp = TemporaryPriorities::default();
+        tp.set(DeviceType::Input, Some("mic_1".into()));
+        assert!(tp.get(DeviceType::Output).is_none());
+        assert_eq!(tp.get(DeviceType::Input).unwrap(), "mic_1");
+    }
+
+    #[test]
+    fn temporary_priorities_clear() {
+        let mut tp = TemporaryPriorities::default();
+        tp.set(DeviceType::Output, Some("dev_a".into()));
+        tp.set(DeviceType::Output, None);
+        assert!(tp.get(DeviceType::Output).is_none());
+    }
+}
