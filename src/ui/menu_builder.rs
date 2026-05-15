@@ -76,7 +76,7 @@ fn lookup_device_name(
     persistent_state: &PersistentState,
     backend: &impl AudioBackend,
 ) -> String {
-    if let Some(settings) = persistent_state.devices.get::<str>(device_id) {
+    if let Some(settings) = persistent_state.get_device_settings(device_id) {
         settings.name.clone()
     } else {
         match backend.get_device_by_id(device_id) {
@@ -203,7 +203,7 @@ fn build_device_submenu(
         .is_some_and(|id| **device_id == **id);
 
     let (is_volume_locked, notify_on_volume_lock, is_unmute_locked, notify_on_unmute_lock) =
-        if let Some(settings) = persistent_state.devices.get(device_id) {
+        if let Some(settings) = persistent_state.get_device_settings(device_id) {
             (
                 settings.volume_lock.is_locked,
                 settings.volume_lock.notify,

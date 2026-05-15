@@ -80,7 +80,7 @@ impl AppState {
             new_volume,
         } = event;
 
-        let device_settings = match self.persistent_state.devices.get(&device_id) {
+        let device_settings = match self.persistent_state.get_device_settings(&device_id) {
             Some(s) => s,
             None => return,
         };
@@ -176,7 +176,7 @@ impl AppState {
         device_id: &DeviceId,
         proxy: &EventLoopProxy<UserEvent>,
     ) -> Option<Box<dyn AudioDevice>> {
-        let device_settings = self.persistent_state.devices.get(device_id)?;
+        let device_settings = self.persistent_state.get_device_settings(device_id)?;
         let device_name = &device_settings.name;
 
         let device = match self.backend.get_device_by_id(device_id) {
@@ -255,7 +255,7 @@ impl AppState {
 
         self.migrate_device_ids_if_needed();
         for (device_id, new_name, device_type) in collect_device_names(&self.backend) {
-            if let Some(settings) = self.persistent_state.devices.get_mut(&device_id) {
+            if let Some(settings) = self.persistent_state.get_device_settings_mut(&device_id) {
                 settings.name = new_name;
                 settings.device_type = device_type;
             }

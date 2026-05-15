@@ -104,6 +104,16 @@ impl PersistentState {
         *self.fields_mut(device_type).2 = value;
     }
 
+    /// Returns the settings for a specific device, if it exists.
+    pub fn get_device_settings(&self, device_id: &DeviceId) -> Option<&DeviceSettings> {
+        self.devices.get(device_id)
+    }
+
+    /// Returns a mutable reference to the settings for a specific device, if it exists.
+    pub fn get_device_settings_mut(&mut self, device_id: &DeviceId) -> Option<&mut DeviceSettings> {
+        self.devices.get_mut(device_id)
+    }
+
     /// Removes a device's settings entry if it has no active locks/notifications
     /// and is not referenced by any priority list.
     pub fn remove_device_if_unused(&mut self, device_id: &DeviceId) {
