@@ -71,6 +71,40 @@ pub fn check_and_unmute_device(
     Ok(())
 }
 
+pub fn enforce_volume_lock(
+    device_id: &DeviceId,
+    device: &dyn AudioDevice,
+    device_name: &str,
+    lock: &crate::types::VolumeLockPolicy,
+    new_volume: VolumeScalar,
+    throttler: &mut NotificationThrottler,
+) {
+    let new_volume_percent = new_volume.to_percent();
+    let target_volume_percent = lock.target_percent;
+    if new_volume_percent == target_volume_percent {
+        return;
+    }
+
+    let target_volume = target_volume_percent.to_scalar();
+
+    if let Err(e) = device.set_volume(target_volume) {
+        log::error!("Failed to set volume of {device_name} to {target_volume_percent}%: {e:#}");
+        return;
+    }
+    log::info!(
+        "Restored volume of {device_name} from {new_volume_percent}% to {target_volume_percent}%"
+    );
+    if lock.notify {
+        throttler.send_if_not_throttled(
+            &format!("volume_restore_{device_id}"),
+            "Volume Restored",
+            &format!(
+                "The volume of {device_name} has been restored from {new_volume_percent}% to {target_volume_percent}%."
+            ),
+        );
+    }
+}
+
 fn get_unmute_notification_details(device_type: DeviceType) -> (&'static str, &'static str) {
     let title = match device_type {
         DeviceType::Input => "Input Device Unmuted",

@@ -20,17 +20,24 @@ impl NotificationThrottler {
         Self::default()
     }
 
-    pub fn send_if_not_throttled(&mut self, key: &str, title: &str, message: &str) {
+    /// Returns `true` if the given key has not been seen within the cooldown period.
+    pub fn should_notify(&mut self, key: &str) -> bool {
         let now = Instant::now();
-        let should_notify = match self.last_times.get(key) {
+        let allowed = match self.last_times.get(key) {
             Some(&last_time) => now.duration_since(last_time) > Duration::from_secs(5),
             None => true,
         };
-        if should_notify {
-            if let Err(e) = send_notification(title, message, NotificationDuration::Short) {
-                log::error!("Failed to show notification for {title}: {e:#}");
-            }
+        if allowed {
             self.last_times.insert(key.to_string(), now);
+        }
+        allowed
+    }
+
+    pub fn send_if_not_throttled(&mut self, key: &str, title: &str, message: &str) {
+        if self.should_notify(key)
+            && let Err(e) = send_notification(title, message, NotificationDuration::Short)
+        {
+            log::error!("Failed to show notification for {title}: {e:#}");
         }
     }
 }
@@ -43,7 +50,7 @@ mod tests {
     fn throttler_records_key_on_first_send() {
         let mut throttler = NotificationThrottler::new();
         assert!(!throttler.last_times.contains_key("test_key"));
-        throttler.send_if_not_throttled("test_key", "Title", "Message");
+        assert!(throttler.should_notify("test_key"));
         assert!(throttler.last_times.contains_key("test_key"));
     }
 
@@ -54,7 +61,7 @@ mod tests {
             .last_times
             .insert("test_key".to_string(), Instant::now() - Duration::from_secs(1));
         let before = *throttler.last_times.get("test_key").unwrap();
-        throttler.send_if_not_throttled("test_key", "Title", "Message");
+        assert!(!throttler.should_notify("test_key"));
         assert_eq!(*throttler.last_times.get("test_key").unwrap(), before);
     }
 
@@ -65,7 +72,7 @@ mod tests {
             .last_times
             .insert("test_key".to_string(), Instant::now() - Duration::from_secs(10));
         let before = *throttler.last_times.get("test_key").unwrap();
-        throttler.send_if_not_throttled("test_key", "Title", "Message");
+        assert!(throttler.should_notify("test_key"));
         assert_ne!(*throttler.last_times.get("test_key").unwrap(), before);
     }
 }

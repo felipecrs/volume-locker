@@ -90,11 +90,11 @@ fn lookup_device_name(
 }
 
 pub struct TrayMenuItems<'a> {
-    pub auto_launch_check_item: &'a CheckMenuItem,
-    pub check_updates_on_launch_item: &'a CheckMenuItem,
-    pub quit_item: &'a MenuItem,
-    pub output_devices_heading_item: &'a MenuItem,
-    pub input_devices_heading_item: &'a MenuItem,
+    pub auto_launch_check: &'a CheckMenuItem,
+    pub check_updates_on_launch: &'a CheckMenuItem,
+    pub quit: &'a MenuItem,
+    pub output_devices_heading: &'a MenuItem,
+    pub input_devices_heading: &'a MenuItem,
 }
 
 pub struct MenuContext<'a, B: AudioBackend> {
@@ -116,8 +116,8 @@ pub fn rebuild_tray_menu(
     let mut map: MenuIdMap = HashMap::new();
 
     for (heading_item, device_type) in [
-        (items.output_devices_heading_item, DeviceType::Output),
-        (items.input_devices_heading_item, DeviceType::Input),
+        (items.output_devices_heading, DeviceType::Output),
+        (items.input_devices_heading, DeviceType::Input),
     ] {
         append_device_list_to_menu(
             tray_menu,
@@ -171,7 +171,7 @@ pub fn rebuild_tray_menu(
         &mut map,
     )?;
 
-    append_footer_section(tray_menu, &mut map, ctx.update_info, items)?;
+    append_footer_section(tray_menu, &mut map, ctx.update_info.as_ref(), items)?;
 
     Ok(map)
 }
@@ -179,7 +179,7 @@ pub fn rebuild_tray_menu(
 fn build_device_submenu(
     device: &dyn crate::audio::AudioDevice,
     device_type: DeviceType,
-    default_device_id: &Option<DeviceId>,
+    default_device_id: Option<&DeviceId>,
     persistent_state: &PersistentState,
     map: &mut MenuIdMap,
 ) -> anyhow::Result<Submenu> {
@@ -198,9 +198,7 @@ fn build_device_submenu(
             log::warn!("Failed to get mute state for device {name}: {e:#}");
             false
         });
-    let is_default = default_device_id
-        .as_ref()
-        .is_some_and(|id| **device_id == **id);
+    let is_default = default_device_id.is_some_and(|id| **device_id == **id);
 
     let (is_volume_locked, notify_on_volume_lock, is_unmute_locked, notify_on_unmute_lock) =
         if let Some(settings) = persistent_state.device_settings(device_id) {
@@ -306,7 +304,7 @@ fn append_device_list_to_menu(
         let submenu = build_device_submenu(
             device.as_ref(),
             device_type,
-            &default_device_id,
+            default_device_id.as_ref(),
             persistent_state,
             map,
         )?;
@@ -400,28 +398,28 @@ fn append_preferences_section(
     tray_menu.append(&MenuItem::new("Preferences", false, None))?;
 
     items
-        .auto_launch_check_item
+        .auto_launch_check
         .set_checked(auto_launch_enabled);
     map.insert(
-        items.auto_launch_check_item.id().clone(),
+        items.auto_launch_check.id().clone(),
         MenuItemInfo {
             name: "Auto-launch".to_string(),
             action: MenuAction::App(AppAction::ToggleAutoLaunch),
         },
     );
-    tray_menu.append(items.auto_launch_check_item)?;
+    tray_menu.append(items.auto_launch_check)?;
 
     items
-        .check_updates_on_launch_item
+        .check_updates_on_launch
         .set_checked(persistent_state.check_updates_on_launch);
     map.insert(
-        items.check_updates_on_launch_item.id().clone(),
+        items.check_updates_on_launch.id().clone(),
         MenuItemInfo {
             name: "Check updates on launch".to_string(),
             action: MenuAction::App(AppAction::ToggleCheckUpdatesOnLaunch),
         },
     );
-    tray_menu.append(items.check_updates_on_launch_item)?;
+    tray_menu.append(items.check_updates_on_launch)?;
     tray_menu.append(&PredefinedMenuItem::separator())?;
 
     Ok(())
@@ -430,7 +428,7 @@ fn append_preferences_section(
 fn append_footer_section(
     tray_menu: &Menu,
     map: &mut MenuIdMap,
-    update_info: &Option<UpdateInfo>,
+    update_info: Option<&UpdateInfo>,
     items: &TrayMenuItems,
 ) -> anyhow::Result<()> {
     tray_menu.append(&MenuItem::new("Troubleshooting", false, None))?;
@@ -467,9 +465,65 @@ fn append_footer_section(
     )?;
 
     tray_menu.append(&PredefinedMenuItem::separator())?;
-    tray_menu.append(items.quit_item)?;
+    tray_menu.append(items.quit)?;
 
     Ok(())
+}
+
+fn build_priority_item_submenu(
+    index: usize,
+    list_len: usize,
+    device_id: &DeviceId,
+    device_name: &str,
+    device_type: DeviceType,
+    map: &mut MenuIdMap,
+) -> anyhow::Result<Submenu> {
+    let label = format!("{}. {}", index + 1, device_name);
+    let submenu = Submenu::new(&label, true);
+
+    let move_items: [(&str, bool, DeviceAction); 4] = [
+        ("Move up", index > 0, DeviceAction::MovePriorityUp),
+        (
+            "Move down",
+            index < list_len - 1,
+            DeviceAction::MovePriorityDown,
+        ),
+        ("Move to top", index > 0, DeviceAction::MovePriorityToTop),
+        (
+            "Move to bottom",
+            index < list_len - 1,
+            DeviceAction::MovePriorityToBottom,
+        ),
+    ];
+    for (i, (label, enabled, action)) in move_items.into_iter().enumerate() {
+        if i == 2 {
+            submenu.append(&PredefinedMenuItem::separator())?;
+        }
+        let item = MenuItem::new(label, enabled, None);
+        register_menu_item(
+            map,
+            item.id().clone(),
+            action,
+            device_id,
+            device_name,
+            device_type,
+        );
+        submenu.append(&item)?;
+    }
+    submenu.append(&PredefinedMenuItem::separator())?;
+
+    let remove_item = MenuItem::new("Remove device", true, None);
+    register_menu_item(
+        map,
+        remove_item.id().clone(),
+        DeviceAction::RemoveFromPriority,
+        device_id,
+        device_name,
+        device_type,
+    );
+    submenu.append(&remove_item)?;
+
+    Ok(submenu)
 }
 
 fn append_priority_list_to_menu(
@@ -502,53 +556,15 @@ fn append_priority_list_to_menu(
 
     for (index, device_id) in priority_list.iter().enumerate() {
         let device_name = lookup_device_name(device_id, persistent_state, backend);
-
-        let label = format!("{}. {}", index + 1, device_name);
-        let priority_submenu = Submenu::new(&label, true);
-
-        let move_items: [(&str, bool, DeviceAction); 4] = [
-            ("Move up", index > 0, DeviceAction::MovePriorityUp),
-            (
-                "Move down",
-                index < priority_list.len() - 1,
-                DeviceAction::MovePriorityDown,
-            ),
-            ("Move to top", index > 0, DeviceAction::MovePriorityToTop),
-            (
-                "Move to bottom",
-                index < priority_list.len() - 1,
-                DeviceAction::MovePriorityToBottom,
-            ),
-        ];
-        for (i, (label, enabled, action)) in move_items.into_iter().enumerate() {
-            if i == 2 {
-                priority_submenu.append(&PredefinedMenuItem::separator())?;
-            }
-            let item = MenuItem::new(label, enabled, None);
-            register_menu_item(
-                map,
-                item.id().clone(),
-                action,
-                device_id,
-                &device_name,
-                device_type,
-            );
-            priority_submenu.append(&item)?;
-        }
-        priority_submenu.append(&PredefinedMenuItem::separator())?;
-
-        let remove_priority_item = MenuItem::new("Remove device", true, None);
-        register_menu_item(
-            map,
-            remove_priority_item.id().clone(),
-            DeviceAction::RemoveFromPriority,
+        let submenu = build_priority_item_submenu(
+            index,
+            priority_list.len(),
             device_id,
             &device_name,
             device_type,
-        );
-        priority_submenu.append(&remove_priority_item)?;
-
-        tray_menu.append(&priority_submenu)?;
+            map,
+        )?;
+        tray_menu.append(&submenu)?;
     }
 
     let mut devices_to_add = Vec::new();

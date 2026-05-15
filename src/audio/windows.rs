@@ -201,6 +201,7 @@ pub(crate) fn register_control_change_notify(
 }
 
 #[implement(IMMNotificationClient)]
+#[allow(clippy::inline_always)]
 pub struct AudioDevicesChangedCallback {
     pub callback: Box<dyn Fn() + Send + Sync>,
 }
@@ -237,6 +238,7 @@ impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
 }
 
 #[implement(IAudioEndpointVolumeCallback)]
+#[allow(clippy::inline_always)]
 pub struct VolumeChangeCallback {
     pub callback: Box<dyn Fn(Option<VolumeScalar>) + Send + Sync>,
 }
@@ -289,7 +291,7 @@ pub(crate) fn get_device_name(device: &IMMDevice) -> Result<String> {
     let friendly_name = unsafe {
         let prop_store = device.OpenPropertyStore(STGM_READ)?;
         let friendly_name_prop = prop_store.GetValue(&PKEY_Device_FriendlyName)?;
-        PropVariantToStringAlloc(&friendly_name_prop)?.to_string()?
+        PropVariantToStringAlloc(&raw const friendly_name_prop)?.to_string()?
     };
     Ok(clean_device_name(&friendly_name))
 }

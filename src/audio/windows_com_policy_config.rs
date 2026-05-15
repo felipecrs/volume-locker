@@ -30,7 +30,7 @@ impl IPolicyConfig {
         (Interface::vtable(self).GetMixFormat)(
             Interface::as_raw(self),
             device_name.param().abi(),
-            &mut result__,
+            &raw mut result__,
         )
         .map(|| result__)
     }
@@ -45,7 +45,7 @@ impl IPolicyConfig {
             Interface::as_raw(self),
             device_name.param().abi(),
             default.into().0,
-            &mut result__,
+            &raw mut result__,
         )
         .map(|| result__)
     }
@@ -67,8 +67,8 @@ impl IPolicyConfig {
         (Interface::vtable(self).SetDeviceFormat)(
             Interface::as_raw(self),
             device_name.param().abi(),
-            &mut endpoint_format,
-            &mut mix_format,
+            &raw mut endpoint_format,
+            &raw mut mix_format,
         )
         .ok()
     }
@@ -111,7 +111,7 @@ impl IPolicyConfig {
         (Interface::vtable(self).GetShareMode)(
             Interface::as_raw(self),
             device_name.param().abi(),
-            &mut result__,
+            &raw mut result__,
         )
         .map(|| result__)
     }
@@ -124,7 +124,7 @@ impl IPolicyConfig {
         (Interface::vtable(self).SetShareMode)(
             Interface::as_raw(self),
             device_name.param().abi(),
-            &mut mode,
+            &raw mut mode,
         )
         .ok()
     }
@@ -141,7 +141,7 @@ impl IPolicyConfig {
             device_name.param().abi(),
             bFxStore.into().0,
             key,
-            &mut result__,
+            &raw mut result__,
         )
         .map(|| result__)
     }

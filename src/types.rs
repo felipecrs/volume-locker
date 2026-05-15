@@ -18,14 +18,25 @@ impl VolumeScalar {
 
 impl From<f32> for VolumeScalar {
     fn from(v: f32) -> Self {
+        let v = if v.is_nan() { 0.0 } else { v };
         Self(v.clamp(0.0, 1.0))
     }
 }
 
 /// Volume level expressed as a 0–100 percentage.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Default, Serialize)]
 #[serde(transparent)]
 pub struct VolumePercent(f32);
+
+impl<'de> Deserialize<'de> for VolumePercent {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let v: f32 = serde::Deserialize::deserialize(deserializer)?;
+        Ok(Self::from(v))
+    }
+}
 
 impl VolumePercent {
     pub fn as_f32(self) -> f32 {
@@ -45,6 +56,7 @@ impl fmt::Display for VolumePercent {
 
 impl From<f32> for VolumePercent {
     fn from(v: f32) -> Self {
+        let v = if v.is_nan() { 0.0 } else { v };
         Self(v.clamp(0.0, 100.0))
     }
 }
@@ -127,22 +139,10 @@ pub enum DeviceRole {
 pub struct VolumeLockPolicy {
     #[serde(default, rename = "is_volume_locked")]
     pub is_locked: bool,
-    #[serde(
-        default,
-        rename = "volume_percent",
-        deserialize_with = "deserialize_clamped_percent"
-    )]
+    #[serde(default, rename = "volume_percent")]
     pub target_percent: VolumePercent,
     #[serde(default, rename = "notify_on_volume_lock")]
     pub notify: bool,
-}
-
-fn deserialize_clamped_percent<'de, D>(deserializer: D) -> Result<VolumePercent, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value: f32 = serde::Deserialize::deserialize(deserializer)?;
-    Ok(VolumePercent(value.clamp(0.0, 100.0)))
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
@@ -397,5 +397,23 @@ mod tests {
     #[test]
     fn volume_percent_clamps_below_zero() {
         assert_eq!(VolumePercent::from(-10.0).as_f32(), 0.0);
+    }
+
+    #[test]
+    fn volume_scalar_nan_becomes_zero() {
+        assert_eq!(VolumeScalar::from(f32::NAN).as_f32(), 0.0);
+    }
+
+    #[test]
+    fn volume_percent_nan_becomes_zero() {
+        assert_eq!(VolumePercent::from(f32::NAN).as_f32(), 0.0);
+    }
+
+    #[test]
+    fn volume_percent_deserialize_clamps_out_of_range() {
+        let over: VolumePercent = serde_json::from_str("200.0").unwrap();
+        assert_eq!(over.as_f32(), 100.0);
+        let under: VolumePercent = serde_json::from_str("-50.0").unwrap();
+        assert_eq!(under.as_f32(), 0.0);
     }
 }

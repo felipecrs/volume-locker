@@ -52,8 +52,8 @@ fn fetch_update_info() -> anyhow::Result<Option<UpdateInfo>> {
     log::info!("Checking for updates...");
 
     let agent = create_agent();
-    let releases_url = format!("{GITHUB_REPO_URL}/releases/latest");
-    let response = agent.head(&releases_url).call()?;
+    let latest_releases_url = format!("{GITHUB_REPO_URL}/releases/latest");
+    let response = agent.head(&latest_releases_url).call()?;
     let release_url = response.get_uri().to_string();
 
     let (latest_tag, latest_version) = extract_version_from_url(&release_url)?;
@@ -158,7 +158,7 @@ fn execute_update_steps(update_info: &UpdateInfo) -> anyhow::Result<()> {
         ])
         .env("VL_TEMP_PATH", &temp_download)
         .env("VL_EXE_PATH", exe_str)
-        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
         .spawn()?;
 
     log::info!("Post-update script launched, exiting application...");

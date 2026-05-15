@@ -15,7 +15,7 @@ mod utils;
 
 use crate::audio::{
     AudioBackend, AudioBackendImpl, AudioDevice, check_and_unmute_device, enforce_priorities,
-    collect_device_names, migrate_device_ids,
+    enforce_volume_lock, collect_device_names, migrate_device_ids,
 };
 use crate::config::{PersistentState, load_state, save_state};
 use crate::consts::{APP_NAME, APP_UID, CURRENT_VERSION, LOG_FILE_NAME};
@@ -80,9 +80,8 @@ impl AppState {
             new_volume,
         } = event;
 
-        let device_settings = match self.persistent_state.device_settings(&device_id) {
-            Some(s) => s,
-            None => return,
+        let Some(device_settings) = self.persistent_state.device_settings(&device_id) else {
+            return;
         };
 
         let device_name = device_settings.name.clone();
@@ -110,12 +109,13 @@ impl AppState {
         };
 
         if volume_lock.is_locked {
-            self.enforce_volume_lock(
+            enforce_volume_lock(
                 &device_id,
                 device.as_ref(),
                 &device_name,
                 &volume_lock,
                 new_volume,
+                &mut self.notification_throttler,
             );
         }
 
@@ -366,11 +366,11 @@ impl AppState {
             refs.tray_menu,
             &ctx,
             &TrayMenuItems {
-                auto_launch_check_item: refs.auto_launch_check_item,
-                check_updates_on_launch_item: refs.check_updates_on_launch_item,
-                quit_item: refs.quit_item,
-                output_devices_heading_item: refs.output_devices_heading_item,
-                input_devices_heading_item: refs.input_devices_heading_item,
+                auto_launch_check: refs.auto_launch_check_item,
+                check_updates_on_launch: refs.check_updates_on_launch_item,
+                quit: refs.quit_item,
+                output_devices_heading: refs.output_devices_heading_item,
+                input_devices_heading: refs.input_devices_heading_item,
             },
         ) {
             Ok(map) => {
@@ -388,57 +388,6 @@ impl AppState {
         }
     }
 
-    fn enforce_volume_lock(
-        &mut self,
-        device_id: &DeviceId,
-        device: &dyn AudioDevice,
-        device_name: &str,
-        lock: &types::VolumeLockPolicy,
-        new_volume: VolumeScalar,
-    ) {
-        enforce_volume_lock_for_device(
-            device_id,
-            device,
-            device_name,
-            lock,
-            new_volume,
-            &mut self.notification_throttler,
-        );
-    }
-}
-
-fn enforce_volume_lock_for_device(
-    device_id: &DeviceId,
-    device: &dyn AudioDevice,
-    device_name: &str,
-    lock: &types::VolumeLockPolicy,
-    new_volume: VolumeScalar,
-    throttler: &mut NotificationThrottler,
-) {
-    let new_volume_percent = new_volume.to_percent();
-    let target_volume_percent = lock.target_percent;
-    if new_volume_percent == target_volume_percent {
-        return;
-    }
-
-    let target_volume = target_volume_percent.to_scalar();
-
-    if let Err(e) = device.set_volume(target_volume) {
-        log::error!("Failed to set volume of {device_name} to {target_volume_percent}%: {e:#}");
-        return;
-    }
-    log::info!(
-        "Restored volume of {device_name} from {new_volume_percent}% to {target_volume_percent}%"
-    );
-    if lock.notify {
-        throttler.send_if_not_throttled(
-            &format!("volume_restore_{device_id}"),
-            "Volume Restored",
-            &format!(
-                "The volume of {device_name} has been restored from {new_volume_percent}% to {target_volume_percent}%."
-            ),
-        );
-    }
 }
 
 fn main() -> std::process::ExitCode {
@@ -661,7 +610,7 @@ mod tests {
         let device_id: DeviceId = "dev1".into();
         let mut throttler = NotificationThrottler::new();
 
-        enforce_volume_lock_for_device(
+        enforce_volume_lock(
             &device_id,
             &device,
             "Speaker",
@@ -680,7 +629,7 @@ mod tests {
         let device_id: DeviceId = "dev1".into();
         let mut throttler = NotificationThrottler::new();
 
-        enforce_volume_lock_for_device(
+        enforce_volume_lock(
             &device_id,
             &device,
             "Speaker",

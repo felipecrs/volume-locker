@@ -8,15 +8,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-/// Per-device-type priority and notification settings.
-#[derive(Debug, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct DeviceTypeSettings {
-    pub priority_list: Vec<DeviceId>,
-    pub notify_on_priority_restore: bool,
-    pub switch_communication_device: bool,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PersistentState {
@@ -66,17 +57,6 @@ impl PersistentState {
                 &mut self.notify_on_priority_restore_input,
                 &mut self.switch_communication_device_input,
             ),
-        }
-    }
-
-    /// Returns an owned snapshot of settings for the given device type.
-    /// Callers that need a borrowed view should use the individual accessors instead.
-    pub fn settings(&self, device_type: DeviceType) -> DeviceTypeSettings {
-        let (list, notify, switch) = self.fields_ref(device_type);
-        DeviceTypeSettings {
-            priority_list: list.clone(),
-            notify_on_priority_restore: notify,
-            switch_communication_device: switch,
         }
     }
 

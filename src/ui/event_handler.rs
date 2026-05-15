@@ -17,7 +17,8 @@ use tray_icon::menu::Menu;
 use super::find_menu_item;
 
 fn get_check_item_state(menu: &Menu, id: &tray_icon::menu::MenuId) -> Option<bool> {
-    find_menu_item(menu, id).and_then(|item| item.as_check_menuitem().map(|c| c.is_checked()))
+    find_menu_item(menu, id)
+        .and_then(|item| item.as_check_menuitem().map(tray_icon::menu::CheckMenuItem::is_checked))
 }
 
 /// Reads a check-menu-item's state, applies `f` with it, and returns `SaveConfig`.
@@ -109,15 +110,15 @@ fn handle_priority_event(
     match action {
         DeviceAction::AddToPriority => {
             let list = persistent_state.priority_list_mut(device_type);
-            if !list.iter().any(|x| *x == **device_id) {
+            if list.iter().any(|x| *x == **device_id) {
+                false
+            } else {
                 list.push(device_id.clone());
                 persistent_state
                     .devices
                     .entry(device_id.clone())
                     .or_insert_with(|| DeviceSettings::new(device_name.to_string(), device_type));
                 true
-            } else {
-                false
             }
         }
         DeviceAction::RemoveFromPriority => {
@@ -192,150 +193,164 @@ pub fn handle_menu_event(
             device_id,
             device_type,
             action,
-        } => match action {
-            DeviceAction::VolumeLock
-            | DeviceAction::VolumeLockNotify
-            | DeviceAction::UnmuteLock
-            | DeviceAction::UnmuteLockNotify => {
-                if let Some(is_checked) = get_check_item_state(ctx.tray_menu, &event.id) {
-                    apply_device_lock_toggle(
-                        action,
-                        is_checked,
-                        device_id,
-                        &menu_info.name,
-                        *device_type,
-                        ctx.persistent_state,
-                        ctx.backend,
-                    );
-
-                    ctx.persistent_state.remove_device_if_unused(device_id);
-                    MenuEventResult::SaveConfig
-                } else {
-                    MenuEventResult::NoChange
-                }
-            }
-            DeviceAction::AddToPriority
-            | DeviceAction::RemoveFromPriority
-            | DeviceAction::MovePriorityUp
-            | DeviceAction::MovePriorityDown
-            | DeviceAction::MovePriorityToTop
-            | DeviceAction::MovePriorityToBottom => {
-                if handle_priority_event(
-                    action,
-                    device_id,
-                    *device_type,
-                    &menu_info.name,
-                    ctx.persistent_state,
-                ) {
-                    MenuEventResult::SaveConfig
-                } else {
-                    MenuEventResult::NoChange
-                }
-            }
-            DeviceAction::SetTemporaryPriority => {
-                let is_checked = get_check_item_state(ctx.tray_menu, &event.id).unwrap_or(false);
-
-                ctx.temporary_priorities.set(
-                    *device_type,
-                    if is_checked {
-                        Some(device_id.clone())
-                    } else {
-                        None
-                    },
-                );
-                MenuEventResult::DevicesChanged
-            }
-            DeviceAction::OpenProperties => {
-                let tab = match device_type {
-                    DeviceType::Output => "0",
-                    DeviceType::Input => "1",
-                };
-                if let Err(e) = open_sound_control_panel(tab) {
-                    log::error!("Failed to open sound control panel: {e:#}");
-                }
-                MenuEventResult::NoChange
-            }
-            DeviceAction::OpenSettings => {
-                if let Err(e) = open_device_settings(device_id) {
-                    log::error!("Failed to open device settings: {e:#}");
-                }
-                MenuEventResult::NoChange
-            }
-        },
+        } => handle_device_event(event, action, device_id, *device_type, &menu_info.name, ctx),
         MenuAction::Preference {
             device_type,
             action,
-        } => match action {
-            PreferenceAction::PriorityRestoreNotify => {
-                let dt = *device_type;
-                with_check_state(ctx.tray_menu, &event.id, |checked| {
-                    ctx.persistent_state.set_notify_on_priority_restore(dt, checked);
-                })
-            }
-            PreferenceAction::SwitchCommunicationDevice => {
-                let dt = *device_type;
-                with_check_state(ctx.tray_menu, &event.id, |checked| {
-                    ctx.persistent_state.set_switch_communication_device(dt, checked);
-                })
-            }
-            PreferenceAction::OpenDevicesList => {
-                if let Err(e) = open_devices_list(*device_type) {
-                    log::error!("Failed to open devices list: {e:#}");
-                }
+        } => handle_preference_event(event, action, *device_type, ctx),
+        MenuAction::App(action) => handle_app_event(event, action, ctx),
+    }
+}
+
+fn handle_device_event(
+    event: &tray_icon::menu::MenuEvent,
+    action: &DeviceAction,
+    device_id: &DeviceId,
+    device_type: DeviceType,
+    device_name: &str,
+    ctx: &mut MenuEventContext<'_, impl AudioBackend>,
+) -> MenuEventResult {
+    match action {
+        DeviceAction::VolumeLock
+        | DeviceAction::VolumeLockNotify
+        | DeviceAction::UnmuteLock
+        | DeviceAction::UnmuteLockNotify => {
+            if let Some(is_checked) = get_check_item_state(ctx.tray_menu, &event.id) {
+                apply_device_lock_toggle(
+                    action,
+                    is_checked,
+                    device_id,
+                    device_name,
+                    device_type,
+                    ctx.persistent_state,
+                    ctx.backend,
+                );
+                ctx.persistent_state.remove_device_if_unused(device_id);
+                MenuEventResult::SaveConfig
+            } else {
                 MenuEventResult::NoChange
             }
-        },
-        MenuAction::App(action) => match action {
-            AppAction::OpenSoundSettings => {
-                if let Err(e) = open_sound_settings() {
-                    log::error!("Failed to open sound settings: {e:#}");
-                }
+        }
+        DeviceAction::AddToPriority
+        | DeviceAction::RemoveFromPriority
+        | DeviceAction::MovePriorityUp
+        | DeviceAction::MovePriorityDown
+        | DeviceAction::MovePriorityToTop
+        | DeviceAction::MovePriorityToBottom => {
+            if handle_priority_event(action, device_id, device_type, device_name, ctx.persistent_state) {
+                MenuEventResult::SaveConfig
+            } else {
                 MenuEventResult::NoChange
             }
-            AppAction::OpenVolumeMixer => {
-                if let Err(e) = open_volume_mixer() {
-                    log::error!("Failed to open volume mixer: {e:#}");
-                }
+        }
+        DeviceAction::SetTemporaryPriority => {
+            let is_checked = get_check_item_state(ctx.tray_menu, &event.id).unwrap_or(false);
+            ctx.temporary_priorities.set(
+                device_type,
+                if is_checked { Some(device_id.clone()) } else { None },
+            );
+            MenuEventResult::DevicesChanged
+        }
+        DeviceAction::OpenProperties => {
+            let tab = match device_type {
+                DeviceType::Output => "0",
+                DeviceType::Input => "1",
+            };
+            if let Err(e) = open_sound_control_panel(tab) {
+                log::error!("Failed to open sound control panel: {e:#}");
+            }
+            MenuEventResult::NoChange
+        }
+        DeviceAction::OpenSettings => {
+            if let Err(e) = open_device_settings(device_id) {
+                log::error!("Failed to open device settings: {e:#}");
+            }
+            MenuEventResult::NoChange
+        }
+    }
+}
+
+fn handle_preference_event(
+    event: &tray_icon::menu::MenuEvent,
+    action: &PreferenceAction,
+    device_type: DeviceType,
+    ctx: &mut MenuEventContext<'_, impl AudioBackend>,
+) -> MenuEventResult {
+    match action {
+        PreferenceAction::PriorityRestoreNotify => {
+            with_check_state(ctx.tray_menu, &event.id, |checked| {
+                ctx.persistent_state.set_notify_on_priority_restore(device_type, checked);
+            })
+        }
+        PreferenceAction::SwitchCommunicationDevice => {
+            with_check_state(ctx.tray_menu, &event.id, |checked| {
+                ctx.persistent_state.set_switch_communication_device(device_type, checked);
+            })
+        }
+        PreferenceAction::OpenDevicesList => {
+            if let Err(e) = open_devices_list(device_type) {
+                log::error!("Failed to open devices list: {e:#}");
+            }
+            MenuEventResult::NoChange
+        }
+    }
+}
+
+fn handle_app_event(
+    event: &tray_icon::menu::MenuEvent,
+    action: &AppAction,
+    ctx: &mut MenuEventContext<'_, impl AudioBackend>,
+) -> MenuEventResult {
+    match action {
+        AppAction::OpenSoundSettings => {
+            if let Err(e) = open_sound_settings() {
+                log::error!("Failed to open sound settings: {e:#}");
+            }
+            MenuEventResult::NoChange
+        }
+        AppAction::OpenVolumeMixer => {
+            if let Err(e) = open_volume_mixer() {
+                log::error!("Failed to open volume mixer: {e:#}");
+            }
+            MenuEventResult::NoChange
+        }
+        AppAction::CheckForUpdates => MenuEventResult::UpdateCheck,
+        AppAction::PerformUpdate => {
+            if let Some(info) = ctx.update_info {
+                MenuEventResult::UpdatePerform(info.clone())
+            } else {
                 MenuEventResult::NoChange
             }
-            AppAction::CheckForUpdates => MenuEventResult::UpdateCheck,
-            AppAction::PerformUpdate => {
-                if let Some(info) = ctx.update_info {
-                    MenuEventResult::UpdatePerform(info.clone())
-                } else {
-                    MenuEventResult::NoChange
-                }
+        }
+        AppAction::OpenGitHubRepo => {
+            if let Err(e) = open_url(GITHUB_REPO_URL) {
+                log::error!("Failed to open GitHub repo: {e:#}");
             }
-            AppAction::OpenGitHubRepo => {
-                if let Err(e) = open_url(GITHUB_REPO_URL) {
-                    log::error!("Failed to open GitHub repo: {e:#}");
-                }
+            MenuEventResult::NoChange
+        }
+        AppAction::ToggleAutoLaunch => {
+            if let Some(checked) = get_check_item_state(ctx.tray_menu, &event.id) {
+                MenuEventResult::ToggleAutoLaunch(checked)
+            } else {
                 MenuEventResult::NoChange
             }
-            AppAction::ToggleAutoLaunch => {
-                if let Some(checked) = get_check_item_state(ctx.tray_menu, &event.id) {
-                    MenuEventResult::ToggleAutoLaunch(checked)
-                } else {
-                    MenuEventResult::NoChange
-                }
-            }
-            AppAction::ToggleCheckUpdatesOnLaunch => {
-                with_check_state(ctx.tray_menu, &event.id, |checked| {
-                    ctx.persistent_state.check_updates_on_launch = checked;
-                })
-            }
-            AppAction::OpenAppDirectory => {
-                match get_executable_directory() {
-                    Ok(dir) => {
-                        if let Err(e) = open_path(&dir) {
-                            log::error!("Failed to open app directory: {e:#}");
-                        }
+        }
+        AppAction::ToggleCheckUpdatesOnLaunch => {
+            with_check_state(ctx.tray_menu, &event.id, |checked| {
+                ctx.persistent_state.check_updates_on_launch = checked;
+            })
+        }
+        AppAction::OpenAppDirectory => {
+            match get_executable_directory() {
+                Ok(dir) => {
+                    if let Err(e) = open_path(&dir) {
+                        log::error!("Failed to open app directory: {e:#}");
                     }
-                    Err(e) => log::error!("Failed to get executable directory: {e:#}"),
                 }
-                MenuEventResult::NoChange
+                Err(e) => log::error!("Failed to get executable directory: {e:#}"),
             }
-        },
+            MenuEventResult::NoChange
+        }
     }
 }
 
