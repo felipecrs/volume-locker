@@ -434,7 +434,7 @@ fn enforce_volume_lock_for_device(
     );
     if lock.notify {
         throttler.send_if_not_throttled(
-            &format!("volume_restore_{}", device_id),
+            &format!("volume_restore_{device_id}"),
             "Volume Restored",
             &format!(
                 "The volume of {device_name} has been restored from {new_volume_percent}% to {target_volume_percent}%."
@@ -567,10 +567,7 @@ fn run() -> anyhow::Result<()> {
         menu_id_map: MenuIdMap::new(),
         watched_devices: Vec::new(),
         notification_throttler: NotificationThrottler::new(),
-        temporary_priorities: TemporaryPriorities {
-            output: None,
-            input: None,
-        },
+        temporary_priorities: TemporaryPriorities::default(),
         update_info: None,
         tray_icon: None,
         backend,

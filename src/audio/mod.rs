@@ -62,7 +62,7 @@ pub fn check_and_unmute_device(
                 get_unmute_notification_details(device_type);
             let message = format!("{device_name} {notification_suffix}");
             throttler.send_if_not_throttled(
-                &format!("unmute_{}", device.id()),
+                &format!("unmute_{id}", id = device.id()),
                 notification_title,
                 &message,
             );

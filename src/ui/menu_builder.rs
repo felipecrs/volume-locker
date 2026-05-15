@@ -363,7 +363,7 @@ fn append_temporary_priority_section(
 
         let submenu_label = if let Some(temp_id) = temp_id_opt {
             let device_name = lookup_device_name(temp_id, persistent_state, backend);
-            format!("{}: {}", label_prefix, device_name)
+            format!("{label_prefix}: {device_name}")
         } else {
             label_prefix.to_string()
         };

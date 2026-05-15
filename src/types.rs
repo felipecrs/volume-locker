@@ -246,6 +246,7 @@ pub struct VolumeChangedEvent {
     pub new_volume: Option<VolumeScalar>,
 }
 
+#[derive(Default)]
 pub struct TemporaryPriorities {
     pub output: Option<DeviceId>,
     pub input: Option<DeviceId>,
