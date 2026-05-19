@@ -29,10 +29,9 @@ use crate::ui::MenuIdMap;
 use crate::utils::{get_executable_directory, get_executable_path_str};
 use anyhow::Context;
 use auto_launch::{AutoLaunch, AutoLaunchBuilder};
-use simplelog::{
-    ColorChoice, CombinedLogger, Config, LevelFilter, SharedLogger, TermLogger, TerminalMode,
-    WriteLogger,
-};
+#[cfg(debug_assertions)]
+use simplelog::{ColorChoice, TermLogger, TerminalMode};
+use simplelog::{CombinedLogger, Config, LevelFilter, SharedLogger, WriteLogger};
 use std::fs::File;
 use tao::{
     event::Event,

@@ -1,3 +1,5 @@
+#![allow(clippy::inline_always)]
+
 use super::{AudioBackend, AudioDevice, windows_com_policy_config};
 use crate::types::{DeviceId, DeviceRole, DeviceType, VolumeScalar};
 use regex_lite::Regex;
