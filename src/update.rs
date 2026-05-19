@@ -1,6 +1,7 @@
 use crate::consts::{CURRENT_VERSION, GITHUB_RELEASE_ASSET, GITHUB_REPO_URL};
+use crate::notification::log_and_notify_error;
 use crate::platform::{NotificationDuration, send_notification};
-use crate::utils::{get_executable_path_str, log_and_notify_error};
+use crate::utils::get_executable_path_str;
 use anyhow::Context;
 use semver::Version;
 use std::fs::File;
@@ -31,26 +32,35 @@ pub struct UpdateInfo {
     pub release_url: String,
 }
 
-fn check_for_updates() -> anyhow::Result<Option<UpdateInfo>> {
-    log::info!("Checking for updates...");
-
-    let agent = create_agent();
-    let releases_url = format!("{GITHUB_REPO_URL}/releases/latest");
-    let response = agent.head(&releases_url).call()?;
-    let release_url = response.get_uri().to_string();
-
-    // Extract version from URL like: https://github.com/felipecrs/volume-locker/releases/tag/v1.2.3
-    let latest_tag = release_url
+/// Extracts the version tag from a release URL like
+/// `https://github.com/.../releases/tag/v1.2.3` and returns `("v1.2.3", "1.2.3")`.
+fn extract_version_from_url(url: &str) -> anyhow::Result<(&str, &str)> {
+    let tag = url
         .rsplit('/')
         .next()
         .context("could not extract version from redirect URL")?;
+    let version = tag.trim_start_matches('v');
+    Ok((tag, version))
+}
 
-    let latest_version = latest_tag.trim_start_matches('v');
+/// Returns `true` if `latest` is newer than `current` by semver comparison.
+fn is_newer_version(latest: &str, current: &str) -> bool {
+    Version::parse(latest).ok() > Version::parse(current).ok()
+}
+
+fn fetch_update_info() -> anyhow::Result<Option<UpdateInfo>> {
+    log::info!("Checking for updates...");
+
+    let agent = create_agent();
+    let latest_releases_url = format!("{GITHUB_REPO_URL}/releases/latest");
+    let response = agent.head(&latest_releases_url).call()?;
+    let release_url = response.get_uri().to_string();
+
+    let (latest_tag, latest_version) = extract_version_from_url(&release_url)?;
 
     log::info!("Current: {CURRENT_VERSION}, Latest: {latest_version}");
 
-    // Compare versions - if parsing fails, assume no update available
-    if Version::parse(latest_version).ok() > Version::parse(CURRENT_VERSION).ok() {
+    if is_newer_version(latest_version, CURRENT_VERSION) {
         Ok(Some(UpdateInfo {
             latest_version: latest_version.to_string(),
             download_url: format!(
@@ -65,71 +75,74 @@ fn check_for_updates() -> anyhow::Result<Option<UpdateInfo>> {
 
 /// Checks for updates and optionally notifies the user.
 /// If `manual_request` is true, shows notifications for all outcomes.
-/// If `manual_request` is false, only shows notification when update is available.
-pub fn check(manual_request: bool) -> Option<UpdateInfo> {
-    match check_for_updates() {
+/// If `manual_request` is false, only logs errors without notifying.
+/// Returns `Ok(Some(info))` when an update is available, `Ok(None)` when up to date,
+/// or `Err` when the check itself failed.
+pub fn check_for_update(manual_request: bool) -> anyhow::Result<Option<UpdateInfo>> {
+    match fetch_update_info() {
         Ok(Some(info)) => {
             log::info!("Update available: v{}", info.latest_version);
-            if manual_request {
-                let _ = send_notification(
+            if manual_request
+                && let Err(e) = send_notification(
                     "Update Available",
                     &format!(
                         "Version {} is available. Click 'Update' in the menu to install.",
                         info.latest_version
                     ),
                     NotificationDuration::Long,
-                );
+                )
+            {
+                log::error!("Failed to send update notification: {e:#}");
             }
-            Some(info)
+            Ok(Some(info))
         }
         Ok(None) => {
             log::info!("No updates available");
-            if manual_request {
-                let _ = send_notification(
+            if manual_request
+                && let Err(e) = send_notification(
                     "No Updates Available",
                     "You are running the latest version of Volume Locker.",
                     NotificationDuration::Short,
-                );
+                )
+            {
+                log::error!("Failed to send no-update notification: {e:#}");
             }
-            None
+            Ok(None)
         }
         Err(e) => {
             if manual_request {
                 log_and_notify_error(
                     "Update Check Failed",
-                    &format!("Failed to check for updates: {e}"),
+                    &format!("Failed to check for updates: {e:#}"),
                 );
             } else {
-                log::error!("Failed to check for updates: {e}");
+                log::error!("Failed to check for updates: {e:#}");
             }
-            None
+            Err(e)
         }
     }
 }
 
-/// Performs the update or shows error notification on failure.
-pub fn perform(update_info: &UpdateInfo) {
+/// Performs the update and returns `Ok(())` when the application should exit
+/// (update launched successfully).
+pub fn install_update(update_info: &UpdateInfo) -> anyhow::Result<()> {
     log::info!("Starting update to {}", update_info.latest_version);
-
-    if let Err(e) = try_perform(update_info) {
-        log_and_notify_error("Update Failed", &format!("Update failed: {e}"));
-    }
+    execute_update_steps(update_info)
 }
 
-fn try_perform(update_info: &UpdateInfo) -> anyhow::Result<()> {
-    // Open release notes
-    let _ = open::that_detached(&update_info.release_url);
+fn execute_update_steps(update_info: &UpdateInfo) -> anyhow::Result<()> {
+    if let Err(e) = crate::utils::open_url(&update_info.release_url) {
+        log::warn!("Failed to open release URL: {e:#}");
+    }
 
-    let exe_str = get_executable_path_str();
+    let exe_str = get_executable_path_str()?;
     let temp_download = format!("{exe_str}.download");
 
     log::info!("Downloading from {}", update_info.download_url);
 
-    // Download the update
     let agent = create_agent();
     let mut response = agent.get(&update_info.download_url).call()?;
 
-    // Write to temporary file
     let mut file = File::create(&temp_download)?;
     let mut reader = response.body_mut().as_reader();
     io::copy(&mut reader, &mut file)?;
@@ -137,7 +150,8 @@ fn try_perform(update_info: &UpdateInfo) -> anyhow::Result<()> {
 
     log::info!("Download complete, launching post-update script");
 
-    // Launch PowerShell script to complete the update (no window)
+    // Spawns a detached process that waits for this app to exit, then replaces
+    // the executable and relaunches it.
     Command::new("powershell.exe")
         .args([
             "-NoProfile",
@@ -146,9 +160,64 @@ fn try_perform(update_info: &UpdateInfo) -> anyhow::Result<()> {
         ])
         .env("VL_TEMP_PATH", &temp_download)
         .env("VL_EXE_PATH", exe_str)
-        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
         .spawn()?;
 
     log::info!("Post-update script launched, exiting application...");
-    std::process::exit(0);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_version_from_release_url() {
+        let (tag, version) = extract_version_from_url(
+            "https://github.com/felipecrs/volume-locker/releases/tag/v1.2.3",
+        )
+        .expect("should extract version from URL");
+        assert_eq!(tag, "v1.2.3");
+        assert_eq!(version, "1.2.3");
+    }
+
+    #[test]
+    fn extract_version_no_v_prefix() {
+        let (tag, version) = extract_version_from_url(
+            "https://github.com/felipecrs/volume-locker/releases/tag/1.0.0",
+        )
+        .expect("should extract version from URL");
+        assert_eq!(tag, "1.0.0");
+        assert_eq!(version, "1.0.0");
+    }
+
+    #[test]
+    fn is_newer_detects_major() {
+        assert!(is_newer_version("2.0.0", "1.0.0"));
+    }
+
+    #[test]
+    fn is_newer_detects_minor() {
+        assert!(is_newer_version("1.1.0", "1.0.0"));
+    }
+
+    #[test]
+    fn is_newer_detects_patch() {
+        assert!(is_newer_version("1.0.1", "1.0.0"));
+    }
+
+    #[test]
+    fn is_newer_same_version() {
+        assert!(!is_newer_version("1.0.0", "1.0.0"));
+    }
+
+    #[test]
+    fn is_newer_older_version() {
+        assert!(!is_newer_version("0.9.0", "1.0.0"));
+    }
+
+    #[test]
+    fn is_newer_invalid_latest_returns_false() {
+        assert!(!is_newer_version("not-a-version", "1.0.0"));
+    }
 }

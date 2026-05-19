@@ -3,75 +3,55 @@
     windows_subsystem = "windows"
 )]
 
+mod app;
 mod audio;
 mod config;
 mod consts;
+mod notification;
 mod platform;
 mod types;
 mod ui;
 mod update;
 mod utils;
 
-use crate::audio::{
-    AudioBackend, AudioBackendImpl, AudioDevice, check_and_unmute_device, enforce_priorities,
-    get_unmute_notification_details, migrate_device_ids,
+use crate::app::{AppState, EventLoopRefs};
+use crate::audio::AudioBackend;
+use crate::audio::AudioBackendImpl;
+use crate::config::load_state;
+use crate::consts::{APP_NAME, APP_UID, LOG_FILE_NAME};
+use crate::notification::NotificationThrottler;
+use crate::platform::{
+    NotificationDuration, SingleInstanceGuard, init_platform, is_directory_writable,
+    send_notification,
 };
-use crate::config::{load_state, save_state};
-use crate::consts::{APP_NAME, APP_UID, CURRENT_VERSION, LOG_FILE_NAME};
-use crate::platform::{NotificationDuration, init_platform, send_notification};
-use crate::types::{MenuItemDeviceInfo, UserEvent, VolumeChangedEvent};
-use crate::ui::{TemporaryPriorities, handle_menu_event, rebuild_tray_menu};
-use crate::update::UpdateInfo;
-use crate::utils::{
-    convert_float_to_percent, convert_percent_to_float, get_executable_directory,
-    get_executable_path_str, log_and_notify_error, send_notification_debounced,
-};
+use crate::types::{TemporaryPriorities, UserEvent};
+use crate::ui::MenuIdMap;
+use crate::utils::{get_executable_directory, get_executable_path_str};
 use anyhow::Context;
-use auto_launch::AutoLaunchBuilder;
-use faccess::PathExt;
-use simplelog::*;
-use single_instance::SingleInstance;
-use std::collections::HashMap;
+use auto_launch::{AutoLaunch, AutoLaunchBuilder};
+#[cfg(debug_assertions)]
+use simplelog::{ColorChoice, TermLogger, TerminalMode};
+use simplelog::{CombinedLogger, Config, LevelFilter, SharedLogger, WriteLogger};
 use std::fs::File;
-use std::time::Instant;
 use tao::{
     event::Event,
     event_loop::{ControlFlow, EventLoopBuilder},
 };
 use tray_icon::{
-    MouseButton, TrayIconBuilder, TrayIconEvent,
-    menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem},
+    MouseButton, MouseButtonState, TrayIconEvent,
+    menu::{CheckMenuItem, Menu, MenuEvent, MenuItem},
 };
 
-fn main() {
+fn main() -> std::process::ExitCode {
     if let Err(e) = run() {
         eprintln!("Fatal error: {e:#}");
         log::error!("Fatal error: {e:#}");
-        std::process::exit(1);
+        return std::process::ExitCode::FAILURE;
     }
+    std::process::ExitCode::SUCCESS
 }
 
-fn run() -> anyhow::Result<()> {
-    let executable_directory = get_executable_directory();
-
-    init_platform(&executable_directory)?;
-
-    if !executable_directory.writable() {
-        let error_title = "Volume Locker Directory Not Writable";
-        let error_message = format!(
-            "Please move Volume Locker to a directory that is writable or fix the permissions of '{}'.",
-            executable_directory.display(),
-        );
-
-        eprintln!("{error_title}: {error_message}");
-
-        if let Err(e) = send_notification(error_title, &error_message, NotificationDuration::Long) {
-            eprintln!("Failed to show {error_title} notification: {e}");
-        }
-
-        std::process::exit(1);
-    }
-
+fn setup_logging(executable_directory: &std::path::Path) -> anyhow::Result<()> {
     let log_path = executable_directory.join(LOG_FILE_NAME);
     let loggers: Vec<Box<dyn SharedLogger>> = vec![
         WriteLogger::new(
@@ -87,41 +67,69 @@ fn run() -> anyhow::Result<()> {
             ColorChoice::Auto,
         ),
     ];
-
     CombinedLogger::init(loggers).context("failed to init logger")?;
 
-    // Set panic hook to log panic info before exiting
+    // windows_subsystem = "windows" suppresses stderr, so log panics before exit
     std::panic::set_hook(Box::new(|panic_info| {
         log::error!("Panic occurred: {panic_info}");
     }));
 
-    // Only allow one instance of the application to run at a time
-    let instance = SingleInstance::new(APP_UID).context("failed to create single instance")?;
-    if !instance.is_single() {
-        log::error!("Another instance is already running.");
-        std::process::exit(1);
+    Ok(())
+}
+
+fn ensure_writable_directory(executable_directory: &std::path::Path) -> anyhow::Result<()> {
+    if !is_directory_writable(executable_directory) {
+        let error_title = "Volume Locker Directory Not Writable";
+        let error_message = format!(
+            "Please move Volume Locker to a directory that is writable or fix the permissions of '{}'.",
+            executable_directory.display(),
+        );
+        let _ = send_notification(error_title, &error_message, NotificationDuration::Long);
+        anyhow::bail!("{error_title}: {error_message}");
     }
+    Ok(())
+}
 
-    let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
-
+fn wire_event_proxies(event_loop: &tao::event_loop::EventLoop<UserEvent>) {
     let proxy = event_loop.create_proxy();
     TrayIconEvent::set_event_handler(Some(move |event| {
-        let _ = proxy.send_event(UserEvent::TrayIcon(event));
+        if let Err(e) = proxy.send_event(UserEvent::TrayIcon(event)) {
+            log::warn!("Failed to send TrayIcon event: {e:#}");
+        }
     }));
     TrayIconEvent::receiver();
 
     let proxy = event_loop.create_proxy();
     MenuEvent::set_event_handler(Some(move |event| {
-        let _ = proxy.send_event(UserEvent::Menu(event));
+        if let Err(e) = proxy.send_event(UserEvent::Menu(event)) {
+            log::warn!("Failed to send Menu event: {e:#}");
+        }
     }));
     MenuEvent::receiver();
+}
 
-    let app_path = get_executable_path_str();
-    let auto_launch = AutoLaunchBuilder::new()
+fn create_auto_launch() -> anyhow::Result<AutoLaunch> {
+    let app_path = get_executable_path_str()?;
+    AutoLaunchBuilder::new()
         .set_app_name(APP_NAME)
         .set_app_path(&app_path)
         .build()
-        .context("failed to build auto-launch")?;
+        .context("failed to build auto-launch")
+}
+
+fn run() -> anyhow::Result<()> {
+    let executable_directory = get_executable_directory()?;
+    setup_logging(&executable_directory)?;
+
+    let com_token = init_platform(&executable_directory)?;
+    ensure_writable_directory(&executable_directory)?;
+    let _instance =
+        SingleInstanceGuard::acquire(APP_UID).context("failed to acquire single instance lock")?;
+
+    let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+    wire_event_proxies(&event_loop);
+
+    let auto_launch = create_auto_launch()?;
 
     let output_devices_heading_item = MenuItem::new("Output devices", false, None);
     let input_devices_heading_item = MenuItem::new("Input devices", false, None);
@@ -138,351 +146,143 @@ fn run() -> anyhow::Result<()> {
         .append(&quit_item)
         .context("failed to append initial quit item")?;
 
-    let mut tray_icon = None;
-
     let unlocked_icon = tray_icon::Icon::from_resource_name("volume-unlocked-icon", None)
         .context("failed to load unlocked icon")?;
     let locked_icon = tray_icon::Icon::from_resource_name("volume-locked-icon", None)
         .context("failed to load locked icon")?;
 
-    let mut menu_id_to_device: HashMap<MenuId, MenuItemDeviceInfo> = HashMap::new();
-
     #[cfg(target_os = "windows")]
-    let mut backend = AudioBackendImpl::new().context("failed to initialize audio backend")?;
+    let backend =
+        AudioBackendImpl::new(&com_token).context("failed to initialize audio backend")?;
 
     let proxy = event_loop.create_proxy();
     backend
         .register_device_change_callback(Box::new(move || {
-            let _ = proxy.send_event(UserEvent::DevicesChanged);
+            if let Err(e) = proxy.send_event(UserEvent::DevicesChanged) {
+                log::warn!("Failed to send DevicesChanged event: {e:#}");
+            }
         }))
         .context("failed to register device change callback")?;
 
-    let mut watched_devices: Vec<Box<dyn AudioDevice>> = Vec::new();
-
-    let mut last_notification_times: HashMap<String, Instant> = HashMap::new();
-
-    let mut temporary_priorities = TemporaryPriorities {
-        output: None,
-        input: None,
-    };
-
     let main_proxy = event_loop.create_proxy();
 
-    let mut persistent_state = match load_state() {
-        Ok(state) => state,
-        Err(e) => {
-            let message = format!(
-                "{e}\n\nExiting to prevent overwriting your preferences. Please check the state file."
-            );
-            log_and_notify_error("Failed to Load Preferences", &message);
-            std::process::exit(1);
-        }
-    };
-    log::info!("Loaded: {persistent_state:?}");
+    let persistent_state = load_state()
+        .context("failed to load preferences — exiting to prevent overwriting your preferences")?;
+    log::info!(
+        "Loaded state ({} devices tracked)",
+        persistent_state.device_count()
+    );
 
-    let mut update_info: Option<UpdateInfo> = None;
+    let mut app = AppState {
+        persistent_state,
+        menu_id_map: MenuIdMap::new(),
+        watched_devices: Vec::new(),
+        notification_throttler: NotificationThrottler::new(),
+        temporary_priorities: TemporaryPriorities::default(),
+        update_info: None,
+        tray_icon: None,
+        backend,
+    };
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
 
+        let make_refs = || EventLoopRefs {
+            auto_launch: &auto_launch,
+            auto_launch_check_item: &auto_launch_check_item,
+            check_updates_on_launch_item: &check_updates_on_launch_item,
+            quit_item: &quit_item,
+            tray_menu: &tray_menu,
+            output_devices_heading_item: &output_devices_heading_item,
+            input_devices_heading_item: &input_devices_heading_item,
+        };
+
         match event {
             Event::NewEvents(tao::event::StartCause::Init) => {
-                let tooltip = format!("{APP_NAME} v{CURRENT_VERSION}");
-                match TrayIconBuilder::new()
-                    .with_menu(Box::new(tray_menu.clone()))
-                    .with_tooltip(&tooltip)
-                    .with_icon(unlocked_icon.clone())
-                    .with_id(APP_UID)
-                    .with_menu_on_left_click(false)
-                    .with_menu_on_right_click(false)
-                    .build()
-                {
-                    Ok(icon) => tray_icon = Some(icon),
-                    Err(e) => log::error!("Failed to build tray icon: {e}"),
-                }
-
-                if persistent_state.check_updates_on_launch {
-                    update_info = update::check(false);
-                }
-
-                let _ = main_proxy.send_event(UserEvent::DevicesChanged);
+                app.handle_init(&tray_menu, &unlocked_icon, &main_proxy);
             }
 
             Event::UserEvent(UserEvent::Menu(event)) => {
-                if event.id == auto_launch_check_item.id() {
-                    let checked = auto_launch_check_item.is_checked();
-                    let result = if checked {
-                        auto_launch.enable()
-                    } else {
-                        auto_launch.disable()
-                    };
-                    if let Err(e) = result {
-                        log_and_notify_error(
-                            "Failed to Toggle Auto-Launch",
-                            &format!("Failed to toggle auto-launch: {e}"),
-                        );
-                    }
-                } else if event.id == check_updates_on_launch_item.id() {
-                    persistent_state.check_updates_on_launch = check_updates_on_launch_item.is_checked();
-                    let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
-                } else if event.id == quit_item.id() {
-                    tray_icon.take();
-                    *control_flow = ControlFlow::Exit;
-                } else if let Some(menu_info) = menu_id_to_device.get(&event.id) {
-                    let result = handle_menu_event(
-                        &event,
-                        menu_info,
-                        &tray_menu,
-                        &mut persistent_state,
-                        &backend,
-                        &mut temporary_priorities,
-                        &update_info,
-                    );
-
-                    if result.devices_changed {
-                        let _ = main_proxy.send_event(UserEvent::DevicesChanged);
-                    }
-
-                    if result.should_save {
-                        let _ = main_proxy.send_event(UserEvent::ConfigurationChanged);
-                    }
-
-                    match result.update_action {
-                        ui::UpdateAction::Perform(info) => update::perform(&info),
-                        ui::UpdateAction::Check => update_info = update::check(true),
-                        ui::UpdateAction::None => {}
-                    }
-                }
+                let refs = make_refs();
+                app.handle_menu_click(&event, &refs, &main_proxy, control_flow);
             }
 
-            Event::UserEvent(UserEvent::TrayIcon(TrayIconEvent::Click { button, .. }))
-                if button == MouseButton::Right || button == MouseButton::Left =>
-            {
-                match rebuild_tray_menu(
-                    &tray_menu,
-                    &backend,
-                    &mut persistent_state,
-                    &temporary_priorities,
-                    auto_launch.is_enabled().unwrap_or(false),
-                    &auto_launch_check_item,
-                    &check_updates_on_launch_item,
-                    &quit_item,
-                    &output_devices_heading_item,
-                    &input_devices_heading_item,
-                    &update_info,
-                ) {
-                    Ok(map) => {
-                        menu_id_to_device = map;
-                        if let Some(tray_icon) = &tray_icon {
-                            tray_icon.show_menu();
-                        }
-                    }
-                    Err(e) => {
-                        log_and_notify_error(
-                            "Failed to Rebuild Tray Menu",
-                            &format!("Failed to rebuild tray menu: {e}"),
-                        );
-                    }
-                }
+            Event::UserEvent(UserEvent::TrayIcon(TrayIconEvent::Click {
+                button,
+                button_state: MouseButtonState::Down,
+                ..
+            })) if button == MouseButton::Right || button == MouseButton::Left => {
+                let refs = make_refs();
+                app.handle_tray_click(&refs);
             }
 
             Event::UserEvent(UserEvent::VolumeChanged(event)) => {
-                let VolumeChangedEvent {
-                    device_id,
-                    new_volume,
-                } = event;
-
-                // We need to check if the device is in our managed list
-                if let Some(device_settings) = persistent_state.devices.get_mut(&device_id) {
-                    let device = match backend.get_device_by_id(&device_id) {
-                        Ok(d) => d,
-                        Err(e) => {
-                            log::error!(
-                                "Failed to get device by id for {}: {}",
-                                device_settings.name,
-                                e
-                            );
-                            return;
-                        }
-                    };
-
-                    let new_volume: f32 = match new_volume {
-                        Some(v) => v,
-                        None => match device.volume() {
-                            Ok(v) => v,
-                            Err(e) => {
-                                log::error!("Failed to get volume for {device_id}: {e}");
-                                return;
-                            }
-                        },
-                    };
-                    let new_volume_percent = convert_float_to_percent(new_volume);
-
-                    // Check volume lock
-                    if device_settings.is_volume_locked {
-                        let target_volume_percent = device_settings.volume_percent;
-                        if new_volume_percent != target_volume_percent {
-                            let target_volume = convert_percent_to_float(target_volume_percent);
-                            let device_name = device.name();
-
-                            if let Err(e) = device.set_volume(target_volume) {
-                                log::error!(
-                                    "Failed to set volume of {device_name} to {target_volume_percent}%: {e}"
-                                );
-                                return;
-                            }
-                            log::info!(
-                                "Restored volume of {device_name} from {new_volume_percent}% to {target_volume_percent}%"
-                            );
-                            if device_settings.notify_on_volume_lock {
-                                send_notification_debounced(
-                                    &format!("volume_restore_{}", device_id),
-                                    "Volume Restored",
-                                    &format!(
-                                        "The volume of {device_name} has been restored from {new_volume_percent}% to {target_volume_percent}%."
-                                    ),
-                                    &mut last_notification_times,
-                                );
-                            }
-                        }
-                    }
-
-                    // Check unmute lock
-                    if device_settings.is_unmute_locked {
-                        let device_name = device_settings.name.clone();
-                        let (notification_title, notification_suffix) =
-                            get_unmute_notification_details(device_settings.device_type);
-
-                        check_and_unmute_device(
-                            device.as_ref(),
-                            &device_name,
-                            device_settings.notify_on_unmute_lock,
-                            notification_title,
-                            notification_suffix,
-                            &mut last_notification_times,
-                        );
-                    }
-                }
+                app.handle_volume_changed(event);
             }
 
             Event::UserEvent(UserEvent::DevicesChanged) => {
-                log::info!("Reloading list of watched devices...");
-
-                // Migrate device IDs if they have changed, and save if any migrations occurred
-                let migrations_occurred = migrate_device_ids(&backend, &mut persistent_state);
-
-                if migrations_occurred {
-                    save_state(&persistent_state);
-                    log::info!("Saved state after device migration");
-                }
-
-                enforce_priorities(
-                    &backend,
-                    &persistent_state,
-                    &mut last_notification_times,
-                    &temporary_priorities,
-                );
-
-                watched_devices.clear();
-                let mut some_locked = false;
-
-                for (device_id, device_settings) in persistent_state.devices.iter() {
-                    // Only watch if at least one setting is enabled
-                    if !device_settings.is_volume_locked && !device_settings.is_unmute_locked {
-                        continue;
-                    }
-
-                    let device = match backend.get_device_by_id(device_id) {
-                        Ok(device) => device,
-                        Err(e) => {
-                            log::warn!(
-                                "Not watching volume of {} as failed to get its device by id: {}",
-                                device_settings.name,
-                                e
-                            );
-                            continue;
-                        }
-                    };
-
-                    if let Ok(false) = device.is_active() {
-                        log::info!(
-                            "Not watching volume of {} as it is not active",
-                            device_settings.name
-                        );
-                        continue;
-                    }
-
-                    let proxy = main_proxy.clone();
-                    let dev_id = device_id.clone();
-                    if let Err(e) = device.watch_volume(Box::new(move |vol| {
-                        let _ = proxy.send_event(UserEvent::VolumeChanged(
-                            VolumeChangedEvent {
-                                device_id: dev_id.clone(),
-                                new_volume: vol,
-                            },
-                        ));
-                    })) {
-                        log::warn!(
-                            "Not watching volume of {} as failed to register for volume changes: {}",
-                            device_settings.name,
-                            e
-                        );
-                        continue;
-                    }
-
-                    // Enforce unmute on refresh if enabled
-                    if device_settings.is_unmute_locked {
-                        let (notification_title, notification_suffix) =
-                            get_unmute_notification_details(device_settings.device_type);
-
-                        check_and_unmute_device(
-                            device.as_ref(),
-                            &device_settings.name,
-                            device_settings.notify_on_unmute_lock,
-                            notification_title,
-                            notification_suffix,
-                            &mut last_notification_times,
-                        );
-                    }
-
-                    watched_devices.push(device);
-
-                    log::info!(
-                        "Watching volume of {} (Locked: {}, Unmute: {})",
-                        device_settings.name,
-                        device_settings.is_volume_locked,
-                        device_settings.is_unmute_locked
-                    );
-
-                    let _ = main_proxy.send_event(UserEvent::VolumeChanged(
-                        VolumeChangedEvent {
-                            device_id: device_id.clone(),
-                            new_volume: None,
-                        },
-                    ));
-
-                    some_locked = true;
-                }
-
-                if let Some(tray_icon) = &tray_icon {
-                    if some_locked {
-                        if let Err(e) = tray_icon.set_icon(Some(locked_icon.clone())) {
-                            log::error!("Failed to update tray icon to locked: {e}");
-                        }
-                    } else if let Err(e) = tray_icon.set_icon(Some(unlocked_icon.clone())) {
-                        log::error!("Failed to update tray icon to unlocked: {e}");
-                    }
-                }
-
+                app.handle_devices_changed(&main_proxy, &locked_icon, &unlocked_icon);
             }
 
             Event::UserEvent(UserEvent::ConfigurationChanged) => {
-                save_state(&persistent_state);
-                log::info!("Saved: {persistent_state:?}");
-                let _ = main_proxy.send_event(UserEvent::DevicesChanged);
+                app.handle_configuration_changed(&main_proxy);
             }
 
             _ => {}
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::audio::{enforce_volume_lock, tests::MockDevice};
+    use crate::notification::NotificationThrottler;
+    use crate::types::{DeviceId, VolumeLockPolicy, VolumePercent, VolumeScalar};
+
+    fn make_lock(target_percent: f32, notify: bool) -> VolumeLockPolicy {
+        VolumeLockPolicy {
+            is_locked: true,
+            target_percent: VolumePercent::from(target_percent),
+            notify,
+        }
+    }
+
+    #[test]
+    fn enforce_volume_lock_restores_when_volume_differs() {
+        let device = MockDevice::new("dev1", "Speaker", true);
+        let lock = make_lock(100.0, false);
+        let device_id: DeviceId = "dev1".into();
+        let mut throttler = NotificationThrottler::new();
+
+        enforce_volume_lock(
+            &device_id,
+            &device,
+            "Speaker",
+            lock,
+            VolumeScalar::from(0.5_f32),
+            &mut throttler,
+        );
+
+        assert_eq!(*device.volume.borrow(), 1.0_f32);
+    }
+
+    #[test]
+    fn enforce_volume_lock_noop_when_volume_matches() {
+        let device = MockDevice::new("dev1", "Speaker", true);
+        let lock = make_lock(100.0, false);
+        let device_id: DeviceId = "dev1".into();
+        let mut throttler = NotificationThrottler::new();
+
+        enforce_volume_lock(
+            &device_id,
+            &device,
+            "Speaker",
+            lock,
+            VolumeScalar::from(1.0_f32),
+            &mut throttler,
+        );
+
+        // Volume should remain unchanged since it already matches target
+        assert_eq!(*device.volume.borrow(), 1.0_f32);
+    }
 }
