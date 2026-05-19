@@ -82,10 +82,7 @@ pub fn append_priority_list_to_menu(
         log::warn!("Failed to get {device_type:?} devices: {e:#}");
         Vec::new()
     });
-    let available_devices: Vec<_> = devices
-        .iter()
-        .map(|d| (d.id().clone(), d.name()))
-        .collect();
+    let available_devices: Vec<_> = devices.iter().map(|d| (d.id().clone(), d.name())).collect();
 
     for (index, device_id) in priority_list.iter().enumerate() {
         let device_name = lookup_device_name(device_id, persistent_state, backend);
@@ -260,7 +257,10 @@ mod tests {
         let has_add_action = map.values().any(|info| {
             matches!(
                 &info.action,
-                MenuAction::Device { action: DeviceAction::AddToPriority, .. }
+                MenuAction::Device {
+                    action: DeviceAction::AddToPriority,
+                    ..
+                }
             )
         });
         assert!(has_add_action, "should have AddToPriority action for dev2");

@@ -1,6 +1,4 @@
-use super::{
-    append_action_item, register_menu_item, DeviceDisplayInfo, format_device_menu_label,
-};
+use super::{DeviceDisplayInfo, append_action_item, format_device_menu_label, register_menu_item};
 use crate::audio::{AudioBackend, AudioDevice};
 use crate::config::PersistentState;
 use crate::types::{DeviceId, DeviceRole, DeviceType};
@@ -152,8 +150,8 @@ mod tests {
     #![allow(clippy::expect_used)]
 
     use super::*;
-    use crate::audio::tests::MockDevice;
     use crate::audio::AudioDevice;
+    use crate::audio::tests::MockDevice;
 
     #[test]
     fn submenu_registers_all_actions() {
@@ -200,14 +198,8 @@ mod tests {
         let state = PersistentState::default();
         let mut map = MenuIdMap::new();
 
-        let submenu = build_device_submenu(
-            &device,
-            DeviceType::Output,
-            None,
-            &state,
-            &mut map,
-        )
-        .expect("should succeed");
+        let submenu = build_device_submenu(&device, DeviceType::Output, None, &state, &mut map)
+            .expect("should succeed");
 
         assert!(!submenu.text().contains("☆"));
     }
