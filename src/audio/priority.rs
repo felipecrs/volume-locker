@@ -136,10 +136,8 @@ mod tests {
         ]);
         backend.set_default("dev_b", DeviceType::Output);
 
-        let state = PersistentState {
-            output_priority_list: vec!["dev_a".into(), "dev_b".into()],
-            ..Default::default()
-        };
+        let mut state = PersistentState::default();
+        state.output.priority_list = vec!["dev_a".into(), "dev_b".into()];
 
         let mut times = NotificationThrottler::new();
         let temp = TemporaryPriorities {
@@ -160,10 +158,8 @@ mod tests {
         let backend = MockAudioBackend::new(vec![MockDevice::new("dev_a", "Device A", true)]);
         backend.set_default("dev_a", DeviceType::Output);
 
-        let state = PersistentState {
-            output_priority_list: vec!["dev_a".into()],
-            ..Default::default()
-        };
+        let mut state = PersistentState::default();
+        state.output.priority_list = vec!["dev_a".into()];
 
         let mut times = NotificationThrottler::new();
         let temp = TemporaryPriorities {
@@ -187,10 +183,8 @@ mod tests {
         ]);
         backend.set_default("dev_b", DeviceType::Output);
 
-        let state = PersistentState {
-            output_priority_list: vec!["dev_a".into(), "dev_b".into()],
-            ..Default::default()
-        };
+        let mut state = PersistentState::default();
+        state.output.priority_list = vec!["dev_a".into(), "dev_b".into()];
 
         let mut times = NotificationThrottler::new();
         let temp = TemporaryPriorities {
@@ -214,10 +208,8 @@ mod tests {
         ]);
         backend.set_default("dev_a", DeviceType::Output);
 
-        let state = PersistentState {
-            output_priority_list: vec!["dev_a".into()],
-            ..Default::default()
-        };
+        let mut state = PersistentState::default();
+        state.output.priority_list = vec!["dev_a".into()];
 
         let mut times = NotificationThrottler::new();
         let temp = TemporaryPriorities {
@@ -262,11 +254,9 @@ mod tests {
         ]);
         backend.set_default("dev_b", DeviceType::Output);
 
-        let state = PersistentState {
-            output_priority_list: vec!["dev_a".into(), "dev_b".into()],
-            switch_communication_device_output: true,
-            ..Default::default()
-        };
+        let mut state = PersistentState::default();
+        state.output.priority_list = vec!["dev_a".into(), "dev_b".into()];
+        state.output.switch_communication_device = true;
 
         let mut times = NotificationThrottler::new();
         let temp = TemporaryPriorities {

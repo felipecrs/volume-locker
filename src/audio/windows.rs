@@ -35,9 +35,9 @@ pub struct WindowsAudioBackend {
 
 impl WindowsAudioBackend {
     pub fn new(_com_token: &crate::platform::ComToken) -> anyhow::Result<Self> {
-        // SAFETY: COM is initialized via CoInitializeEx (enforced by ComToken at construction);
-        // MMDeviceEnumerator is a well-known COM CLSID that returns a valid interface pointer.
         let enumerator: IMMDeviceEnumerator =
+            // SAFETY: COM is initialized via CoInitializeEx (enforced by ComToken at construction);
+            // MMDeviceEnumerator is a well-known COM CLSID that returns a valid interface pointer.
             unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_INPROC_SERVER)? };
         Ok(Self {
             enumerator,
@@ -55,9 +55,9 @@ pub struct WindowsAudioDevice {
 
 impl WindowsAudioDevice {
     pub fn new(device: IMMDevice) -> anyhow::Result<Self> {
-        // SAFETY: device from IMMDeviceEnumerator methods; Activate returns a COM interface pointer
-        // that is ref-counted and valid for the lifetime of the returned wrapper.
         let endpoint: IAudioEndpointVolume =
+            // SAFETY: device from IMMDeviceEnumerator methods; Activate returns a COM interface pointer
+            // that is ref-counted and valid for the lifetime of the returned wrapper.
             unsafe { device.Activate(CLSCTX_INPROC_SERVER, None)? };
         // SAFETY: device from IMMDeviceEnumerator; GetId returns an owned PWSTR that to_string frees.
         let id = DeviceId::from(unsafe { device.GetId()?.to_string()? });
@@ -82,6 +82,7 @@ impl AudioBackend for WindowsAudioBackend {
             self.enumerator
                 .EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE)?
         };
+        // SAFETY: collection is a valid COM pointer from EnumAudioEndpoints above.
         let count = unsafe { collection.GetCount()? };
         let mut devices = Vec::new();
         for i in 0..count {
@@ -178,8 +179,8 @@ impl AudioDevice for WindowsAudioDevice {
         // SAFETY: endpoint from IMMDevice::Activate; null event context means no specific caller.
         unsafe {
             self.endpoint
-                .SetMasterVolumeLevelScalar(volume.as_f32(), std::ptr::null())?
-        };
+                .SetMasterVolumeLevelScalar(volume.as_f32(), std::ptr::null())?;
+        }
         Ok(())
     }
 

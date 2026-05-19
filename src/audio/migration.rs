@@ -126,13 +126,13 @@ mod tests {
             "id_old".into(),
             make_device_settings("Speakers", DeviceType::Output),
         );
-        state.output_priority_list = vec!["id_old".into()];
+        state.output.priority_list = vec!["id_old".into()];
 
         let changed = migrate_device_ids(&backend, &mut state);
         assert!(changed);
         assert!(!state.devices.contains_key("id_old"));
         assert!(state.devices.contains_key("id_new"));
-        assert_eq!(state.output_priority_list, vec!["id_new".to_string()]);
+        assert_eq!(state.output.priority_list, vec!["id_new".to_string()]);
     }
 
     #[test]
@@ -159,12 +159,12 @@ mod tests {
             "mic_old".into(),
             make_device_settings("Microphone", DeviceType::Input),
         );
-        state.input_priority_list = vec!["mic_old".into()];
+        state.input.priority_list = vec!["mic_old".into()];
 
         let changed = migrate_device_ids(&backend, &mut state);
         assert!(changed);
         assert!(state.devices.contains_key("mic_new"));
-        assert_eq!(state.input_priority_list, vec!["mic_new"]);
+        assert_eq!(state.input.priority_list, vec!["mic_new"]);
     }
 
     #[test]

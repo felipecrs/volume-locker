@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used)]
+
 use super::{
     DeviceAction, DeviceId, DeviceType, PersistentState, device_settings_are_empty,
     handle_priority_event,
@@ -190,7 +192,7 @@ fn volume_lock_enable_captures_current_volume() {
         &backend,
     );
 
-    let settings = state.devices.get("dev1").unwrap();
+    let settings = state.devices.get("dev1").expect("device settings should exist after lock toggle");
     assert!(settings.volume_lock.is_locked);
     // MockDevice::new creates devices with volume 1.0 (100%)
     assert_eq!(settings.volume_lock.target_percent, 100.0);
@@ -211,7 +213,7 @@ fn volume_lock_disable_clears_locked_state() {
         &mut state,
         &backend,
     );
-    assert!(state.devices.get("dev1").unwrap().volume_lock.is_locked);
+    assert!(state.devices.get("dev1").expect("device should exist after enable").volume_lock.is_locked);
 
     // Disable
     apply_device_lock_toggle(
@@ -223,7 +225,7 @@ fn volume_lock_disable_clears_locked_state() {
         &mut state,
         &backend,
     );
-    assert!(!state.devices.get("dev1").unwrap().volume_lock.is_locked);
+    assert!(!state.devices.get("dev1").expect("device should exist after disable").volume_lock.is_locked);
 }
 
 #[test]
@@ -242,7 +244,7 @@ fn volume_lock_fails_when_device_not_found() {
         &backend,
     );
 
-    let settings = state.devices.get("missing").unwrap();
+    let settings = state.devices.get("missing").expect("device entry should exist even after failed lock");
     assert!(!settings.volume_lock.is_locked);
 }
 
@@ -260,7 +262,7 @@ fn unmute_lock_toggle() {
         &mut state,
         &backend,
     );
-    assert!(state.devices.get("dev1").unwrap().unmute_lock.is_locked);
+    assert!(state.devices.get("dev1").expect("device should exist after unmute lock enable").unmute_lock.is_locked);
 
     apply_device_lock_toggle(
         &DeviceAction::UnmuteLock,
@@ -271,7 +273,7 @@ fn unmute_lock_toggle() {
         &mut state,
         &backend,
     );
-    assert!(!state.devices.get("dev1").unwrap().unmute_lock.is_locked);
+    assert!(!state.devices.get("dev1").expect("device should exist after unmute lock disable").unmute_lock.is_locked);
 }
 
 #[test]
@@ -288,7 +290,7 @@ fn notify_toggles_independent_of_lock() {
         &mut state,
         &backend,
     );
-    let settings = state.devices.get("dev1").unwrap();
+    let settings = state.devices.get("dev1").expect("device should exist after notify toggle");
     assert!(settings.volume_lock.notify);
     assert!(!settings.volume_lock.is_locked);
 }
@@ -318,6 +320,6 @@ fn empty_settings_detected_after_all_unlocked() {
         &backend,
     );
 
-    let settings = state.devices.get("dev1").unwrap();
+    let settings = state.devices.get("dev1").expect("device should exist after lock cycle");
     assert!(device_settings_are_empty(settings));
 }
