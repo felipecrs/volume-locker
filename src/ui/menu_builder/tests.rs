@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used)]
+
 use super::{DeviceDisplayInfo, MenuIdMap, VolumePercent, format_device_menu_label};
 use super::device_section::build_device_submenu;
 use super::priority_section::append_priority_list_to_menu;
