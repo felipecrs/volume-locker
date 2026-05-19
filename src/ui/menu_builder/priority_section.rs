@@ -82,10 +82,10 @@ pub fn append_priority_list_to_menu(
         log::warn!("Failed to get {device_type:?} devices: {e:#}");
         Vec::new()
     });
-    let mut available_devices = Vec::new();
-    for device in devices {
-        available_devices.push((device.id().clone(), device.name()));
-    }
+    let available_devices: Vec<_> = devices
+        .iter()
+        .map(|d| (d.id().clone(), d.name()))
+        .collect();
 
     for (index, device_id) in priority_list.iter().enumerate() {
         let device_name = lookup_device_name(device_id, persistent_state, backend);
@@ -100,12 +100,10 @@ pub fn append_priority_list_to_menu(
         tray_menu.append(&submenu)?;
     }
 
-    let mut devices_to_add = Vec::new();
-    for (id, name) in &available_devices {
-        if !priority_list.iter().any(|p| p == id) {
-            devices_to_add.push((id, name));
-        }
-    }
+    let devices_to_add: Vec<_> = available_devices
+        .iter()
+        .filter(|(id, _)| !priority_list.contains(id))
+        .collect();
 
     let add_device_submenu = Submenu::new("Add device", !devices_to_add.is_empty());
     for (id, name) in devices_to_add {

@@ -128,17 +128,19 @@ fn get_unmute_notification_details(device_type: DeviceType) -> (&'static str, &'
 /// Returns a list of `(device_id, new_name, device_type)` tuples for all
 /// known devices, so the caller can apply updates to persistent state.
 pub fn collect_device_names(backend: &impl AudioBackend) -> Vec<(DeviceId, String, DeviceType)> {
-    let mut updates = Vec::new();
-    for device_type in [DeviceType::Output, DeviceType::Input] {
-        let devices = backend.devices(device_type).unwrap_or_else(|e| {
-            log::warn!("Failed to get {device_type:?} devices: {e:#}");
-            Vec::new()
-        });
-        for device in devices {
-            updates.push((device.id().clone(), device.name(), device_type));
-        }
-    }
-    updates
+    [DeviceType::Output, DeviceType::Input]
+        .into_iter()
+        .flat_map(|device_type| {
+            backend
+                .devices(device_type)
+                .unwrap_or_else(|e| {
+                    log::warn!("Failed to get {device_type:?} devices: {e:#}");
+                    Vec::new()
+                })
+                .into_iter()
+                .map(move |device| (device.id().clone(), device.name(), device_type))
+        })
+        .collect()
 }
 
 #[cfg(test)]
