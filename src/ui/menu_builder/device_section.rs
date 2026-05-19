@@ -146,3 +146,69 @@ pub fn append_device_list_to_menu(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used)]
+
+    use super::*;
+    use crate::audio::tests::MockDevice;
+    use crate::audio::AudioDevice;
+
+    #[test]
+    fn submenu_registers_all_actions() {
+        let device = MockDevice::new("dev1", "Speakers", true);
+        let state = PersistentState::default();
+        let mut map = MenuIdMap::new();
+
+        let submenu = build_device_submenu(
+            &device,
+            DeviceType::Output,
+            Some(device.id()),
+            &state,
+            &mut map,
+        )
+        .expect("build_device_submenu should succeed");
+
+        // Should register 6 actions: VolumeLock, VolumeLockNotify, UnmuteLock,
+        // UnmuteLockNotify, OpenProperties, OpenSettings
+        assert_eq!(map.len(), 6);
+        assert!(submenu.text().contains("Speakers"));
+    }
+
+    #[test]
+    fn submenu_shows_default_indicator() {
+        let device = MockDevice::new("dev1", "Speakers", true);
+        let state = PersistentState::default();
+        let mut map = MenuIdMap::new();
+
+        let submenu = build_device_submenu(
+            &device,
+            DeviceType::Output,
+            Some(device.id()),
+            &state,
+            &mut map,
+        )
+        .expect("should succeed");
+
+        assert!(submenu.text().contains("☆"));
+    }
+
+    #[test]
+    fn submenu_omits_default_indicator_when_not_default() {
+        let device = MockDevice::new("dev1", "Speakers", true);
+        let state = PersistentState::default();
+        let mut map = MenuIdMap::new();
+
+        let submenu = build_device_submenu(
+            &device,
+            DeviceType::Output,
+            None,
+            &state,
+            &mut map,
+        )
+        .expect("should succeed");
+
+        assert!(!submenu.text().contains("☆"));
+    }
+}

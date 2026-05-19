@@ -224,3 +224,69 @@ pub fn append_temporary_priority_section(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used)]
+
+    use super::*;
+    use crate::audio::tests::{MockAudioBackend, MockDevice};
+
+    #[test]
+    fn registers_add_device_actions() {
+        let backend = MockAudioBackend::new(vec![
+            MockDevice::new("dev1", "Speakers", true),
+            MockDevice::new("dev2", "Headphones", true),
+        ]);
+        let mut state = PersistentState::default();
+        state.output.priority_list = vec!["dev1".into()];
+
+        let tray_menu = Menu::new();
+        let mut map = MenuIdMap::new();
+
+        append_priority_list_to_menu(
+            &tray_menu,
+            DeviceType::Output,
+            &backend,
+            &state,
+            None,
+            &mut map,
+        )
+        .expect("should succeed");
+
+        // Priority item for dev1: move up/down/top/bottom + remove = 5
+        // Add device for dev2: 1
+        // PriorityRestoreNotify + SwitchCommunicationDevice = 2
+        assert!(map.len() >= 7);
+
+        let has_add_action = map.values().any(|info| {
+            matches!(
+                &info.action,
+                MenuAction::Device { action: DeviceAction::AddToPriority, .. }
+            )
+        });
+        assert!(has_add_action, "should have AddToPriority action for dev2");
+    }
+
+    #[test]
+    fn empty_priority_list_only_has_preferences() {
+        let backend = MockAudioBackend::new(vec![MockDevice::new("dev1", "Speakers", true)]);
+        let state = PersistentState::default();
+
+        let tray_menu = Menu::new();
+        let mut map = MenuIdMap::new();
+
+        append_priority_list_to_menu(
+            &tray_menu,
+            DeviceType::Output,
+            &backend,
+            &state,
+            None,
+            &mut map,
+        )
+        .expect("should succeed");
+
+        // With empty priority list: AddToPriority for dev1 (1) + notify (1) + switch comm (1) = 3
+        assert_eq!(map.len(), 3);
+    }
+}
