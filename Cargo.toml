@@ -25,7 +25,7 @@ anyhow = "1.0.102"
 auto-launch = "0.6.0"
 dunce = "1.0.5"
 
-log = "0.4.29"
+log = "0.4.33"
 notify-rust = "4.17.0"
 open = "5.3.5"
 regex-lite = "0.1.9"
