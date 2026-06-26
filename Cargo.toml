@@ -34,7 +34,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 simplelog = "0.12.2"
 
-tao = "0.35.2"
+tao = "0.35.3"
 tray-icon = "0.24.1"
 ureq = { version = "3.3.0", default-features = false, features = [
 	"native-tls",
