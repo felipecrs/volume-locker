@@ -61,6 +61,8 @@ impl From<f32> for VolumePercent {
     }
 }
 
+// Test-only: production compares VolumePercent to VolumePercent.
+#[cfg(test)]
 impl PartialEq<f32> for VolumePercent {
     #[allow(clippy::float_cmp)]
     fn eq(&self, other: &f32) -> bool {
@@ -111,12 +113,15 @@ impl PartialEq<str> for DeviceId {
     }
 }
 
+// Test-only: production compares DeviceId to DeviceId or to &str.
+#[cfg(test)]
 impl PartialEq<&str> for DeviceId {
     fn eq(&self, other: &&str) -> bool {
         self.0 == *other
     }
 }
 
+#[cfg(test)]
 impl PartialEq<String> for DeviceId {
     fn eq(&self, other: &String) -> bool {
         self.0 == *other

@@ -127,10 +127,7 @@ pub fn check_for_update(manual_request: bool) -> anyhow::Result<Option<UpdateInf
 /// (update launched successfully).
 pub fn install_update(update_info: &UpdateInfo) -> anyhow::Result<()> {
     log::info!("Starting update to {}", update_info.latest_version);
-    execute_update_steps(update_info)
-}
 
-fn execute_update_steps(update_info: &UpdateInfo) -> anyhow::Result<()> {
     if let Err(e) = crate::utils::open_url(&update_info.release_url) {
         log::warn!("Failed to open release URL: {e:#}");
     }

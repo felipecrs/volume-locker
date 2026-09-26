@@ -1,5 +1,3 @@
-#![allow(clippy::inline_always)]
-
 use super::{AudioBackend, AudioDevice, windows_com_policy_config};
 use crate::types::{DeviceId, DeviceRole, DeviceType, VolumeScalar};
 use regex_lite::Regex;
@@ -26,6 +24,14 @@ fn encode_wide_null(s: &str) -> Vec<u16> {
         .encode_wide()
         .chain(std::iter::once(0))
         .collect()
+}
+
+fn to_erole(role: DeviceRole) -> ERole {
+    match role {
+        DeviceRole::Console => eConsole,
+        DeviceRole::Multimedia => eMultimedia,
+        DeviceRole::Communications => eCommunications,
+    }
 }
 
 pub struct WindowsAudioBackend {
@@ -111,11 +117,7 @@ impl AudioBackend for WindowsAudioBackend {
             DeviceType::Output => eRender,
             DeviceType::Input => eCapture,
         };
-        let role = match role {
-            DeviceRole::Console => eConsole,
-            DeviceRole::Multimedia => eMultimedia,
-            DeviceRole::Communications => eCommunications,
-        };
+        let role = to_erole(role);
         // SAFETY: COM was initialized via CoInitializeEx (guaranteed by ComToken);
         // enumerator is a valid COM pointer obtained from CoCreateInstance in new().
         let device = unsafe { self.enumerator.GetDefaultAudioEndpoint(flow, role)? };
@@ -123,11 +125,7 @@ impl AudioBackend for WindowsAudioBackend {
     }
 
     fn set_default_device(&self, device_id: &DeviceId, role: DeviceRole) -> anyhow::Result<()> {
-        let role = match role {
-            DeviceRole::Console => eConsole,
-            DeviceRole::Multimedia => eMultimedia,
-            DeviceRole::Communications => eCommunications,
-        };
+        let role = to_erole(role);
         // SAFETY: COM is initialized (enforced by ComToken); PolicyConfigClient is an
         // undocumented but widely-used COM class for changing default audio endpoints.
         let policy_config: windows_com_policy_config::IPolicyConfig = unsafe {
