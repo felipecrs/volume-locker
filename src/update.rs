@@ -8,12 +8,26 @@ use std::fs::File;
 use std::io;
 use std::os::windows::process::CommandExt;
 use std::process::Command;
+use std::time::Duration;
 use ureq::config::Config;
 use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 use ureq::{Agent, ResponseExt};
 
 fn create_agent() -> Agent {
+    create_agent_with_timeouts(None, None)
+}
+
+fn create_check_agent() -> Agent {
+    create_agent_with_timeouts(Some(Duration::from_secs(10)), Some(Duration::from_secs(5)))
+}
+
+fn create_agent_with_timeouts(
+    timeout_global: Option<Duration>,
+    timeout_connect: Option<Duration>,
+) -> Agent {
     let config = Config::builder()
+        .timeout_global(timeout_global)
+        .timeout_connect(timeout_connect)
         .tls_config(
             TlsConfig::builder()
                 .provider(TlsProvider::NativeTls)
@@ -48,10 +62,10 @@ fn is_newer_version(latest: &str, current: &str) -> bool {
     Version::parse(latest).ok() > Version::parse(current).ok()
 }
 
-fn fetch_update_info() -> anyhow::Result<Option<UpdateInfo>> {
+pub fn fetch_update_info() -> anyhow::Result<Option<UpdateInfo>> {
     log::info!("Checking for updates...");
 
-    let agent = create_agent();
+    let agent = create_check_agent();
     let latest_releases_url = format!("{GITHUB_REPO_URL}/releases/latest");
     let response = agent.head(&latest_releases_url).call()?;
     let release_url = response.get_uri().to_string();
@@ -73,13 +87,9 @@ fn fetch_update_info() -> anyhow::Result<Option<UpdateInfo>> {
     }
 }
 
-/// Checks for updates and optionally notifies the user.
-/// If `manual_request` is true, shows notifications for all outcomes.
-/// If `manual_request` is false, only logs errors without notifying.
-/// Returns `Ok(Some(info))` when an update is available, `Ok(None)` when up to date,
-/// or `Err` when the check itself failed.
-pub fn check_for_update(manual_request: bool) -> anyhow::Result<Option<UpdateInfo>> {
-    match fetch_update_info() {
+/// Reports the result of an update check on the event-loop thread.
+pub fn report_check_result(manual_request: bool, result: &Result<Option<UpdateInfo>, String>) {
+    match result {
         Ok(Some(info)) => {
             log::info!("Update available: v{}", info.latest_version);
             if manual_request
@@ -94,7 +104,6 @@ pub fn check_for_update(manual_request: bool) -> anyhow::Result<Option<UpdateInf
             {
                 log::error!("Failed to send update notification: {e:#}");
             }
-            Ok(Some(info))
         }
         Ok(None) => {
             log::info!("No updates available");
@@ -107,18 +116,16 @@ pub fn check_for_update(manual_request: bool) -> anyhow::Result<Option<UpdateInf
             {
                 log::error!("Failed to send no-update notification: {e:#}");
             }
-            Ok(None)
         }
         Err(e) => {
             if manual_request {
                 log_and_notify_error(
                     "Update Check Failed",
-                    &format!("Failed to check for updates: {e:#}"),
+                    &format!("Failed to check for updates: {e}"),
                 );
             } else {
-                log::error!("Failed to check for updates: {e:#}");
+                log::error!("Failed to check for updates: {e}");
             }
-            Err(e)
         }
     }
 }

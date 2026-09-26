@@ -24,6 +24,7 @@ pub struct AppState {
     pub notification_throttler: NotificationThrottler,
     pub temporary_priorities: TemporaryPriorities,
     pub update_info: Option<UpdateInfo>,
+    pub update_check_in_progress: bool,
     pub tray_icon: Option<tray_icon::TrayIcon>,
     pub backend: AudioBackendImpl,
 }
@@ -227,6 +228,34 @@ impl AppState {
         self.update_tray_icon(any_device_locked, locked_icon, unlocked_icon);
     }
 
+    fn start_update_check(&mut self, manual_request: bool, proxy: &EventLoopProxy<UserEvent>) {
+        if self.update_check_in_progress {
+            return;
+        }
+
+        self.update_check_in_progress = true;
+        let proxy = proxy.clone();
+        std::thread::spawn(move || {
+            let result = update::fetch_update_info().map_err(|e| format!("{e:#}"));
+            if let Err(e) = proxy.send_event(UserEvent::UpdateCheckCompleted {
+                manual_request,
+                result,
+            }) {
+                log::warn!("Failed to send update check result: {e:#}");
+            }
+        });
+    }
+
+    pub fn handle_update_check_completed(
+        &mut self,
+        manual_request: bool,
+        result: Result<Option<UpdateInfo>, String>,
+    ) {
+        self.update_check_in_progress = false;
+        update::report_check_result(manual_request, &result);
+        self.update_info = result.ok().flatten();
+    }
+
     pub fn handle_configuration_changed(&mut self, proxy: &EventLoopProxy<UserEvent>) {
         if let Err(e) = save_state(&self.persistent_state) {
             log_and_notify_error(
@@ -285,7 +314,7 @@ impl AppState {
                     }
                 },
                 MenuEventResult::UpdateCheck => {
-                    self.update_info = update::check_for_update(true).unwrap_or(None);
+                    self.start_update_check(true, proxy);
                 }
                 MenuEventResult::ToggleAutoLaunch(checked) => {
                     let result = if checked {
@@ -326,7 +355,7 @@ impl AppState {
         }
 
         if self.persistent_state.check_updates_on_launch {
-            self.update_info = update::check_for_update(false).unwrap_or(None);
+            self.start_update_check(false, proxy);
         }
 
         if let Err(e) = proxy.send_event(UserEvent::DevicesChanged) {
