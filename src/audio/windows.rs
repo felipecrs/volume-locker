@@ -148,7 +148,11 @@ impl AudioBackend for WindowsAudioBackend {
         let cb: IMMNotificationClient = AudioDevicesChangedCallback { callback }.into();
         // SAFETY: Both pointers are valid: enumerator from CoCreateInstance, callback from
         // windows::core::implement. COM ref-counting keeps both alive for the registration duration.
-        unsafe { self.enumerator.RegisterEndpointNotificationCallback(&cb).ok()? };
+        unsafe {
+            self.enumerator
+                .RegisterEndpointNotificationCallback(&cb)
+                .ok()?
+        };
         // Recover from mutex poisoning — the callback must be stored regardless.
         let mut guard = match self.device_change_callback.lock() {
             Ok(g) => g,
@@ -256,10 +260,7 @@ pub struct VolumeChangeCallback {
 }
 
 impl IAudioEndpointVolumeCallback_Impl for VolumeChangeCallback_Impl {
-    fn OnNotify(
-        &self,
-        pnotify: *mut AUDIO_VOLUME_NOTIFICATION_DATA,
-    ) -> windows_core::Result<()> {
+    fn OnNotify(&self, pnotify: *mut AUDIO_VOLUME_NOTIFICATION_DATA) -> windows_core::Result<()> {
         // SAFETY: pnotify is provided by the COM runtime and points to a valid
         // AUDIO_VOLUME_NOTIFICATION_DATA for the duration of this callback invocation.
         let new_volume = unsafe {
