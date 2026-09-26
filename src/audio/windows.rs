@@ -1,22 +1,18 @@
 use super::{AudioBackend, AudioDevice, windows_com_policy_config};
+use crate::bindings::{
+    AUDIO_VOLUME_NOTIFICATION_DATA, CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree,
+    DEVICE_STATE_ACTIVE, EDataFlow, ERole, IAudioEndpointVolume, IAudioEndpointVolumeCallback,
+    IAudioEndpointVolumeCallback_Impl, IMMDevice, IMMDeviceEnumerator, IMMNotificationClient,
+    IMMNotificationClient_Impl, MMDeviceEnumerator, PKEY_Device_FriendlyName, PROPERTYKEY,
+    PropVariantClear, PropVariantToStringAlloc, STGM_READ, eCapture, eCommunications, eConsole,
+    eMultimedia, eRender,
+};
 use crate::types::{DeviceId, DeviceRole, DeviceType, VolumeScalar};
 use regex_lite::Regex;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::sync::{LazyLock, Mutex};
-use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
-use windows::Win32::Foundation::PROPERTYKEY;
-use windows::Win32::Media::Audio::Endpoints::{
-    IAudioEndpointVolume, IAudioEndpointVolumeCallback, IAudioEndpointVolumeCallback_Impl,
-};
-use windows::Win32::Media::Audio::{
-    AUDIO_VOLUME_NOTIFICATION_DATA, DEVICE_STATE, DEVICE_STATE_ACTIVE, EDataFlow, ERole, IMMDevice,
-    IMMDeviceEnumerator, IMMNotificationClient, IMMNotificationClient_Impl, MMDeviceEnumerator,
-    eCapture, eCommunications, eConsole, eMultimedia, eRender,
-};
-use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
-use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance, STGM_READ};
-use windows::core::{PCWSTR, implement};
+use windows_core::{PCWSTR, implement};
 
 /// Encodes a string slice as a null-terminated UTF-16 wide string for Win32 APIs.
 fn encode_wide_null(s: &str) -> Vec<u16> {
@@ -44,7 +40,7 @@ pub struct WindowsAudioBackend {
 impl WindowsAudioBackend {
     pub fn new(_com_token: &crate::platform::ComToken) -> anyhow::Result<Self> {
         let enumerator: IMMDeviceEnumerator =
-            // SAFETY: COM is initialized via CoInitializeEx (enforced by ComToken at construction);
+            // SAFETY: COM is initialized via CoInitializeEx/init_mta (enforced by ComToken at construction);
             // MMDeviceEnumerator is a well-known COM CLSID that returns a valid interface pointer.
             unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_INPROC_SERVER)? };
         Ok(Self {
@@ -67,8 +63,12 @@ impl WindowsAudioDevice {
             // SAFETY: device from IMMDeviceEnumerator methods; Activate returns a COM interface pointer
             // that is ref-counted and valid for the lifetime of the returned wrapper.
             unsafe { device.Activate(CLSCTX_INPROC_SERVER, None)? };
-        // SAFETY: device from IMMDeviceEnumerator; GetId returns an owned PWSTR that to_string frees.
-        let id = DeviceId::from(unsafe { device.GetId()?.to_string()? });
+        // SAFETY: device from IMMDeviceEnumerator; GetId returns an allocated PWSTR freed via CoTaskMemFree.
+        let raw_id = unsafe { device.GetId()? };
+        let id_str = unsafe { raw_id.to_string() }
+            .map_err(|e| anyhow::anyhow!("Invalid UTF-16 in device ID: {e}"))?;
+        unsafe { CoTaskMemFree(raw_id.0 as _) };
+        let id = DeviceId::from(id_str);
         let name = get_device_name(&device)?;
         Ok(Self {
             device,
@@ -88,7 +88,7 @@ impl AudioBackend for WindowsAudioBackend {
         // SAFETY: enumerator obtained from CoCreateInstance; COM manages the returned collection.
         let collection = unsafe {
             self.enumerator
-                .EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE)?
+                .EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE as u32)?
         };
         // SAFETY: collection is a valid COM pointer from EnumAudioEndpoints above.
         let count = unsafe { collection.GetCount()? };
@@ -148,7 +148,7 @@ impl AudioBackend for WindowsAudioBackend {
         let cb: IMMNotificationClient = AudioDevicesChangedCallback { callback }.into();
         // SAFETY: Both pointers are valid: enumerator from CoCreateInstance, callback from
         // windows::core::implement. COM ref-counting keeps both alive for the registration duration.
-        unsafe { self.enumerator.RegisterEndpointNotificationCallback(&cb)? };
+        unsafe { self.enumerator.RegisterEndpointNotificationCallback(&cb).ok()? };
         // Recover from mutex poisoning — the callback must be stored regardless.
         let mut guard = match self.device_change_callback.lock() {
             Ok(g) => g,
@@ -179,7 +179,8 @@ impl AudioDevice for WindowsAudioDevice {
         // SAFETY: endpoint from IMMDevice::Activate; null event context means no specific caller.
         unsafe {
             self.endpoint
-                .SetMasterVolumeLevelScalar(volume.as_f32(), std::ptr::null())?;
+                .SetMasterVolumeLevelScalar(volume.as_f32(), std::ptr::null())
+                .ok()?;
         }
         Ok(())
     }
@@ -191,14 +192,14 @@ impl AudioDevice for WindowsAudioDevice {
 
     fn set_mute(&self, muted: bool) -> anyhow::Result<()> {
         // SAFETY: endpoint from IMMDevice::Activate; null event context means no specific caller.
-        unsafe { self.endpoint.SetMute(muted, std::ptr::null())? };
+        unsafe { self.endpoint.SetMute(muted, std::ptr::null()).ok()? };
         Ok(())
     }
 
     fn is_active(&self) -> anyhow::Result<bool> {
         // SAFETY: device obtained from IMMDeviceEnumerator methods which return valid COM pointers.
         let state = unsafe { self.device.GetState()? };
-        Ok(state == DEVICE_STATE_ACTIVE)
+        Ok(state == DEVICE_STATE_ACTIVE as u32)
     }
 
     fn watch_volume(
@@ -208,7 +209,7 @@ impl AudioDevice for WindowsAudioDevice {
         let cb: IAudioEndpointVolumeCallback = VolumeChangeCallback { callback }.into();
         // SAFETY: endpoint from IMMDevice::Activate, callback from windows::core::implement.
         // COM ref-counting manages lifetimes; registration persists until the endpoint is dropped.
-        unsafe { self.endpoint.RegisterControlChangeNotify(&cb)? };
+        unsafe { self.endpoint.RegisterControlChangeNotify(&cb).ok()? };
         Ok(())
     }
 }
@@ -219,17 +220,17 @@ pub struct AudioDevicesChangedCallback {
 }
 
 impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
-    fn OnDeviceStateChanged(&self, _: &PCWSTR, _: DEVICE_STATE) -> windows::core::Result<()> {
+    fn OnDeviceStateChanged(&self, _: &PCWSTR, _: u32) -> windows_core::Result<()> {
         (self.callback)();
         Ok(())
     }
 
-    fn OnDeviceAdded(&self, _: &PCWSTR) -> windows::core::Result<()> {
+    fn OnDeviceAdded(&self, _: &PCWSTR) -> windows_core::Result<()> {
         (self.callback)();
         Ok(())
     }
 
-    fn OnDeviceRemoved(&self, _: &PCWSTR) -> windows::core::Result<()> {
+    fn OnDeviceRemoved(&self, _: &PCWSTR) -> windows_core::Result<()> {
         (self.callback)();
         Ok(())
     }
@@ -239,12 +240,12 @@ impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
         _: EDataFlow,
         _: ERole,
         _: &PCWSTR,
-    ) -> windows::core::Result<()> {
+    ) -> windows_core::Result<()> {
         (self.callback)();
         Ok(())
     }
 
-    fn OnPropertyValueChanged(&self, _: &PCWSTR, _: &PROPERTYKEY) -> windows::core::Result<()> {
+    fn OnPropertyValueChanged(&self, _: &PCWSTR, _: &PROPERTYKEY) -> windows_core::Result<()> {
         Ok(())
     }
 }
@@ -258,7 +259,7 @@ impl IAudioEndpointVolumeCallback_Impl for VolumeChangeCallback_Impl {
     fn OnNotify(
         &self,
         pnotify: *mut AUDIO_VOLUME_NOTIFICATION_DATA,
-    ) -> ::windows::core::Result<()> {
+    ) -> windows_core::Result<()> {
         // SAFETY: pnotify is provided by the COM runtime and points to a valid
         // AUDIO_VOLUME_NOTIFICATION_DATA for the duration of this callback invocation.
         let new_volume = unsafe {
@@ -271,13 +272,18 @@ impl IAudioEndpointVolumeCallback_Impl for VolumeChangeCallback_Impl {
     }
 }
 
-fn get_device_name(device: &IMMDevice) -> windows::core::Result<String> {
+fn get_device_name(device: &IMMDevice) -> windows_core::Result<String> {
     // SAFETY: device from IMMDeviceEnumerator; property store operations are standard COM calls.
-    // PropVariantToStringAlloc returns an owned PWSTR that to_string()? converts and frees.
     let friendly_name = unsafe {
-        let prop_store = device.OpenPropertyStore(STGM_READ)?;
-        let friendly_name_prop = prop_store.GetValue(&PKEY_Device_FriendlyName)?;
-        PropVariantToStringAlloc(&raw const friendly_name_prop)?.to_string()?
+        let prop_store = device.OpenPropertyStore(STGM_READ as u32)?;
+        let mut friendly_name_prop = prop_store.GetValue(&PKEY_Device_FriendlyName)?;
+        let pwstr = PropVariantToStringAlloc(&raw const friendly_name_prop)?;
+        let s = pwstr
+            .to_string()
+            .map_err(|_| windows_core::Error::from_hresult(windows_core::HRESULT(-1)))?;
+        CoTaskMemFree(pwstr.0 as _);
+        let _ = PropVariantClear(&mut friendly_name_prop);
+        s
     };
     Ok(clean_device_name(&friendly_name))
 }

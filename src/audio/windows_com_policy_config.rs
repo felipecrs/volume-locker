@@ -5,21 +5,20 @@
 #![allow(clippy::missing_safety_doc)]
 #![allow(unsafe_op_in_unsafe_fn)]
 
+use crate::bindings::{ERole, PROPERTYKEY, PROPVARIANT, WAVEFORMATEX};
 use std::ffi::c_void;
-use windows::Devices::Custom::DeviceSharingMode;
-use windows::Win32::Foundation::PROPERTYKEY;
-use windows::Win32::Media::Audio::{ERole, WAVEFORMATEX};
-use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
-use windows::core::imp::CanInto;
-use windows::core::{GUID, HRESULT, IUnknown, Interface, PCWSTR, Param, Result};
+use windows_core::{GUID, HRESULT, Interface, PCWSTR, Param, Result};
+
+pub type DeviceSharingMode = i32;
 
 pub const PolicyConfigClient: GUID = GUID::from_u128(0x870af99c_171d_4f9e_af0d_e63df40c2bc9);
 
-#[repr(transparent)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IPolicyConfig(IUnknown);
-
-impl CanInto<IUnknown> for IPolicyConfig {}
+windows_core::imp::define_interface!(
+    IPolicyConfig,
+    IPolicyConfig_Vtbl,
+    0xf8679f50_850a_41cf_9c72_430f290290c8
+);
+windows_core::imp::interface_hierarchy!(IPolicyConfig, windows_core::IUnknown);
 
 impl IPolicyConfig {
     pub unsafe fn SetDefaultEndpoint(
@@ -36,20 +35,13 @@ impl IPolicyConfig {
     }
 }
 
-// SAFETY: IPolicyConfig vtable layout matches the COM ABI defined by Windows.
-// IID is the documented interface GUID for IPolicyConfig.
-unsafe impl Interface for IPolicyConfig {
-    type Vtable = IPolicyConfig_Vtbl;
-    const IID: GUID = GUID::from_u128(0xf8679f50_850a_41cf_9c72_430f290290c8);
-}
-
 // The vtable prefix must mirror the COM ABI: the offset of the method we call,
 // SetDefaultEndpoint, depends on every preceding fn-pointer field being present
 // and in order. Unused entries are kept (and dead_code allowed) for that reason.
 #[repr(C)]
 #[doc(hidden)]
 pub struct IPolicyConfig_Vtbl {
-    pub base__: ::windows::core::IUnknown_Vtbl,
+    pub base__: windows_core::IUnknown_Vtbl,
     pub GetMixFormat:
         unsafe extern "system" fn(this: *mut c_void, PCWSTR, *mut *mut WAVEFORMATEX) -> HRESULT,
     pub GetDeviceFormat: unsafe extern "system" fn(

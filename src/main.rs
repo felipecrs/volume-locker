@@ -5,6 +5,15 @@
 
 mod app;
 mod audio;
+#[cfg(target_os = "windows")]
+#[allow(
+    dead_code,
+    non_camel_case_types,
+    non_snake_case,
+    non_upper_case_globals,
+    clippy::all
+)]
+mod bindings;
 mod config;
 mod consts;
 mod notification;
