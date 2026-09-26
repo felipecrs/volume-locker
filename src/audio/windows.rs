@@ -65,10 +65,10 @@ impl WindowsAudioDevice {
             unsafe { device.Activate(CLSCTX_INPROC_SERVER, None)? };
         // SAFETY: device from IMMDeviceEnumerator; GetId returns an allocated PWSTR freed via CoTaskMemFree.
         let raw_id = unsafe { device.GetId()? };
-        let id_str = unsafe { raw_id.to_string() }
-            .map_err(|e| anyhow::anyhow!("Invalid UTF-16 in device ID: {e}"))?;
+        let id_result = unsafe { raw_id.to_string() }
+            .map_err(|e| anyhow::anyhow!("Invalid UTF-16 in device ID: {e}"));
         unsafe { CoTaskMemFree(raw_id.0 as _) };
-        let id = DeviceId::from(id_str);
+        let id = DeviceId::from(id_result?);
         let name = get_device_name(&device)?;
         Ok(Self {
             device,
@@ -278,13 +278,18 @@ fn get_device_name(device: &IMMDevice) -> windows_core::Result<String> {
     let friendly_name = unsafe {
         let prop_store = device.OpenPropertyStore(STGM_READ as u32)?;
         let mut friendly_name_prop = prop_store.GetValue(&PKEY_Device_FriendlyName)?;
-        let pwstr = PropVariantToStringAlloc(&raw const friendly_name_prop)?;
-        let s = pwstr
-            .to_string()
-            .map_err(|_| windows_core::Error::from_hresult(windows_core::HRESULT(-1)))?;
-        CoTaskMemFree(pwstr.0 as _);
+        let name_result = match PropVariantToStringAlloc(&raw const friendly_name_prop) {
+            Ok(pwstr) => {
+                let result = pwstr
+                    .to_string()
+                    .map_err(|_| windows_core::Error::from_hresult(windows_core::HRESULT(-1)));
+                CoTaskMemFree(pwstr.0 as _);
+                result
+            }
+            Err(e) => Err(e),
+        };
         let _ = PropVariantClear(&mut friendly_name_prop);
-        s
+        name_result?
     };
     Ok(clean_device_name(&friendly_name))
 }

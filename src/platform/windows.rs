@@ -71,6 +71,10 @@ impl SingleInstanceGuard {
         // SAFETY: GetLastError retrieves the thread-local error code set by CreateMutexW.
         let last_error = unsafe { GetLastError() };
         if last_error == ERROR_ALREADY_EXISTS as u32 {
+            // SAFETY: CreateMutexW returned a valid handle, even though the named mutex already existed.
+            unsafe {
+                let _ = CloseHandle(handle);
+            };
             anyhow::bail!("Another instance is already running.");
         }
         Ok(Self { _handle: handle })
