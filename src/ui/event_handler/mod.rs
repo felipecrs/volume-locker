@@ -4,8 +4,7 @@ use crate::config::PersistentState;
 use crate::consts::GITHUB_REPO_URL;
 use crate::notification::log_and_notify_error;
 use crate::platform::{
-    open_device_settings, open_devices_list, open_sound_control_panel, open_sound_settings,
-    open_volume_mixer,
+    open_device_settings, open_sound_control_panel, open_sound_settings, open_volume_mixer,
 };
 use crate::types::{DeviceId, DeviceType, TemporaryPriorities};
 use crate::update::UpdateInfo;
@@ -13,6 +12,14 @@ use crate::utils::{get_executable_directory, open_path, open_url};
 use tray_icon::menu::Menu;
 
 use super::find_menu_item;
+
+/// mmsys.cpl tab index: Playback (0) for output, Recording (1) for input.
+fn sound_panel_tab(device_type: DeviceType) -> &'static str {
+    match device_type {
+        DeviceType::Output => "0",
+        DeviceType::Input => "1",
+    }
+}
 
 fn get_check_item_state(menu: &Menu, id: &tray_icon::menu::MenuId) -> Option<bool> {
     find_menu_item(menu, id).and_then(|item| {
@@ -44,13 +51,6 @@ pub enum MenuEventResult {
     UpdateCheck,
     UpdatePerform(UpdateInfo),
     ToggleAutoLaunch(bool),
-}
-
-/// Returns `true` if the device has no active locks or notifications,
-/// meaning its settings entry can be removed when not in a priority list.
-#[cfg(test)]
-fn device_settings_are_empty(settings: &crate::types::DeviceSettings) -> bool {
-    !settings.has_active_locks_or_notifications()
 }
 
 /// Applies a device lock/notify toggle to the device's settings entry.
@@ -264,11 +264,7 @@ fn handle_device_event(
             MenuEventResult::DevicesChanged
         }
         DeviceAction::OpenProperties => {
-            let tab = match device_type {
-                DeviceType::Output => "0",
-                DeviceType::Input => "1",
-            };
-            if let Err(e) = open_sound_control_panel(tab) {
+            if let Err(e) = open_sound_control_panel(sound_panel_tab(device_type)) {
                 log::error!("Failed to open sound control panel: {e:#}");
             }
             MenuEventResult::NoChange
@@ -302,7 +298,7 @@ fn handle_preference_event(
             })
         }
         PreferenceAction::OpenDevicesList => {
-            if let Err(e) = open_devices_list(device_type) {
+            if let Err(e) = open_sound_control_panel(sound_panel_tab(device_type)) {
                 log::error!("Failed to open devices list: {e:#}");
             }
             MenuEventResult::NoChange

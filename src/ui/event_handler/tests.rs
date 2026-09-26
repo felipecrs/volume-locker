@@ -1,22 +1,19 @@
 #![allow(clippy::expect_used)]
 
-use super::{
-    DeviceAction, DeviceId, DeviceType, PersistentState, device_settings_are_empty,
-    handle_priority_event,
-};
+use super::{DeviceAction, DeviceId, DeviceType, PersistentState, handle_priority_event};
 use crate::types::DeviceSettings;
 
 #[test]
 fn device_settings_empty_when_all_false() {
     let settings = DeviceSettings::new("Test".to_string(), DeviceType::Output);
-    assert!(device_settings_are_empty(&settings));
+    assert!(!settings.has_active_locks_or_notifications());
 }
 
 #[test]
 fn device_settings_not_empty_when_locked() {
     let mut settings = DeviceSettings::new("Test".to_string(), DeviceType::Output);
     settings.volume_lock.is_locked = true;
-    assert!(!device_settings_are_empty(&settings));
+    assert!(settings.has_active_locks_or_notifications());
 }
 
 fn make_state_with_device(device_id: &str, device_type: DeviceType) -> PersistentState {
@@ -361,5 +358,5 @@ fn empty_settings_detected_after_all_unlocked() {
         .devices
         .get("dev1")
         .expect("device should exist after lock cycle");
-    assert!(device_settings_are_empty(settings));
+    assert!(!settings.has_active_locks_or_notifications());
 }

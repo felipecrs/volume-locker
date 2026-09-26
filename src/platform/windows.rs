@@ -1,5 +1,5 @@
 use crate::consts::{APP_AUMID, APP_NAME, PNG_ICON_BYTES, PNG_ICON_FILE_NAME};
-use crate::types::{DeviceId, DeviceType};
+use crate::types::DeviceId;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -94,20 +94,6 @@ fn spawn_rundll32(dll: &str, function: &str, arg: &str, context: &str) -> anyhow
         .spawn()
         .map(|_| ())
         .map_err(|e| anyhow::anyhow!(e).context(format!("failed to {context}")))
-}
-
-pub fn open_devices_list(device_type: DeviceType) -> anyhow::Result<()> {
-    let tab_index = match device_type {
-        DeviceType::Output => "0",
-        DeviceType::Input => "1",
-    };
-
-    spawn_rundll32(
-        "shell32.dll",
-        "Control_RunDLL",
-        &format!("mmsys.cpl,,{tab_index}"),
-        "open devices list",
-    )
 }
 
 /// Opens the Sound control panel (mmsys.cpl). The `tab_selector` is passed as the
