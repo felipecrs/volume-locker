@@ -341,11 +341,14 @@ impl AppState {
         proxy: &EventLoopProxy<UserEvent>,
     ) {
         let tooltip = format!("{APP_NAME} v{CURRENT_VERSION}");
+        let tray_guid = u128::from_str_radix(&APP_UID.replace('-', ""), 16)
+            .expect("APP_UID must be a valid UUID");
         match TrayIconBuilder::new()
             .with_menu(Box::new(tray_menu.clone()))
             .with_tooltip(&tooltip)
             .with_icon(unlocked_icon.clone())
             .with_id(APP_UID)
+            .with_guid(tray_guid)
             .with_menu_on_left_click(false)
             .with_menu_on_right_click(false)
             .build()
