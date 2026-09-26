@@ -244,6 +244,10 @@ pub enum UserEvent {
     VolumeChanged(VolumeChangedEvent),
     DevicesChanged,
     ConfigurationChanged,
+    UpdateCheckCompleted {
+        manual_request: bool,
+        result: Result<Option<crate::update::UpdateInfo>, String>,
+    },
 }
 
 #[cfg(test)]

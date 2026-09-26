@@ -189,6 +189,7 @@ fn run() -> anyhow::Result<()> {
         notification_throttler: NotificationThrottler::new(),
         temporary_priorities: TemporaryPriorities::default(),
         update_info: None,
+        update_check_in_progress: false,
         tray_icon: None,
         backend,
     };
@@ -235,6 +236,13 @@ fn run() -> anyhow::Result<()> {
 
             Event::UserEvent(UserEvent::ConfigurationChanged) => {
                 app.handle_configuration_changed(&main_proxy);
+            }
+
+            Event::UserEvent(UserEvent::UpdateCheckCompleted {
+                manual_request,
+                result,
+            }) => {
+                app.handle_update_check_completed(manual_request, result);
             }
 
             _ => {}
