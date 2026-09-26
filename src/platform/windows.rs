@@ -1,33 +1,32 @@
+use crate::bindings::{
+    CloseHandle, CreateMutexW, ERROR_ALREADY_EXISTS, GetLastError, HANDLE,
+    SetCurrentProcessExplicitAppUserModelID,
+};
 use crate::consts::{APP_AUMID, APP_NAME, PNG_ICON_BYTES, PNG_ICON_FILE_NAME};
 use crate::types::DeviceId;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use windows::Win32::Foundation::ERROR_ALREADY_EXISTS;
-use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
-use windows::Win32::System::Threading::CreateMutexW;
-use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
-use windows::core::{HSTRING, Result};
+use windows_core::HSTRING;
 use windows_registry::CURRENT_USER;
 
 /// Witness type proving COM has been initialized on this thread.
-/// Only constructible via [`init_platform`], which calls `CoInitializeEx`.
+/// Only constructible via [`init_platform`], which calls `windows_core::init_mta`.
 pub struct ComToken(());
 
 pub fn init_platform(executable_directory: &Path) -> anyhow::Result<ComToken> {
-    // Initialize COM for the process. Must be called before any COM usage,
+    // Initialize COM (MTA) for the process. Must be called before any COM usage,
     // including WindowsAudioBackend::new().
-    // SAFETY: CoInitializeEx is safe to call; first call on this thread.
-    unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok()? };
+    windows_core::init_mta()?;
     if let Err(e) = setup_app_aumid(executable_directory) {
         log::warn!("Failed to set up app AUMID: {e:#}");
     }
     Ok(ComToken(()))
 }
 
-fn setup_app_aumid(executable_directory: &Path) -> Result<()> {
+fn setup_app_aumid(executable_directory: &Path) -> windows_registry::Result<()> {
     let registry_path = format!(r"SOFTWARE\Classes\AppUserModelId\{APP_AUMID}");
-    let _ = CURRENT_USER.remove_tree(registry_path.clone());
+    let _ = CURRENT_USER.remove_tree(&registry_path);
     let key = CURRENT_USER.create(&registry_path)?;
     if let Err(e) = key.set_string("DisplayName", APP_NAME) {
         log::warn!("Failed to set AUMID DisplayName: {e:#}");
@@ -38,13 +37,13 @@ fn setup_app_aumid(executable_directory: &Path) -> Result<()> {
     if let Err(e) = fs::write(&png_path, PNG_ICON_BYTES) {
         log::warn!("Failed to write {PNG_ICON_FILE_NAME} icon: {e:#}");
         let _ = key.remove_value("IconUri");
-    } else if let Err(e) = key.set_hstring("IconUri", &png_path.as_path().into()) {
+    } else if let Err(e) = key.set_string("IconUri", png_path.to_string_lossy()) {
         log::warn!("Failed to set AUMID IconUri: {e:#}");
     }
 
     // SAFETY: APP_AUMID is a valid static string; setting the AUMID is a standard shell API call.
     unsafe {
-        if let Err(e) = SetCurrentProcessExplicitAppUserModelID(&HSTRING::from(APP_AUMID)) {
+        if let Err(e) = SetCurrentProcessExplicitAppUserModelID(&HSTRING::from(APP_AUMID)).ok() {
             log::warn!("Failed to set explicit AppUserModelID: {e:#}");
         }
     }
@@ -55,7 +54,7 @@ fn setup_app_aumid(executable_directory: &Path) -> Result<()> {
 /// RAII guard that holds a named mutex for single-instance enforcement.
 /// The mutex is released when this struct is dropped.
 pub struct SingleInstanceGuard {
-    _handle: windows::Win32::Foundation::HANDLE,
+    _handle: HANDLE,
 }
 
 impl SingleInstanceGuard {
@@ -65,13 +64,31 @@ impl SingleInstanceGuard {
         let wide_name = HSTRING::from(name);
         // SAFETY: CreateMutexW with no security attributes and no initial ownership
         // is a standard Win32 call. The wide_name lives on the stack for the call duration.
-        let handle = unsafe { CreateMutexW(None, false, &wide_name)? };
+        let handle = unsafe { CreateMutexW(None, false, &wide_name) };
+        if handle.0.is_null() {
+            return Err(windows_core::Error::from_thread().into());
+        }
         // SAFETY: GetLastError retrieves the thread-local error code set by CreateMutexW.
-        let last_error = unsafe { windows::Win32::Foundation::GetLastError() };
-        if last_error == ERROR_ALREADY_EXISTS {
+        let last_error = unsafe { GetLastError() };
+        if last_error == ERROR_ALREADY_EXISTS as u32 {
+            // SAFETY: CreateMutexW returned a valid handle, even though the named mutex already existed.
+            unsafe {
+                let _ = CloseHandle(handle);
+            };
             anyhow::bail!("Another instance is already running.");
         }
         Ok(Self { _handle: handle })
+    }
+}
+
+impl Drop for SingleInstanceGuard {
+    fn drop(&mut self) {
+        if !self._handle.0.is_null() {
+            // SAFETY: _handle is a valid mutex handle created in acquire().
+            unsafe {
+                let _ = CloseHandle(self._handle);
+            };
+        }
     }
 }
 
