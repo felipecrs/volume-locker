@@ -7,7 +7,7 @@ use windows::Win32::Foundation::ERROR_ALREADY_EXISTS;
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
-use windows::core::{HSTRING, Result};
+use windows::core::HSTRING;
 use windows_registry::CURRENT_USER;
 
 /// Witness type proving COM has been initialized on this thread.
@@ -25,9 +25,9 @@ pub fn init_platform(executable_directory: &Path) -> anyhow::Result<ComToken> {
     Ok(ComToken(()))
 }
 
-fn setup_app_aumid(executable_directory: &Path) -> Result<()> {
+fn setup_app_aumid(executable_directory: &Path) -> windows_registry::Result<()> {
     let registry_path = format!(r"SOFTWARE\Classes\AppUserModelId\{APP_AUMID}");
-    let _ = CURRENT_USER.remove_tree(registry_path.clone());
+    let _ = CURRENT_USER.remove_tree(&registry_path);
     let key = CURRENT_USER.create(&registry_path)?;
     if let Err(e) = key.set_string("DisplayName", APP_NAME) {
         log::warn!("Failed to set AUMID DisplayName: {e:#}");
@@ -38,7 +38,7 @@ fn setup_app_aumid(executable_directory: &Path) -> Result<()> {
     if let Err(e) = fs::write(&png_path, PNG_ICON_BYTES) {
         log::warn!("Failed to write {PNG_ICON_FILE_NAME} icon: {e:#}");
         let _ = key.remove_value("IconUri");
-    } else if let Err(e) = key.set_hstring("IconUri", &png_path.as_path().into()) {
+    } else if let Err(e) = key.set_string("IconUri", png_path.to_string_lossy()) {
         log::warn!("Failed to set AUMID IconUri: {e:#}");
     }
 
