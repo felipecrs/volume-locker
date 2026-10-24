@@ -186,6 +186,24 @@ pub struct DeviceSettings {
     pub unmute_lock: UnmuteLockPolicy,
     pub device_type: DeviceType,
     pub name: String,
+    #[serde(default, skip_serializing_if = "CommunicationRoute::is_inherited")]
+    pub communication_route: CommunicationRoute,
+}
+
+/// An output's optional voice destination. Input routing keeps the global policy.
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(tag = "mode", content = "device_id", rename_all = "snake_case")]
+pub enum CommunicationRoute {
+    #[default]
+    Inherited,
+    SameDevice,
+    Paired(DeviceId),
+}
+
+impl CommunicationRoute {
+    pub fn is_inherited(&self) -> bool {
+        matches!(self, Self::Inherited)
+    }
 }
 
 impl DeviceSettings {
@@ -195,6 +213,7 @@ impl DeviceSettings {
             unmute_lock: UnmuteLockPolicy::default(),
             device_type,
             name,
+            communication_route: Default::default(),
         }
     }
 
@@ -253,7 +272,7 @@ pub enum UserEvent {
 #[cfg(test)]
 #[allow(clippy::float_cmp)]
 mod tests {
-    use super::{DeviceSettings, DeviceType, VolumePercent, VolumeScalar};
+    use super::{CommunicationRoute, DeviceSettings, DeviceType, VolumePercent, VolumeScalar};
 
     #[test]
     fn device_type_serialization_roundtrip() {
@@ -297,6 +316,7 @@ mod tests {
             },
             device_type: DeviceType::Input,
             name: "Microphone".into(),
+            communication_route: CommunicationRoute::default(),
         };
         let json = serde_json::to_string(&settings).unwrap();
         let loaded: DeviceSettings = serde_json::from_str(&json).unwrap();

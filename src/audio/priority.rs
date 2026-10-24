@@ -1,6 +1,6 @@
 use crate::config::PersistentState;
 use crate::notification::NotificationThrottler;
-use crate::types::{DeviceId, DeviceRole, DeviceType, TemporaryPriorities};
+use crate::types::{CommunicationRoute, DeviceId, DeviceRole, DeviceType, TemporaryPriorities};
 
 use super::AudioBackend;
 
@@ -48,55 +48,108 @@ fn enforce_priority_for_type(
         priority_list.insert(0, temp_id.clone());
     }
 
-    let Some(target_id) = find_highest_priority_active_device(backend, &priority_list) else {
-        return;
-    };
-
-    let mut switched = false;
-
-    // Enforce Console and Multimedia roles together
-    if !is_default_device(backend, device_type, DeviceRole::Console, &target_id) {
-        log::info!("Enforcing {device_type} priority: Switching to {target_id}");
+    let main_target = find_highest_priority_active_device(backend, &priority_list);
+    // Follow manual Windows output changes only when no priority order is set.
+    let routing_target = main_target.clone().or_else(|| {
+        if device_type != DeviceType::Output || !priority_list.is_empty() {
+            return None;
+        }
+        let current = backend
+            .default_device(device_type, DeviceRole::Console)
+            .ok()?;
+        let settings = state.device_settings(current.id())?;
+        (!settings.communication_route.is_inherited() && current.is_active().unwrap_or(false))
+            .then(|| current.id().clone())
+    });
+    let comm_target =
+        resolve_communication_target(backend, device_type, state, routing_target.as_ref());
+    let mut switched = Vec::new();
+    if let Some(target_id) = &main_target {
         for role in [DeviceRole::Console, DeviceRole::Multimedia] {
-            if let Err(e) = backend.set_default_device(&target_id, role) {
-                log::error!(
-                    "Failed to set default {role} {device_type} device to {target_id}: {e:#}"
-                );
+            if !is_default_device(backend, device_type, role, target_id) {
+                match backend.set_default_device(target_id, role) {
+                    Ok(()) if !switched.contains(target_id) => switched.push(target_id.clone()),
+                    Ok(()) => {}
+                    Err(e) => log::error!("Failed to set default {role} {device_type}: {e:#}"),
+                }
             }
         }
-        switched = true;
     }
-
-    // Enforce Communications role if enabled
-    if state.switch_communication_device(device_type)
-        && !is_default_device(backend, device_type, DeviceRole::Communications, &target_id)
+    if let Some(target_id) = &comm_target
+        && !is_default_device(backend, device_type, DeviceRole::Communications, target_id)
     {
-        log::info!("Enforcing {device_type} priority (Communication): Switching to {target_id}");
-        if let Err(e) = backend.set_default_device(&target_id, DeviceRole::Communications) {
-            log::error!(
-                "Failed to set default {device_type} communications device to {target_id}: {e:#}"
-            );
+        match backend.set_default_device(target_id, DeviceRole::Communications) {
+            Ok(()) if !switched.contains(target_id) => switched.push(target_id.clone()),
+            Ok(()) => {}
+            Err(e) => log::error!("Failed to set default communications {device_type}: {e:#}"),
         }
-        switched = true;
     }
+    if state.notify_on_priority_restore(device_type) {
+        for target_id in switched {
+            notify_priority_restored(backend, device_type, &target_id, throttler);
+        }
+    }
+}
 
-    if switched && state.notify_on_priority_restore(device_type) {
-        let device_name = backend.device_by_id(&target_id).map_or_else(
-            |e| {
-                log::warn!("Could not get name for device {target_id}: {e:#}");
-                "Unknown Device".to_string()
-            },
-            |d| d.name(),
-        );
-        let title = match device_type {
-            DeviceType::Output => "Default Output Device Restored",
-            DeviceType::Input => "Default Input Device Restored",
-        };
-        throttler.send_if_not_throttled(
-            &format!("priority_restore_{target_id}"),
-            title,
-            &format!("Switched to {device_name} based on priority list."),
-        );
+fn notify_priority_restored(
+    backend: &impl AudioBackend,
+    device_type: DeviceType,
+    target_id: &DeviceId,
+    throttler: &mut NotificationThrottler,
+) {
+    let device_name = backend.device_by_id(target_id).map_or_else(
+        |e| {
+            log::warn!("Could not get name for device {target_id}: {e:#}");
+            "Unknown Device".to_string()
+        },
+        |d| d.name(),
+    );
+    let title = match device_type {
+        DeviceType::Output => "Default Output Device Restored",
+        DeviceType::Input => "Default Input Device Restored",
+    };
+    throttler.send_if_not_throttled(
+        &format!("priority_restore_{target_id}"),
+        title,
+        &format!("Switched to {device_name} based on priority list."),
+    );
+}
+
+/// Explicit output routes override the global communication checkbox.
+fn resolve_communication_target(
+    backend: &impl AudioBackend,
+    device_type: DeviceType,
+    state: &PersistentState,
+    main_target: Option<&DeviceId>,
+) -> Option<DeviceId> {
+    if device_type == DeviceType::Output
+        && let Some(main_id) = main_target
+        && let Some(settings) = state.device_settings(main_id)
+    {
+        match &settings.communication_route {
+            CommunicationRoute::SameDevice => return Some(main_id.clone()),
+            CommunicationRoute::Paired(paired_id) => {
+                // A missing voice endpoint falls back to the chosen main output,
+                // rather than leaving chat on an unrelated previous device.
+                let paired_is_available = backend
+                    .devices(DeviceType::Output)
+                    .is_ok_and(|devices| devices.iter().any(|d| d.id() == paired_id))
+                    && backend
+                        .device_by_id(paired_id)
+                        .is_ok_and(|d| d.is_active().unwrap_or(false));
+                return Some(if paired_is_available {
+                    paired_id.clone()
+                } else {
+                    main_id.clone()
+                });
+            }
+            CommunicationRoute::Inherited => {}
+        }
+    }
+    if state.switch_communication_device(device_type) {
+        main_target.cloned()
+    } else {
+        None
     }
 }
 

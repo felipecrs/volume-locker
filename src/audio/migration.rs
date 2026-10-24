@@ -1,5 +1,5 @@
 use crate::config::PersistentState;
-use crate::types::{DeviceId, DeviceSettings, DeviceType};
+use crate::types::{CommunicationRoute, DeviceId, DeviceSettings, DeviceType};
 
 use super::AudioBackend;
 
@@ -32,6 +32,7 @@ pub fn migrate_device_ids(
     }
 
     let mut state_changed = false;
+    let mut id_mappings = Vec::new();
 
     for (device_id, updated_settings) in devices_to_update {
         persistent_state.insert_device(device_id, updated_settings);
@@ -51,6 +52,7 @@ pub fn migrate_device_ids(
                 priority_list[pos] = new_device_id.clone();
             }
 
+            id_mappings.push((old_device_id.clone(), new_device_id.clone()));
             log::info!("Migrated device {device_name} from ID {old_device_id} to {new_device_id}");
             state_changed = true;
         } else {
@@ -60,6 +62,15 @@ pub fn migrate_device_ids(
         }
     }
 
+    // Apply after all insertions: both ends of a pair may migrate in any order.
+    for (old_id, new_id) in id_mappings {
+        for settings in persistent_state.devices.values_mut() {
+            if matches!(&settings.communication_route, CommunicationRoute::Paired(id) if id == &old_id)
+            {
+                settings.communication_route = CommunicationRoute::Paired(new_id.clone());
+            }
+        }
+    }
     state_changed
 }
 
