@@ -48,7 +48,8 @@ fn enforce_priority_for_type(
         priority_list.insert(0, temp_id.clone());
     }
 
-    let Some(target_id) = find_highest_priority_active_device(backend, &priority_list) else {
+    let Some(target_id) = find_highest_priority_active_device(backend, &priority_list, state)
+    else {
         return;
     };
 
@@ -103,9 +104,16 @@ fn enforce_priority_for_type(
 fn find_highest_priority_active_device(
     backend: &impl AudioBackend,
     priority_list: &[DeviceId],
+    state: &PersistentState,
 ) -> Option<DeviceId> {
     priority_list
         .iter()
+        .filter(|device_id| {
+            state.device_settings(device_id).is_none_or(|s| {
+                backend.headset_presence(s.presence_source)
+                    != super::presence::HeadsetPresence::Unavailable
+            })
+        })
         .find_map(|device_id| match backend.device_by_id(device_id) {
             Ok(device) => match device.is_active() {
                 Ok(true) => Some(device_id.clone()),
@@ -284,7 +292,7 @@ mod tests {
         ]);
         let list = vec!["dev_a".into(), "dev_b".into(), "dev_c".into()];
         assert_eq!(
-            find_highest_priority_active_device(&backend, &list),
+            find_highest_priority_active_device(&backend, &list, &PersistentState::default()),
             Some(DeviceId::from("dev_b"))
         );
     }
@@ -296,13 +304,19 @@ mod tests {
             MockDevice::new("dev_b", "B", false),
         ]);
         let list = vec!["dev_a".into(), "dev_b".into()];
-        assert_eq!(find_highest_priority_active_device(&backend, &list), None);
+        assert_eq!(
+            find_highest_priority_active_device(&backend, &list, &PersistentState::default()),
+            None
+        );
     }
 
     #[test]
     fn find_highest_returns_none_for_empty_list() {
         let backend = MockAudioBackend::new(vec![]);
         let list: Vec<DeviceId> = vec![];
-        assert_eq!(find_highest_priority_active_device(&backend, &list), None);
+        assert_eq!(
+            find_highest_priority_active_device(&backend, &list, &PersistentState::default()),
+            None
+        );
     }
 }

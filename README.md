@@ -63,6 +63,16 @@ Volume Locker can automatically switch your default audio device based on a prio
 5.  Check **Notify on restore** to get a notification when the default device is switched.
 6.  Check **Also switch default communication device** to also switch the default communication device.
 
+### Experimental Wireless Headset Availability
+
+Wireless receivers can remain connected while their headset is off. An opt-in
+passive HID detector can skip an unavailable A50 X in the existing input/output
+priority lists. Enable it under a device's **Availability** submenu and configure
+a fallback device. Startup state is unknown until a power event is observed.
+See [experimental headset availability](docs/experimental-headset-presence.md) for
+firmware limitations, read-only diagnostics and the protocol adapter interface
+for adding other devices. Only A50 X power events are currently supported.
+
 ### Temporary Default Device Priority
 
 If you want to temporarily use a different device without changing your priority list (e.g., switching to speakers for a call while the headphones are connected), you can use the **Temporary default device priority** feature.

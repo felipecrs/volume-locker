@@ -92,6 +92,15 @@ pub fn build_device_submenu(
     register(settings_item.id().clone(), DeviceAction::OpenSettings);
     submenu.append(&settings_item)?;
 
+    submenu.append(&PredefinedMenuItem::separator())?;
+    super::presence_section::append_presence_settings(
+        &submenu,
+        device_id,
+        &name,
+        device_type,
+        persistent_state,
+        map,
+    )?;
     Ok(submenu)
 }
 
@@ -168,9 +177,9 @@ mod tests {
         )
         .expect("build_device_submenu should succeed");
 
-        // Should register 6 actions: VolumeLock, VolumeLockNotify, UnmuteLock,
+        // Existing actions plus availability settings: VolumeLock, VolumeLockNotify, UnmuteLock,
         // UnmuteLockNotify, OpenProperties, OpenSettings
-        assert_eq!(map.len(), 6);
+        assert_eq!(map.len(), 8);
         assert!(submenu.text().contains("Speakers"));
     }
 
