@@ -41,6 +41,8 @@ pub use self::windows::WindowsAudioBackend as AudioBackendImpl;
 
 mod migration;
 mod priority;
+#[cfg(test)]
+mod routing_tests;
 
 pub use migration::migrate_device_ids;
 pub use priority::enforce_priorities;

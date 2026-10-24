@@ -6,7 +6,7 @@ use crate::notification::log_and_notify_error;
 use crate::platform::{
     open_device_settings, open_sound_control_panel, open_sound_settings, open_volume_mixer,
 };
-use crate::types::{DeviceId, DeviceType, TemporaryPriorities};
+use crate::types::{CommunicationRoute, DeviceId, DeviceType, TemporaryPriorities};
 use crate::update::UpdateInfo;
 use crate::utils::{get_executable_directory, open_path, open_url};
 use tray_icon::menu::Menu;
@@ -262,6 +262,36 @@ fn handle_device_event(
                 },
             );
             MenuEventResult::DevicesChanged
+        }
+        DeviceAction::SetCommunicationRoute(route) => {
+            if device_type != DeviceType::Output {
+                return MenuEventResult::NoChange;
+            }
+            if let CommunicationRoute::Paired(target) = route {
+                // Retain target metadata for migration if Windows later changes its ID.
+                let Ok(outputs) = ctx.backend.devices(DeviceType::Output) else {
+                    return MenuEventResult::NoChange;
+                };
+                let Some(device) = outputs.iter().find(|device| device.id() == target) else {
+                    return MenuEventResult::NoChange;
+                };
+                ctx.persistent_state.ensure_device_settings(
+                    target.clone(),
+                    device.name(),
+                    DeviceType::Output,
+                );
+            }
+            let settings = ctx.persistent_state.ensure_device_settings(
+                device_id.clone(),
+                device_name.to_string(),
+                device_type,
+            );
+            let old_route = std::mem::replace(&mut settings.communication_route, route.clone());
+            if let CommunicationRoute::Paired(old_target) = old_route {
+                ctx.persistent_state.remove_device_if_unused(&old_target);
+            }
+            ctx.persistent_state.remove_device_if_unused(device_id);
+            MenuEventResult::SaveConfig
         }
         DeviceAction::OpenProperties => {
             if let Err(e) = open_sound_control_panel(sound_panel_tab(device_type)) {

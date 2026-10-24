@@ -1,5 +1,6 @@
 mod device_section;
 mod priority_section;
+mod routing_section;
 
 use super::{AppAction, DeviceAction, MenuAction, MenuItemInfo};
 use crate::audio::AudioBackend;
