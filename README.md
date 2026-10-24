@@ -61,11 +61,11 @@ Volume Locker can automatically switch your default audio device based on a prio
 3.  Use **Move Up** and **Move Down** to adjust the priority order. The device at the top has the highest priority.
 4.  Volume Locker will monitor your devices and automatically switch the default device to the highest priority one available.
 5.  Check **Notify on restore** to get a notification when the default device is switched.
-6.  Check **Also switch default communication device** to also switch the default communication device.
+6.  Open **Communication settings** and check **Also switch default communication device** to also switch the default communication device.
 
 ### Communication Device Priority
 
-Output and input each support an independent communication-device priority list. For example, keep game audio on speakers while voice chat uses a headset, or use a different microphone for calls. Open **Default output device priority** or **Default input device priority > Communication device priority**, then add and order devices as in the main list.
+Output and input each support an independent communication-device priority list. For example, keep game audio on speakers while voice chat uses a headset, or use a different microphone for calls. Open **Default output device priority** or **Default input device priority**, then **Communication settings > Communication device priority**, and add and order devices as in the main list.
 
 A non-empty communication list controls only the Windows Communications role, including its own fallback order. It takes precedence over **Also switch default communication device**, which is disabled while the list is configured. An empty list preserves that checkbox's existing behavior. If every communication device is unavailable, the current communication default is left alone.
 

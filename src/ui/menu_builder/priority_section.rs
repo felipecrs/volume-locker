@@ -126,7 +126,7 @@ fn append_priority_entries(
 /// submenu rather than inlined so the tray menu does not double in length for
 /// the majority of users who never configure a separate list.
 fn append_communication_priority_submenu(
-    tray_menu: &Menu,
+    container: &impl MenuContainer,
     device_type: DeviceType,
     backend: &impl AudioBackend,
     persistent_state: &PersistentState,
@@ -153,7 +153,7 @@ fn append_communication_priority_submenu(
         persistent_state,
         map,
     )?;
-    tray_menu.append(&submenu)?;
+    container.add(&submenu)?;
 
     Ok(())
 }
@@ -232,9 +232,18 @@ pub fn append_priority_list_to_menu(
             },
         },
     );
-    tray_menu.append(&switch_comm_item)?;
+    // Keep legacy independent lists available without expanding the root menu.
+    let communication_settings = Submenu::new("Communication settings", true);
+    communication_settings.append(&switch_comm_item)?;
 
-    append_communication_priority_submenu(tray_menu, device_type, backend, persistent_state, map)?;
+    append_communication_priority_submenu(
+        &communication_settings,
+        device_type,
+        backend,
+        persistent_state,
+        map,
+    )?;
+    tray_menu.append(&communication_settings)?;
 
     tray_menu.append(&PredefinedMenuItem::separator())?;
 
@@ -422,5 +431,50 @@ mod tests {
             )
         });
         assert!(has_comm_add, "dev1 should be addable to the comm list");
+    }
+
+    #[test]
+    fn communication_settings_preserves_fork_nesting_and_checkbox_state_for_both_types() {
+        for device_type in [DeviceType::Output, DeviceType::Input] {
+            let mut device = MockDevice::new("dev1", "Headset", true);
+            device.device_type = device_type;
+            let backend = MockAudioBackend::new(vec![device]);
+            for independent in [false, true] {
+                let mut state = PersistentState::default();
+                state.priority_list_mut(device_type).push("dev1".into());
+                if independent {
+                    state
+                        .communication_priority_list_mut(device_type)
+                        .push("dev1".into());
+                }
+                let menu = Menu::new();
+                append_priority_list_to_menu(
+                    &menu,
+                    device_type,
+                    &backend,
+                    &state,
+                    None,
+                    &mut MenuIdMap::new(),
+                )
+                .unwrap();
+                let settings = menu
+                    .items()
+                    .into_iter()
+                    .find_map(|item| {
+                        item.as_submenu()
+                            .filter(|submenu| submenu.text() == "Communication settings")
+                            .cloned()
+                    })
+                    .expect("Communication settings must remain a root submenu");
+                let children = settings.items();
+                assert_eq!(children.len(), 2);
+                let switch = children[0].as_check_menuitem().unwrap();
+                assert_eq!(switch.text(), "Also switch default communication device");
+                assert_eq!(switch.is_enabled(), !independent);
+                assert!(switch.is_checked());
+                let priority = children[1].as_submenu().unwrap();
+                assert!(priority.text().starts_with("Communication device priority"));
+            }
+        }
     }
 }
