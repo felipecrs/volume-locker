@@ -65,16 +65,9 @@ Volume Locker can automatically switch your default audio device based on a prio
 
 ### Paired Voice Outputs
 
-Open **Output devices > device > Voice output** to choose a communication
-destination for that output. Choose **Same as this output** for speakers, or pair
-a split-channel headset's Game output with its Voice output. **Use global voice
-settings** preserves the existing communication checkbox behavior.
+Open **Output devices > device > Voice output** to choose a communication destination for that output. Choose **Same as this output** for speakers, or pair a split-channel headset's Game output with its Voice output. **Use global voice settings** preserves the existing communication checkbox behavior.
 
-Explicit routes follow the main priority list and temporary output selection.
-With no main output priority list they also follow manual Windows output changes.
-A missing or inactive pair falls back to the selected main output; reconnecting
-the paired endpoint restores the saved route. Input devices keep their global
-policy. Apps must use Windows' default communication device to follow the route.
+Explicit routes follow the main priority list and temporary output selection. With no main output priority list they also follow manual Windows output changes. A missing or inactive pair falls back to the selected main output; reconnecting the paired endpoint restores the saved route. Input devices keep their global policy. Apps must use Windows' default communication device to follow the route.
 
 ### Temporary Default Device Priority
 
