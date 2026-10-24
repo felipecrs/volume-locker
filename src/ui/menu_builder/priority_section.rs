@@ -1,7 +1,7 @@
-use super::{lookup_device_name, register_menu_item};
+use super::{MenuContainer, lookup_device_name, register_menu_item};
 use crate::audio::AudioBackend;
 use crate::config::PersistentState;
-use crate::types::{DeviceId, DeviceType, TemporaryPriorities};
+use crate::types::{DeviceId, DeviceType, PriorityKind, TemporaryPriorities};
 use crate::ui::{DeviceAction, MenuAction, MenuIdMap, MenuItemInfo, PreferenceAction};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 
@@ -11,23 +11,28 @@ fn build_priority_item_submenu(
     device_id: &DeviceId,
     device_name: &str,
     device_type: DeviceType,
+    kind: PriorityKind,
     map: &mut MenuIdMap,
 ) -> anyhow::Result<Submenu> {
     let label = format!("{}. {}", index + 1, device_name);
     let submenu = Submenu::new(&label, true);
 
     let move_items: [(&str, bool, DeviceAction); 4] = [
-        ("Move up", index > 0, DeviceAction::MovePriorityUp),
+        ("Move up", index > 0, DeviceAction::MovePriorityUp(kind)),
         (
             "Move down",
             index < list_len - 1,
-            DeviceAction::MovePriorityDown,
+            DeviceAction::MovePriorityDown(kind),
         ),
-        ("Move to top", index > 0, DeviceAction::MovePriorityToTop),
+        (
+            "Move to top",
+            index > 0,
+            DeviceAction::MovePriorityToTop(kind),
+        ),
         (
             "Move to bottom",
             index < list_len - 1,
-            DeviceAction::MovePriorityToBottom,
+            DeviceAction::MovePriorityToBottom(kind),
         ),
     ];
     for (i, (label, enabled, action)) in move_items.into_iter().enumerate() {
@@ -51,7 +56,7 @@ fn build_priority_item_submenu(
     register_menu_item(
         map,
         remove_item.id().clone(),
-        DeviceAction::RemoveFromPriority,
+        DeviceAction::RemoveFromPriority(kind),
         device_id,
         device_name,
         device_type,
@@ -59,6 +64,98 @@ fn build_priority_item_submenu(
     submenu.append(&remove_item)?;
 
     Ok(submenu)
+}
+
+/// Appends the ordered device entries plus the "Add device" submenu for one
+/// priority list into `container` (either the tray menu itself, for the main
+/// list, or a submenu, for the communication list).
+fn append_priority_entries(
+    container: &impl MenuContainer,
+    device_type: DeviceType,
+    kind: PriorityKind,
+    backend: &impl AudioBackend,
+    persistent_state: &PersistentState,
+    map: &mut MenuIdMap,
+) -> anyhow::Result<()> {
+    let priority_list = persistent_state.priority_list_of(device_type, kind);
+
+    let devices = backend.devices(device_type).unwrap_or_else(|e| {
+        log::warn!("Failed to get {device_type:?} devices: {e:#}");
+        Vec::new()
+    });
+    let available_devices: Vec<_> = devices.iter().map(|d| (d.id().clone(), d.name())).collect();
+
+    for (index, device_id) in priority_list.iter().enumerate() {
+        let device_name = lookup_device_name(device_id, persistent_state, backend);
+        let submenu = build_priority_item_submenu(
+            index,
+            priority_list.len(),
+            device_id,
+            &device_name,
+            device_type,
+            kind,
+            map,
+        )?;
+        container.add(&submenu)?;
+    }
+
+    let devices_to_add: Vec<_> = available_devices
+        .iter()
+        .filter(|(id, _)| !priority_list.contains(id))
+        .collect();
+
+    let add_device_submenu = Submenu::new("Add device", !devices_to_add.is_empty());
+    for (id, name) in devices_to_add {
+        let item = MenuItem::new(name, true, None);
+        register_menu_item(
+            map,
+            item.id().clone(),
+            DeviceAction::AddToPriority(kind),
+            id,
+            name,
+            device_type,
+        );
+        add_device_submenu.append(&item)?;
+    }
+    container.add(&add_device_submenu)?;
+
+    Ok(())
+}
+
+/// Builds the "Communication device priority" submenu. It is collapsed into a
+/// submenu rather than inlined so the tray menu does not double in length for
+/// the majority of users who never configure a separate list.
+fn append_communication_priority_submenu(
+    container: &impl MenuContainer,
+    device_type: DeviceType,
+    backend: &impl AudioBackend,
+    persistent_state: &PersistentState,
+    map: &mut MenuIdMap,
+) -> anyhow::Result<()> {
+    let comm_list = persistent_state.communication_priority_list(device_type);
+
+    // Surface the currently winning entry in the label so the split routing is
+    // visible without opening the submenu.
+    let label = match comm_list.first() {
+        Some(top) => {
+            let name = lookup_device_name(top, persistent_state, backend);
+            format!("Communication device priority: {name}")
+        }
+        None => "Communication device priority".to_string(),
+    };
+
+    let submenu = Submenu::new(&label, true);
+    append_priority_entries(
+        &submenu,
+        device_type,
+        PriorityKind::Communication,
+        backend,
+        persistent_state,
+        map,
+    )?;
+    container.add(&submenu)?;
+
+    Ok(())
 }
 
 pub fn append_priority_list_to_menu(
@@ -78,50 +175,26 @@ pub fn append_priority_list_to_menu(
     let priority_header = MenuItem::new(priority_label, false, None);
     tray_menu.append(&priority_header)?;
 
-    let devices = backend.devices(device_type).unwrap_or_else(|e| {
-        log::warn!("Failed to get {device_type:?} devices: {e:#}");
-        Vec::new()
-    });
-    let available_devices: Vec<_> = devices.iter().map(|d| (d.id().clone(), d.name())).collect();
-
-    for (index, device_id) in priority_list.iter().enumerate() {
-        let device_name = lookup_device_name(device_id, persistent_state, backend);
-        let submenu = build_priority_item_submenu(
-            index,
-            priority_list.len(),
-            device_id,
-            &device_name,
-            device_type,
-            map,
-        )?;
-        tray_menu.append(&submenu)?;
-    }
-
-    let devices_to_add: Vec<_> = available_devices
-        .iter()
-        .filter(|(id, _)| !priority_list.contains(id))
-        .collect();
-
-    let add_device_submenu = Submenu::new("Add device", !devices_to_add.is_empty());
-    for (id, name) in devices_to_add {
-        let item = MenuItem::new(name, true, None);
-        register_menu_item(
-            map,
-            item.id().clone(),
-            DeviceAction::AddToPriority,
-            id,
-            name,
-            device_type,
-        );
-        add_device_submenu.append(&item)?;
-    }
-    tray_menu.append(&add_device_submenu)?;
+    append_priority_entries(
+        tray_menu,
+        device_type,
+        PriorityKind::Main,
+        backend,
+        persistent_state,
+        map,
+    )?;
 
     let notify_on_restore = persistent_state.notify_on_priority_restore(device_type);
 
+    let communication_list_active = !persistent_state
+        .communication_priority_list(device_type)
+        .is_empty();
+    let any_priority_configured =
+        !priority_list.is_empty() || temporary_priority.is_some() || communication_list_active;
+
     let notify_item = CheckMenuItem::new(
         "Notify on priority restore",
-        !priority_list.is_empty() || temporary_priority.is_some(),
+        any_priority_configured,
         notify_on_restore,
         None,
     );
@@ -140,9 +213,11 @@ pub fn append_priority_list_to_menu(
 
     let switch_communication = persistent_state.switch_communication_device(device_type);
 
+    // A configured communication list supersedes this preference entirely, so
+    // grey it out rather than let it look like it still has an effect.
     let switch_comm_item = CheckMenuItem::new(
         "Also switch default communication device",
-        !priority_list.is_empty() || temporary_priority.is_some(),
+        (!priority_list.is_empty() || temporary_priority.is_some()) && !communication_list_active,
         switch_communication,
         None,
     );
@@ -157,7 +232,18 @@ pub fn append_priority_list_to_menu(
             },
         },
     );
-    tray_menu.append(&switch_comm_item)?;
+    // Keep legacy independent lists available without expanding the root menu.
+    let communication_settings = Submenu::new("Communication settings", true);
+    communication_settings.append(&switch_comm_item)?;
+
+    append_communication_priority_submenu(
+        &communication_settings,
+        device_type,
+        backend,
+        persistent_state,
+        map,
+    )?;
+    tray_menu.append(&communication_settings)?;
 
     tray_menu.append(&PredefinedMenuItem::separator())?;
 
@@ -252,13 +338,14 @@ mod tests {
         // Priority item for dev1: move up/down/top/bottom + remove = 5
         // Add device for dev2: 1
         // PriorityRestoreNotify + SwitchCommunicationDevice = 2
-        assert!(map.len() >= 7);
+        // Communication list "Add device" for dev1 + dev2 = 2
+        assert!(map.len() >= 9);
 
         let has_add_action = map.values().any(|info| {
             matches!(
                 &info.action,
                 MenuAction::Device {
-                    action: DeviceAction::AddToPriority,
+                    action: DeviceAction::AddToPriority(PriorityKind::Main),
                     ..
                 }
             )
@@ -284,7 +371,110 @@ mod tests {
         )
         .expect("should succeed");
 
-        // With empty priority list: AddToPriority for dev1 (1) + notify (1) + switch comm (1) = 3
-        assert_eq!(map.len(), 3);
+        // With empty priority lists: AddToPriority for dev1 in the main list (1)
+        // + notify (1) + switch comm (1) + AddToPriority for dev1 in the
+        // communication list (1) = 4
+        assert_eq!(map.len(), 4);
+    }
+
+    #[test]
+    fn registers_communication_priority_actions() {
+        let backend = MockAudioBackend::new(vec![
+            MockDevice::new("dev1", "Speakers", true),
+            MockDevice::new("dev2", "Headset", true),
+        ]);
+        let mut state = PersistentState::default();
+        state.output.priority_list = vec!["dev1".into()];
+        state.output.communication_priority_list = vec!["dev2".into()];
+
+        let tray_menu = Menu::new();
+        let mut map = MenuIdMap::new();
+
+        append_priority_list_to_menu(
+            &tray_menu,
+            DeviceType::Output,
+            &backend,
+            &state,
+            None,
+            &mut map,
+        )
+        .expect("should succeed");
+
+        let comm_move_actions = map
+            .values()
+            .filter(|info| {
+                matches!(
+                    &info.action,
+                    MenuAction::Device {
+                        action: DeviceAction::MovePriorityUp(PriorityKind::Communication)
+                            | DeviceAction::MovePriorityDown(PriorityKind::Communication)
+                            | DeviceAction::MovePriorityToTop(PriorityKind::Communication)
+                            | DeviceAction::MovePriorityToBottom(PriorityKind::Communication)
+                            | DeviceAction::RemoveFromPriority(PriorityKind::Communication),
+                        ..
+                    }
+                )
+            })
+            .count();
+        assert_eq!(
+            comm_move_actions, 5,
+            "communication entry should get its own move/remove actions"
+        );
+
+        let has_comm_add = map.values().any(|info| {
+            matches!(
+                &info.action,
+                MenuAction::Device {
+                    action: DeviceAction::AddToPriority(PriorityKind::Communication),
+                    ..
+                }
+            )
+        });
+        assert!(has_comm_add, "dev1 should be addable to the comm list");
+    }
+
+    #[test]
+    fn communication_settings_preserves_fork_nesting_and_checkbox_state_for_both_types() {
+        for device_type in [DeviceType::Output, DeviceType::Input] {
+            let mut device = MockDevice::new("dev1", "Headset", true);
+            device.device_type = device_type;
+            let backend = MockAudioBackend::new(vec![device]);
+            for independent in [false, true] {
+                let mut state = PersistentState::default();
+                state.priority_list_mut(device_type).push("dev1".into());
+                if independent {
+                    state
+                        .communication_priority_list_mut(device_type)
+                        .push("dev1".into());
+                }
+                let menu = Menu::new();
+                append_priority_list_to_menu(
+                    &menu,
+                    device_type,
+                    &backend,
+                    &state,
+                    None,
+                    &mut MenuIdMap::new(),
+                )
+                .unwrap();
+                let settings = menu
+                    .items()
+                    .into_iter()
+                    .find_map(|item| {
+                        item.as_submenu()
+                            .filter(|submenu| submenu.text() == "Communication settings")
+                            .cloned()
+                    })
+                    .expect("Communication settings must remain a root submenu");
+                let children = settings.items();
+                assert_eq!(children.len(), 2);
+                let switch = children[0].as_check_menuitem().unwrap();
+                assert_eq!(switch.text(), "Also switch default communication device");
+                assert_eq!(switch.is_enabled(), !independent);
+                assert!(switch.is_checked());
+                let priority = children[1].as_submenu().unwrap();
+                assert!(priority.text().starts_with("Communication device priority"));
+            }
+        }
     }
 }
