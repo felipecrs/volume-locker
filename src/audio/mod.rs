@@ -1,9 +1,16 @@
-use crate::types::{DeviceId, DeviceRole, DeviceType, VolumeScalar};
+use crate::types::{DeviceId, DeviceRole, DeviceType, PresenceSource, VolumeScalar};
+
+pub mod presence;
+use presence::HeadsetPresence;
 
 #[cfg(target_os = "windows")]
 mod windows_com_policy_config;
 
 pub trait AudioBackend {
+    fn configure_presence_monitoring(&self, _enabled: bool) {}
+    fn headset_presence(&self, _source: PresenceSource) -> HeadsetPresence {
+        HeadsetPresence::Unknown
+    }
     fn devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>>;
     fn device_by_id(&self, id: &DeviceId) -> anyhow::Result<Box<dyn AudioDevice>>;
     fn default_device(
@@ -40,6 +47,8 @@ mod windows;
 pub use self::windows::WindowsAudioBackend as AudioBackendImpl;
 
 mod migration;
+#[cfg(test)]
+mod presence_tests;
 mod priority;
 
 pub use migration::migrate_device_ids;
@@ -217,6 +226,7 @@ pub(crate) mod tests {
         pub(crate) failing_device_ids: RefCell<Vec<String>>,
         /// If true, `set_default_device` will return `Err`.
         pub(crate) set_default_fails: RefCell<bool>,
+        pub(crate) presence: RefCell<HeadsetPresence>,
     }
 
     impl MockAudioBackend {
@@ -228,6 +238,7 @@ pub(crate) mod tests {
                 default_communications: RefCell::new(HashMap::new()),
                 failing_device_ids: RefCell::new(Vec::new()),
                 set_default_fails: RefCell::new(false),
+                presence: RefCell::new(HeadsetPresence::Unknown),
             }
         }
 
@@ -242,6 +253,14 @@ pub(crate) mod tests {
     }
 
     impl AudioBackend for MockAudioBackend {
+        fn headset_presence(&self, source: PresenceSource) -> HeadsetPresence {
+            if source == PresenceSource::AstroA50X {
+                *self.presence.borrow()
+            } else {
+                HeadsetPresence::Unknown
+            }
+        }
+
         fn devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>> {
             Ok(self
                 .devices

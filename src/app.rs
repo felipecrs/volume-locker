@@ -208,6 +208,12 @@ impl AppState {
     ) {
         log::info!("Reloading list of watched devices...");
 
+        self.backend.configure_presence_monitoring(
+            self.persistent_state
+                .devices_iter()
+                .any(|(_, settings)| !settings.presence_source.is_windows()),
+        );
+
         self.migrate_device_ids_if_needed();
         for (device_id, new_name, device_type) in collect_device_names(&self.backend) {
             if let Some(settings) = self.persistent_state.device_settings_mut(&device_id) {
