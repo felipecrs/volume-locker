@@ -76,6 +76,18 @@ impl PartialEq<f32> for VolumePercent {
 #[serde(transparent)]
 pub struct DeviceId(String);
 
+impl DeviceId {
+    pub const MAIN_PRIORITY: &'static str = "__main_priority__";
+
+    pub fn is_main_priority(&self) -> bool {
+        self.0 == Self::MAIN_PRIORITY
+    }
+
+    pub fn main_priority() -> Self {
+        Self(Self::MAIN_PRIORITY.to_string())
+    }
+}
+
 impl fmt::Display for DeviceId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
@@ -152,11 +164,10 @@ pub enum DeviceRole {
 
 /// Which of a device type's two priority lists is being referred to.
 ///
-/// [`PriorityKind::Main`] drives the Console/Multimedia roles (and, unless a
-/// communication list is configured, the Communications role too).
-/// [`PriorityKind::Communication`] is optional: when non-empty it takes over the
-/// Communications role, allowing media and chat audio to resolve to different
-/// devices.
+/// [`PriorityKind::Main`] drives the Console/Multimedia roles.
+/// [`PriorityKind::Communication`] drives the Communications role, allowing media
+/// and chat audio to resolve to different devices, or to fall back to the main
+/// device priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PriorityKind {
     Main,
@@ -228,24 +239,30 @@ pub struct VolumeChangedEvent {
     pub new_volume: Option<VolumeScalar>,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct TemporaryPriorities {
     pub(crate) output: Option<DeviceId>,
     pub(crate) input: Option<DeviceId>,
+    pub(crate) output_communication: Option<DeviceId>,
+    pub(crate) input_communication: Option<DeviceId>,
 }
 
 impl TemporaryPriorities {
-    pub fn get(&self, device_type: DeviceType) -> Option<&DeviceId> {
-        match device_type {
-            DeviceType::Output => self.output.as_ref(),
-            DeviceType::Input => self.input.as_ref(),
+    pub fn get(&self, device_type: DeviceType, kind: PriorityKind) -> Option<&DeviceId> {
+        match (device_type, kind) {
+            (DeviceType::Output, PriorityKind::Main) => self.output.as_ref(),
+            (DeviceType::Input, PriorityKind::Main) => self.input.as_ref(),
+            (DeviceType::Output, PriorityKind::Communication) => self.output_communication.as_ref(),
+            (DeviceType::Input, PriorityKind::Communication) => self.input_communication.as_ref(),
         }
     }
 
-    pub fn set(&mut self, device_type: DeviceType, value: Option<DeviceId>) {
-        match device_type {
-            DeviceType::Output => self.output = value,
-            DeviceType::Input => self.input = value,
+    pub fn set(&mut self, device_type: DeviceType, kind: PriorityKind, value: Option<DeviceId>) {
+        match (device_type, kind) {
+            (DeviceType::Output, PriorityKind::Main) => self.output = value,
+            (DeviceType::Input, PriorityKind::Main) => self.input = value,
+            (DeviceType::Output, PriorityKind::Communication) => self.output_communication = value,
+            (DeviceType::Input, PriorityKind::Communication) => self.input_communication = value,
         }
     }
 }

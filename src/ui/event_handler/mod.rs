@@ -109,17 +109,35 @@ fn handle_priority_event(
     persistent_state: &mut PersistentState,
 ) -> bool {
     match action {
-        DeviceAction::AddToPriority(kind) => {
+        DeviceAction::AddToPriorityTop(kind) => {
+            let list = persistent_state.priority_list_of_mut(device_type, *kind);
+            if list.iter().any(|x| *x == **device_id) {
+                false
+            } else {
+                list.insert(0, device_id.clone());
+                if !device_id.is_main_priority() {
+                    persistent_state.ensure_device_settings(
+                        device_id.clone(),
+                        device_name.to_string(),
+                        device_type,
+                    );
+                }
+                true
+            }
+        }
+        DeviceAction::AddToPriorityBottom(kind) => {
             let list = persistent_state.priority_list_of_mut(device_type, *kind);
             if list.iter().any(|x| *x == **device_id) {
                 false
             } else {
                 list.push(device_id.clone());
-                persistent_state.ensure_device_settings(
-                    device_id.clone(),
-                    device_name.to_string(),
-                    device_type,
-                );
+                if !device_id.is_main_priority() {
+                    persistent_state.ensure_device_settings(
+                        device_id.clone(),
+                        device_name.to_string(),
+                        device_type,
+                    );
+                }
                 true
             }
         }
@@ -234,7 +252,8 @@ fn handle_device_event(
                 MenuEventResult::NoChange
             }
         }
-        DeviceAction::AddToPriority(_)
+        DeviceAction::AddToPriorityTop(_)
+        | DeviceAction::AddToPriorityBottom(_)
         | DeviceAction::RemoveFromPriority(_)
         | DeviceAction::MovePriorityUp(_)
         | DeviceAction::MovePriorityDown(_)
@@ -252,10 +271,11 @@ fn handle_device_event(
                 MenuEventResult::NoChange
             }
         }
-        DeviceAction::SetTemporaryPriority => {
+        DeviceAction::SetTemporaryPriority(kind) => {
             let is_checked = get_check_item_state(ctx.tray_menu, &event.id).unwrap_or(false);
             ctx.temporary_priorities.set(
                 device_type,
+                *kind,
                 if is_checked {
                     Some(device_id.clone())
                 } else {
@@ -286,16 +306,10 @@ fn handle_preference_event(
     ctx: &mut MenuEventContext<'_, impl AudioBackend>,
 ) -> MenuEventResult {
     match action {
-        PreferenceAction::PriorityRestoreNotify => {
+        PreferenceAction::PriorityRestoreNotify(kind) => {
             with_check_state(ctx.tray_menu, &event.id, |checked| {
                 ctx.persistent_state
-                    .set_notify_on_priority_restore(device_type, checked);
-            })
-        }
-        PreferenceAction::SwitchCommunicationDevice => {
-            with_check_state(ctx.tray_menu, &event.id, |checked| {
-                ctx.persistent_state
-                    .set_switch_communication_device(device_type, checked);
+                    .set_notify_on_priority_restore_of(device_type, *kind, checked);
             })
         }
         PreferenceAction::OpenDevicesList => {

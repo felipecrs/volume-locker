@@ -1,14 +1,13 @@
 use super::{DeviceDisplayInfo, append_action_item, format_device_menu_label, register_menu_item};
 use crate::audio::{AudioBackend, AudioDevice};
 use crate::config::PersistentState;
-use crate::types::{DeviceId, DeviceRole, DeviceType};
+use crate::types::DeviceType;
 use crate::ui::{DeviceAction, MenuAction, MenuIdMap, PreferenceAction};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 
 pub fn build_device_submenu(
     device: &dyn AudioDevice,
     device_type: DeviceType,
-    default_device_id: Option<&DeviceId>,
     persistent_state: &PersistentState,
     map: &mut MenuIdMap,
 ) -> anyhow::Result<Submenu> {
@@ -23,7 +22,6 @@ pub fn build_device_submenu(
         log::warn!("Failed to get mute state for device {name}: {e:#}");
         false
     });
-    let is_default = default_device_id.is_some_and(|id| **device_id == **id);
 
     let (is_volume_locked, notify_on_volume_lock, is_unmute_locked, notify_on_unmute_lock) =
         if let Some(settings) = persistent_state.device_settings(device_id) {
@@ -41,7 +39,6 @@ pub fn build_device_submenu(
     let label = format_device_menu_label(&DeviceDisplayInfo {
         name: &name,
         volume_percent,
-        is_default,
         is_locked,
         is_muted,
     });
@@ -110,19 +107,8 @@ pub fn append_device_list_to_menu(
         Vec::new()
     });
 
-    let default_device_id = backend
-        .default_device(device_type, DeviceRole::Console)
-        .map(|d| d.id().clone())
-        .ok();
-
     for device in devices {
-        let submenu = build_device_submenu(
-            device.as_ref(),
-            device_type,
-            default_device_id.as_ref(),
-            persistent_state,
-            map,
-        )?;
+        let submenu = build_device_submenu(device.as_ref(), device_type, persistent_state, map)?;
         tray_menu.append(&submenu)?;
     }
 
@@ -150,7 +136,6 @@ mod tests {
     #![allow(clippy::expect_used)]
 
     use super::*;
-    use crate::audio::AudioDevice;
     use crate::audio::tests::MockDevice;
 
     #[test]
@@ -159,48 +144,25 @@ mod tests {
         let state = PersistentState::default();
         let mut map = MenuIdMap::new();
 
-        let submenu = build_device_submenu(
-            &device,
-            DeviceType::Output,
-            Some(device.id()),
-            &state,
-            &mut map,
-        )
-        .expect("build_device_submenu should succeed");
+        let submenu = build_device_submenu(&device, DeviceType::Output, &state, &mut map)
+            .expect("build_device_submenu should succeed");
 
         // Should register 6 actions: VolumeLock, VolumeLockNotify, UnmuteLock,
         // UnmuteLockNotify, OpenProperties, OpenSettings
         assert_eq!(map.len(), 6);
-        assert!(submenu.text().contains("Speakers"));
+        assert_eq!(submenu.text(), "Speakers · 100%");
     }
 
     #[test]
-    fn submenu_shows_default_indicator() {
+    fn submenu_label_omits_star_indicator() {
         let device = MockDevice::new("dev1", "Speakers", true);
         let state = PersistentState::default();
         let mut map = MenuIdMap::new();
 
-        let submenu = build_device_submenu(
-            &device,
-            DeviceType::Output,
-            Some(device.id()),
-            &state,
-            &mut map,
-        )
-        .expect("should succeed");
-
-        assert!(submenu.text().contains("☆"));
-    }
-
-    #[test]
-    fn submenu_omits_default_indicator_when_not_default() {
-        let device = MockDevice::new("dev1", "Speakers", true);
-        let state = PersistentState::default();
-        let mut map = MenuIdMap::new();
-
-        let submenu = build_device_submenu(&device, DeviceType::Output, None, &state, &mut map)
+        let submenu = build_device_submenu(&device, DeviceType::Output, &state, &mut map)
             .expect("should succeed");
 
-        assert!(!submenu.text().contains("☆"));
+        assert_eq!(submenu.text(), "Speakers · 100%");
+        assert!(!submenu.text().contains('☆'));
     }
 }

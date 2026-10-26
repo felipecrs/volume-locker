@@ -17,21 +17,21 @@ pub enum DeviceAction {
     VolumeLockNotify,
     UnmuteLock,
     UnmuteLockNotify,
-    AddToPriority(PriorityKind),
+    AddToPriorityTop(PriorityKind),
+    AddToPriorityBottom(PriorityKind),
     RemoveFromPriority(PriorityKind),
     MovePriorityUp(PriorityKind),
     MovePriorityDown(PriorityKind),
     MovePriorityToTop(PriorityKind),
     MovePriorityToBottom(PriorityKind),
-    SetTemporaryPriority,
+    SetTemporaryPriority(PriorityKind),
     OpenProperties,
     OpenSettings,
 }
 
 #[derive(Debug)]
 pub enum PreferenceAction {
-    PriorityRestoreNotify,
-    SwitchCommunicationDevice,
+    PriorityRestoreNotify(PriorityKind),
     OpenDevicesList,
 }
 

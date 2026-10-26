@@ -31,7 +31,7 @@ fn make_state_with_device(device_id: &str, device_type: DeviceType) -> Persisten
 fn priority_add_inserts_device() {
     let mut state = PersistentState::default();
     let changed = handle_priority_event(
-        &DeviceAction::AddToPriority(PriorityKind::Main),
+        &DeviceAction::AddToPriorityBottom(PriorityKind::Main),
         &DeviceId::from("dev1"),
         DeviceType::Output,
         "Speaker",
@@ -43,13 +43,43 @@ fn priority_add_inserts_device() {
 }
 
 #[test]
+fn priority_add_top_and_bottom() {
+    let mut state = PersistentState::default();
+    handle_priority_event(
+        &DeviceAction::AddToPriorityBottom(PriorityKind::Main),
+        &DeviceId::from("dev1"),
+        DeviceType::Output,
+        "Speaker",
+        &mut state,
+    );
+    handle_priority_event(
+        &DeviceAction::AddToPriorityTop(PriorityKind::Main),
+        &DeviceId::from("dev0"),
+        DeviceType::Output,
+        "Headset",
+        &mut state,
+    );
+    handle_priority_event(
+        &DeviceAction::AddToPriorityBottom(PriorityKind::Main),
+        &DeviceId::from("dev2"),
+        DeviceType::Output,
+        "Earbuds",
+        &mut state,
+    );
+    assert_eq!(
+        state.priority_list(DeviceType::Output),
+        &["dev0", "dev1", "dev2"]
+    );
+}
+
+#[test]
 fn priority_add_duplicate_no_op() {
     let mut state = PersistentState::default();
     state
         .priority_list_mut(DeviceType::Output)
         .push("dev1".into());
     let changed = handle_priority_event(
-        &DeviceAction::AddToPriority(PriorityKind::Main),
+        &DeviceAction::AddToPriorityBottom(PriorityKind::Main),
         &DeviceId::from("dev1"),
         DeviceType::Output,
         "Speaker",
@@ -154,7 +184,7 @@ fn priority_move_to_bottom() {
 fn priority_input_type_uses_input_list() {
     let mut state = PersistentState::default();
     handle_priority_event(
-        &DeviceAction::AddToPriority(PriorityKind::Main),
+        &DeviceAction::AddToPriorityBottom(PriorityKind::Main),
         &DeviceId::from("mic1"),
         DeviceType::Input,
         "Mic",
@@ -167,8 +197,11 @@ fn priority_input_type_uses_input_list() {
 #[test]
 fn communication_kind_uses_separate_list() {
     let mut state = PersistentState::default();
+    state
+        .communication_priority_list_mut(DeviceType::Output)
+        .clear();
     handle_priority_event(
-        &DeviceAction::AddToPriority(PriorityKind::Communication),
+        &DeviceAction::AddToPriorityBottom(PriorityKind::Communication),
         &DeviceId::from("headset"),
         DeviceType::Output,
         "Headset",
@@ -184,9 +217,12 @@ fn communication_kind_uses_separate_list() {
 #[test]
 fn same_device_can_be_in_both_lists() {
     let mut state = PersistentState::default();
+    state
+        .communication_priority_list_mut(DeviceType::Output)
+        .clear();
     for kind in [PriorityKind::Main, PriorityKind::Communication] {
         let changed = handle_priority_event(
-            &DeviceAction::AddToPriority(kind),
+            &DeviceAction::AddToPriorityBottom(kind),
             &DeviceId::from("dev1"),
             DeviceType::Output,
             "Speaker",
