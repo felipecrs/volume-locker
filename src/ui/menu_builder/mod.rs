@@ -7,32 +7,9 @@ use crate::config::PersistentState;
 use crate::types::{DeviceId, DeviceType, TemporaryPriorities, VolumePercent};
 use crate::update::UpdateInfo;
 use std::collections::HashMap;
-use tray_icon::menu::{
-    CheckMenuItem, IsMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu,
-};
+use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem};
 
 use super::MenuIdMap;
-
-/// Lets menu-building helpers append to either the root [`Menu`] or a nested
-/// [`Submenu`]. `muda` exposes `append` on both types but not through a shared
-/// trait, so this thin wrapper stands in for one.
-pub(super) trait MenuContainer {
-    fn add(&self, item: &dyn IsMenuItem) -> anyhow::Result<()>;
-}
-
-impl MenuContainer for Menu {
-    fn add(&self, item: &dyn IsMenuItem) -> anyhow::Result<()> {
-        self.append(item)?;
-        Ok(())
-    }
-}
-
-impl MenuContainer for Submenu {
-    fn add(&self, item: &dyn IsMenuItem) -> anyhow::Result<()> {
-        self.append(item)?;
-        Ok(())
-    }
-}
 
 use device_section::append_device_list_to_menu;
 use priority_section::{append_priority_list_to_menu, append_temporary_priority_section};
@@ -40,17 +17,15 @@ use priority_section::{append_priority_list_to_menu, append_temporary_priority_s
 pub struct DeviceDisplayInfo<'a> {
     pub name: &'a str,
     pub volume_percent: VolumePercent,
-    pub is_default: bool,
     pub is_locked: bool,
     pub is_muted: bool,
 }
 
 pub fn format_device_menu_label(info: &DeviceDisplayInfo) -> String {
-    let default_indicator = if info.is_default { " · ☆" } else { "" };
     let locked_indicator = if info.is_locked { " · 🔒" } else { "" };
     let muted_indicator = if info.is_muted { " 🚫" } else { "" };
     format!(
-        "{}{default_indicator} · {}%{muted_indicator}{locked_indicator}",
+        "{} · {}%{muted_indicator}{locked_indicator}",
         info.name, info.volume_percent
     )
 }
@@ -169,13 +144,11 @@ pub fn rebuild_tray_menu(
     tray_menu.append(&PredefinedMenuItem::separator())?;
 
     for device_type in [DeviceType::Output, DeviceType::Input] {
-        let temporary_priority = ctx.temporary_priorities.get(device_type);
         append_priority_list_to_menu(
             tray_menu,
             device_type,
             ctx.backend,
             ctx.persistent_state,
-            temporary_priority,
             &mut map,
         )?;
     }

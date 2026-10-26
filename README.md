@@ -8,9 +8,9 @@
 
 Tired of apps changing your microphone volume without your consent? Or Windows constantly switching to the wrong audio device?
 
-Volume Locker is a tray icon app that keeps the volume of your audio devices locked and manages your default audio devices based on a priority list. It is a portable, ~1MB binary written in Rust for Windows.
+Volume Locker is a tray icon app that keeps the volume of your audio devices locked and manages your audio and communication devices based on priority lists. It is a portable, ~1MB binary written in Rust for Windows.
 
-Never worry about your microphone volume or default device again!
+Never worry about your microphone volume or audio devices again!
 
 ## Demo
 
@@ -36,11 +36,11 @@ You can also use the snippet above to update the app, just run it again.
 
 Click on the Volume Locker tray icon to access the menu. The menu is organized into the following sections:
 
-1.  **Output devices**: List of all active output devices.
-2.  **Input devices**: List of all active input devices.
-3.  **Default output device priority**: Manage the priority list for default output devices.
-4.  **Default input device priority**: Manage the priority list for default input devices.
-5.  **Temporary default device priority**: Temporarily override the default device priority.
+1.  **Output devices**: List of active output devices.
+2.  **Input devices**: List of active input devices.
+3.  **Output device priority**: Priorities for output and communication audio.
+4.  **Input device priority**: Priorities for input and communication microphones.
+5.  **Temporary priority**: Quick temporary overrides for any audio role.
 
 ### Locking Volume and Unmute State
 
@@ -52,33 +52,33 @@ To lock the volume or unmute state of a specific device:
 4.  Check **Keep unmuted** to prevent the device from being muted.
 5.  You can also enable notifications for these actions.
 
-### Default Device Priority
+### Device Priority
 
-Volume Locker can automatically switch your default audio device based on a priority list. This is useful if you have multiple devices (e.g., speakers and headphones) and want to ensure a specific one is always used when available.
+Volume Locker can automatically switch your audio devices based on a priority list.
 
-1.  Navigate to **Default output device priority** or **Default input device priority**.
-2.  Select **Add device** to add a device to the priority list.
-3.  Use **Move Up** and **Move Down** to adjust the priority order. The device at the top has the highest priority.
-4.  Volume Locker will monitor your devices and automatically switch the default device to the highest priority one available.
-5.  Check **Notify on restore** to get a notification when the default device is switched.
-6.  Open **Communication settings** and check **Also switch default communication device** to also switch the default communication device.
+1.  Navigate to **Output device priority** or **Input device priority** in the tray menu. The active devices are shown under **Current: <device>**.
+2.  Open **Device priority settings** to manage the priority list:
+    - Check **Notify on restore** to receive a notification when switching devices based on priority.
+    - Use **Move up** and **Move down** to adjust device order. The top device has highest priority.
+    - Under **Add device**, select a device to **Add to top** or **Add to bottom**.
+3.  Open **Communication priority settings** to configure communication routing.
 
-### Communication Device Priority
+### Communication Priority Settings
 
-Output and input each support an independent communication-device priority list. For example, keep game audio on speakers while voice chat uses a headset, or use a different microphone for calls. Open **Default output device priority** or **Default input device priority**, then **Communication settings > Communication device priority**, and add and order devices as in the main list.
+Output and input each support an independent communication priority list for voice calls and chat apps.
 
-A non-empty communication list controls only the Windows Communications role, including its own fallback order. It takes precedence over **Also switch default communication device**, which is disabled while the list is configured. An empty list preserves that checkbox's existing behavior. If every communication device is unavailable, the current communication default is left alone.
+1.  Open **Communication priority settings** under output or input.
+2.  By default, communication follows the main priority list (**Output device priority** or **Input device priority**).
+3.  You can reorder priorities, add specific devices to take precedence over following the main list, or remove the main priority entry.
+4.  Check **Notify on restore** inside communication priority settings to receive notifications when communication devices switch.
 
-**Temporary default device priority** overrides only the main list; an independent communication list keeps its own selection. Apps must use the corresponding Windows default device to follow these changes.
+### Temporary Priority
 
-### Temporary Default Device Priority
+Temporarily route audio to a specific device without altering your saved priority lists:
 
-If you want to temporarily use a different device without changing your priority list (e.g., switching to speakers for a call while the headphones are connected), you can use the **Temporary default device priority** feature.
-
-1.  Navigate to **Temporary default device priority**.
-2.  Select **Output device** or **Input device**.
-3.  Choose the device you want to use temporarily.
-4.  This device will be treated as the highest priority device until you uncheck it or restart the application.
+1.  Open **Temporary priority** in the tray menu.
+2.  Select the desired role: **Output**, **Communication**, **Input**, or **Communication**. The submenu label displays the selected device when active.
+3.  Select the device to use temporarily. It remains active until unchecked or when the app restarts. Temporary communication overrides take precedence over configured communication priorities.
 
 ## Credits
 

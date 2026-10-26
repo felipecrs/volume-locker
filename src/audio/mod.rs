@@ -383,10 +383,7 @@ pub(crate) mod tests {
         let mut state = PersistentState::default();
         state.output.priority_list = vec!["dev1".into(), "dev2".into()];
         let mut throttler = NotificationThrottler::new();
-        let temp = TemporaryPriorities {
-            output: None,
-            input: None,
-        };
+        let temp = TemporaryPriorities::default();
 
         // Should not panic; dev1 lookup fails, but dev2 is already default
         enforce_priorities(&backend, &state, &mut throttler, &temp);
@@ -411,10 +408,7 @@ pub(crate) mod tests {
         let mut state = PersistentState::default();
         state.output.priority_list = vec!["dev1".into(), "dev2".into()];
         let mut throttler = NotificationThrottler::new();
-        let temp = TemporaryPriorities {
-            output: None,
-            input: None,
-        };
+        let temp = TemporaryPriorities::default();
 
         enforce_priorities(&backend, &state, &mut throttler, &temp);
 
@@ -437,10 +431,7 @@ pub(crate) mod tests {
         let mut state = PersistentState::default();
         state.output.priority_list = vec!["dev1".into(), "dev2".into()];
         let mut throttler = NotificationThrottler::new();
-        let temp = TemporaryPriorities {
-            output: None,
-            input: None,
-        };
+        let temp = TemporaryPriorities::default();
 
         // Should not panic even though set_default_device fails
         enforce_priorities(&backend, &state, &mut throttler, &temp);
@@ -469,10 +460,7 @@ pub(crate) mod tests {
         assert_eq!(state.output.priority_list, vec!["new_id"]);
 
         let mut throttler = NotificationThrottler::new();
-        let temp_priorities = TemporaryPriorities {
-            output: None,
-            input: None,
-        };
+        let temp_priorities = TemporaryPriorities::default();
         enforce_priorities(&backend, &state, &mut throttler, &temp_priorities);
 
         let default = backend
