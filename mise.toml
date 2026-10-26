@@ -23,11 +23,7 @@ run = "cargo test --locked"
 
 [tasks.check]
 description = "Run all checks (format, lint, test)"
-run = [
-  { task = "fmt" },
-  { task = "lint" },
-  { task = "test" },
-]
+depends = ["fmt", "lint", "test"]
 
 [tasks.build]
 description = "Build release binary"
