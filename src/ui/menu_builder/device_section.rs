@@ -11,6 +11,7 @@ pub fn build_device_submenu(
     default_device_id: Option<&DeviceId>,
     persistent_state: &PersistentState,
     map: &mut MenuIdMap,
+    output_choices: &[(DeviceId, String)],
 ) -> anyhow::Result<Submenu> {
     let name = device.name();
     let device_id = device.id();
@@ -91,6 +92,16 @@ pub fn build_device_submenu(
     let settings_item = MenuItem::new("Settings...", true, None);
     register(settings_item.id().clone(), DeviceAction::OpenSettings);
     submenu.append(&settings_item)?;
+    submenu.append(&PredefinedMenuItem::separator())?;
+    super::routing_section::append_routing_settings(
+        &submenu,
+        device_id,
+        &name,
+        device_type,
+        persistent_state,
+        map,
+        output_choices,
+    )?;
 
     Ok(submenu)
 }
@@ -115,6 +126,12 @@ pub fn append_device_list_to_menu(
         .map(|d| d.id().clone())
         .ok();
 
+    let output_choices: Vec<_> = if device_type == DeviceType::Output {
+        devices.iter().map(|d| (d.id().clone(), d.name())).collect()
+    } else {
+        Vec::new()
+    };
+
     for device in devices {
         let submenu = build_device_submenu(
             device.as_ref(),
@@ -122,6 +139,7 @@ pub fn append_device_list_to_menu(
             default_device_id.as_ref(),
             persistent_state,
             map,
+            &output_choices,
         )?;
         tray_menu.append(&submenu)?;
     }
@@ -165,12 +183,12 @@ mod tests {
             Some(device.id()),
             &state,
             &mut map,
+            &[],
         )
         .expect("build_device_submenu should succeed");
 
-        // Should register 6 actions: VolumeLock, VolumeLockNotify, UnmuteLock,
-        // UnmuteLockNotify, OpenProperties, OpenSettings
-        assert_eq!(map.len(), 6);
+        // Existing controls plus voice routing.
+        assert_eq!(map.len(), 8);
         assert!(submenu.text().contains("Speakers"));
     }
 
@@ -186,6 +204,7 @@ mod tests {
             Some(device.id()),
             &state,
             &mut map,
+            &[],
         )
         .expect("should succeed");
 
@@ -198,8 +217,9 @@ mod tests {
         let state = PersistentState::default();
         let mut map = MenuIdMap::new();
 
-        let submenu = build_device_submenu(&device, DeviceType::Output, None, &state, &mut map)
-            .expect("should succeed");
+        let submenu =
+            build_device_submenu(&device, DeviceType::Output, None, &state, &mut map, &[])
+                .expect("should succeed");
 
         assert!(!submenu.text().contains("☆"));
     }

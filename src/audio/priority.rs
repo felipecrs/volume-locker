@@ -1,6 +1,8 @@
 use crate::config::PersistentState;
 use crate::notification::NotificationThrottler;
-use crate::types::{DeviceId, DeviceRole, DeviceType, PriorityKind, TemporaryPriorities};
+use crate::types::{
+    CommunicationRoute, DeviceId, DeviceRole, DeviceType, PriorityKind, TemporaryPriorities,
+};
 
 use super::AudioBackend;
 
@@ -49,8 +51,20 @@ fn enforce_priority_for_type(
     }
 
     let main_target = find_highest_priority_active_device(backend, &priority_list);
+    // Follow manual Windows output changes only when no priority order is set.
+    let routing_target = main_target.clone().or_else(|| {
+        if device_type != DeviceType::Output || !priority_list.is_empty() {
+            return None;
+        }
+        let current = backend
+            .default_device(device_type, DeviceRole::Console)
+            .ok()?;
+        let settings = state.device_settings(current.id())?;
+        (!settings.communication_route.is_inherited() && current.is_active().unwrap_or(false))
+            .then(|| current.id().clone())
+    });
     let comm_target =
-        resolve_communication_target(backend, device_type, state, main_target.as_ref());
+        resolve_communication_target(backend, device_type, state, routing_target.as_ref());
 
     // Devices that were actually switched to, paired with the list that chose them.
     let mut switched: Vec<(DeviceId, PriorityKind)> = Vec::new();
@@ -100,7 +114,8 @@ fn enforce_priority_for_type(
 
 /// Determines which device the Communications role should resolve to.
 ///
-/// A non-empty communication priority list takes over the role entirely. When
+/// An explicit per-output route takes precedence. Otherwise a non-empty
+/// communication priority list takes over the role entirely. When
 /// the list is empty the role mirrors the main list, gated on the
 /// "Also switch default communication device" preference — the pre-existing
 /// behavior.
@@ -110,6 +125,30 @@ fn resolve_communication_target(
     state: &PersistentState,
     main_target: Option<&DeviceId>,
 ) -> Option<DeviceId> {
+    if device_type == DeviceType::Output
+        && let Some(main_id) = main_target
+        && let Some(settings) = state.device_settings(main_id)
+    {
+        match &settings.communication_route {
+            CommunicationRoute::SameDevice => return Some(main_id.clone()),
+            CommunicationRoute::Paired(paired_id) => {
+                // A missing voice endpoint falls back to the chosen main output,
+                // rather than leaving chat on an unrelated previous device.
+                let paired_is_available = backend
+                    .devices(DeviceType::Output)
+                    .is_ok_and(|devices| devices.iter().any(|d| d.id() == paired_id))
+                    && backend
+                        .device_by_id(paired_id)
+                        .is_ok_and(|d| d.is_active().unwrap_or(false));
+                return Some(if paired_is_available {
+                    paired_id.clone()
+                } else {
+                    main_id.clone()
+                });
+            }
+            CommunicationRoute::Inherited => {}
+        }
+    }
     let comm_list = state.communication_priority_list(device_type);
     if comm_list.is_empty() {
         return if state.switch_communication_device(device_type) {

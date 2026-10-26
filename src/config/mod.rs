@@ -2,7 +2,7 @@ mod persistence;
 
 pub use persistence::{load_state, save_state};
 
-use crate::types::DeviceSettings;
+use crate::types::{CommunicationRoute, DeviceSettings};
 use crate::types::{DeviceId, DeviceType, PriorityKind};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -204,17 +204,19 @@ impl PersistentState {
     /// Removes a device's settings entry if it has no active locks/notifications
     /// and is not referenced by any priority list.
     pub fn remove_device_if_unused(&mut self, device_id: &DeviceId) {
-        let is_prunable = self
-            .devices
-            .get(device_id)
-            .is_some_and(|s| !s.has_active_locks_or_notifications());
+        let is_prunable = self.devices.get(device_id).is_some_and(|s| {
+            !s.has_active_locks_or_notifications() && s.communication_route.is_inherited()
+        });
         if !is_prunable {
             return;
         }
         let in_priority = [&self.output, &self.input].iter().any(|s| {
             s.priority_list.contains(device_id) || s.communication_priority_list.contains(device_id)
         });
-        if !in_priority {
+        let is_paired_target = self.devices.values().any(
+            |s| matches!(&s.communication_route, CommunicationRoute::Paired(id) if id == device_id),
+        );
+        if !in_priority && !is_paired_target {
             self.devices.remove(device_id);
         }
     }
@@ -245,6 +247,44 @@ mod tests {
     use crate::types::VolumePercent;
     use crate::types::{UnmuteLockPolicy, VolumeLockPolicy};
     use std::fs;
+
+    #[test]
+    fn paired_routes_roundtrip_and_legacy_devices_inherit() {
+        let mut state = PersistentState::default();
+        state
+            .ensure_device_settings("game".into(), "Game".into(), DeviceType::Output)
+            .communication_route = CommunicationRoute::Paired("voice".into());
+        let json = serde_json::to_string(&state).unwrap();
+        let loaded: PersistentState = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            loaded.devices["game"].communication_route,
+            CommunicationRoute::Paired("voice".into())
+        );
+        let legacy: DeviceSettings =
+            serde_json::from_str(r#"{"device_type":"Output","name":"Speakers"}"#).unwrap();
+        assert!(legacy.communication_route.is_inherited());
+        assert!(
+            !serde_json::to_string(&legacy)
+                .unwrap()
+                .contains("communication_route")
+        );
+    }
+
+    #[test]
+    fn paired_routes_and_target_names_are_retained_until_cleared() {
+        let mut state = PersistentState::default();
+        state
+            .ensure_device_settings("game".into(), "Game".into(), DeviceType::Output)
+            .communication_route = CommunicationRoute::Paired("voice".into());
+        state.ensure_device_settings("voice".into(), "Voice".into(), DeviceType::Output);
+        state.remove_device_if_unused(&"game".into());
+        state.remove_device_if_unused(&"voice".into());
+        assert_eq!(state.device_count(), 2);
+        state.devices.get_mut("game").unwrap().communication_route = CommunicationRoute::Inherited;
+        state.remove_device_if_unused(&"game".into());
+        state.remove_device_if_unused(&"voice".into());
+        assert_eq!(state.device_count(), 0);
+    }
 
     #[test]
     fn persistent_state_default_values() {
@@ -278,6 +318,7 @@ mod tests {
                     unmute_lock: UnmuteLockPolicy::default(),
                     device_type: DeviceType::Output,
                     name: "Test Device".into(),
+                    communication_route: Default::default(),
                 },
             )]),
             ..Default::default()
@@ -469,6 +510,7 @@ mod tests {
                     },
                     device_type: DeviceType::Output,
                     name: "Speakers".into(),
+                    communication_route: Default::default(),
                 },
             )]),
         };
