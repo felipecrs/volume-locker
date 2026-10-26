@@ -42,6 +42,40 @@ fn input_and_output_fall_back_on_power_off_and_restore_on_power_on() {
 }
 
 #[test]
+fn independent_communication_priorities_follow_presence_without_a_main_list() {
+    for device_type in [DeviceType::Output, DeviceType::Input] {
+        let (backend, mut state) = setup(device_type);
+        *state.communication_priority_list_mut(device_type) =
+            vec!["headset".into(), "fallback".into()];
+        state.priority_list_mut(device_type).clear();
+        state.set_switch_communication_device(device_type, false);
+        backend.set_default("fallback", device_type);
+        for (presence, expected) in [
+            (HeadsetPresence::Unknown, "headset"),
+            (HeadsetPresence::Unavailable, "fallback"),
+            (HeadsetPresence::Available, "headset"),
+        ] {
+            *backend.presence.borrow_mut() = presence;
+            enforce_priorities(
+                &backend,
+                &state,
+                &mut NotificationThrottler::new(),
+                &TemporaryPriorities::default(),
+            );
+            assert_eq!(backend.default_console.borrow()[&device_type], "fallback");
+            assert_eq!(
+                backend.default_multimedia.borrow()[&device_type],
+                "fallback"
+            );
+            assert_eq!(
+                backend.default_communications.borrow()[&device_type],
+                expected
+            );
+        }
+    }
+}
+
+#[test]
 fn radio_state_requires_opt_in_and_cannot_revive_disabled_windows_devices() {
     let (mut backend, mut state) = setup(DeviceType::Output);
     state.devices.get_mut("headset").unwrap().presence_source = PresenceSource::Windows;

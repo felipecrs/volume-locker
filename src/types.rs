@@ -150,6 +150,19 @@ pub enum DeviceRole {
     Communications,
 }
 
+/// Which of a device type's two priority lists is being referred to.
+///
+/// [`PriorityKind::Main`] drives the Console/Multimedia roles (and, unless a
+/// communication list is configured, the Communications role too).
+/// [`PriorityKind::Communication`] is optional: when non-empty it takes over the
+/// Communications role, allowing media and chat audio to resolve to different
+/// devices.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PriorityKind {
+    Main,
+    Communication,
+}
+
 impl fmt::Display for DeviceRole {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
