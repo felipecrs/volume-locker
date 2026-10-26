@@ -1,5 +1,5 @@
 use crate::config::PersistentState;
-use crate::types::{CommunicationRoute, DeviceId, DeviceSettings, DeviceType};
+use crate::types::{CommunicationRoute, DeviceId, DeviceSettings, DeviceType, PriorityKind};
 
 use super::AudioBackend;
 
@@ -47,12 +47,16 @@ pub fn migrate_device_ids(
             persistent_state.remove_device(&old_device_id);
             persistent_state.insert_device(new_device_id.clone(), device_settings.clone());
 
-            let priority_list = persistent_state.priority_list_mut(device_settings.device_type);
-            if let Some(pos) = priority_list.iter().position(|id| id == &old_device_id) {
-                priority_list[pos] = new_device_id.clone();
+            for kind in [PriorityKind::Main, PriorityKind::Communication] {
+                let priority_list =
+                    persistent_state.priority_list_of_mut(device_settings.device_type, kind);
+                if let Some(pos) = priority_list.iter().position(|id| id == &old_device_id) {
+                    priority_list[pos] = new_device_id.clone();
+                }
             }
 
             id_mappings.push((old_device_id.clone(), new_device_id.clone()));
+
             log::info!("Migrated device {device_name} from ID {old_device_id} to {new_device_id}");
             state_changed = true;
         } else {
@@ -176,6 +180,26 @@ mod tests {
         assert!(changed);
         assert!(state.devices.contains_key("mic_new"));
         assert_eq!(state.input.priority_list, vec!["mic_new"]);
+    }
+
+    #[test]
+    fn migrate_updates_communication_priority_list() {
+        let backend = MockAudioBackend::new(vec![MockDevice::new("id_new", "Headset", true)]);
+        let mut state = PersistentState::default();
+        state.devices.insert(
+            "id_old".into(),
+            make_device_settings("Headset", DeviceType::Output),
+        );
+        state.output.priority_list = vec!["id_old".into()];
+        state.output.communication_priority_list = vec!["id_old".into()];
+
+        let changed = migrate_device_ids(&backend, &mut state);
+        assert!(changed);
+        assert_eq!(state.output.priority_list, vec!["id_new".to_string()]);
+        assert_eq!(
+            state.output.communication_priority_list,
+            vec!["id_new".to_string()]
+        );
     }
 
     #[test]

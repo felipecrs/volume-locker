@@ -91,6 +91,31 @@ fn paired_output_cannot_accidentally_route_to_an_input_endpoint() {
 }
 
 #[test]
+fn explicit_routes_override_independent_priorities_until_global_settings_are_selected() {
+    let (backend, mut state) = setup(true);
+    state.output.communication_priority_list = vec!["speakers".into()];
+    state.output.switch_communication_device = false;
+    check(&backend, &state, None, "game", "voice");
+    state.output.communication_priority_list = vec!["voice".into()];
+    check(&backend, &state, Some("speakers"), "speakers", "speakers");
+
+    state
+        .devices
+        .get_mut("speakers")
+        .unwrap()
+        .communication_route = CommunicationRoute::Inherited;
+    check(&backend, &state, Some("speakers"), "speakers", "voice");
+
+    state.output.priority_list.clear();
+    backend.set_default("speakers", DeviceType::Output);
+    check(&backend, &state, None, "speakers", "voice");
+    backend.set_default("game", DeviceType::Output);
+    check(&backend, &state, None, "game", "voice");
+    state.output.communication_priority_list = vec!["speakers".into()];
+    check(&backend, &state, None, "game", "voice");
+}
+
+#[test]
 fn simultaneous_migration_of_both_pair_endpoints_retains_the_link() {
     let (_, mut state) = setup(true);
     let backend = MockAudioBackend::new(vec![
@@ -98,8 +123,10 @@ fn simultaneous_migration_of_both_pair_endpoints_retains_the_link() {
         MockDevice::new("new_voice", "A50 X Voice", true),
         MockDevice::new("speakers", "Speakers", true),
     ]);
+    state.output.communication_priority_list = vec!["voice".into()];
     assert!(migrate_device_ids(&backend, &mut state));
     assert_eq!(state.output.priority_list[0], "new_game");
+    assert_eq!(state.output.communication_priority_list, vec!["new_voice"]);
     assert_eq!(
         state.devices["new_game"].communication_route,
         CommunicationRoute::Paired("new_voice".into())
