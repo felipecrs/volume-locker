@@ -7,9 +7,32 @@ use crate::config::PersistentState;
 use crate::types::{DeviceId, DeviceType, TemporaryPriorities, VolumePercent};
 use crate::update::UpdateInfo;
 use std::collections::HashMap;
-use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem};
+use tray_icon::menu::{
+    CheckMenuItem, IsMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu,
+};
 
 use super::MenuIdMap;
+
+/// Lets menu-building helpers append to either the root [`Menu`] or a nested
+/// [`Submenu`]. `muda` exposes `append` on both types but not through a shared
+/// trait, so this thin wrapper stands in for one.
+pub(super) trait MenuContainer {
+    fn add(&self, item: &dyn IsMenuItem) -> anyhow::Result<()>;
+}
+
+impl MenuContainer for Menu {
+    fn add(&self, item: &dyn IsMenuItem) -> anyhow::Result<()> {
+        self.append(item)?;
+        Ok(())
+    }
+}
+
+impl MenuContainer for Submenu {
+    fn add(&self, item: &dyn IsMenuItem) -> anyhow::Result<()> {
+        self.append(item)?;
+        Ok(())
+    }
+}
 
 use device_section::append_device_list_to_menu;
 use priority_section::{append_priority_list_to_menu, append_temporary_priority_section};
