@@ -7,6 +7,7 @@ This document describes how **Volume Locker** reliably tracks audio devices and 
 ## The Problem
 
 Windows Core Audio (WASAPI) identifies audio endpoints using ephemeral GUIDs:
+
 - Output: `{0.0.0.00000000}.{GUID}`
 - Input: `{0.0.1.00000000}.{GUID}`
 
@@ -135,7 +136,7 @@ flowchart TD
 ### Safety Rules
 
 1. **Anti-Cross-Matching**: Never match a custom friendly name against a driver's default name.
-   - *Prevents:* A custom-named `"Speakers"` endpoint incorrectly matching a newly plugged `"Speakers (USB Audio Device)"`.
+   - _Prevents:_ A custom-named `"Speakers"` endpoint incorrectly matching a newly plugged `"Speakers (USB Audio Device)"`.
 2. **Normalized Original Matching**: Windows PnP injects port prefixes (e.g. `"2- "`) and clone counters (e.g. `" (1)"`) into `DeviceInterface_FriendlyName` when devices are moved across USB ports. Normalization strips these before matching:
 
 ```mermaid
@@ -180,6 +181,7 @@ flowchart TD
 ```
 
 ### Collision Rejection
+
 For non-serial USB devices or shared original names (e.g. two identical microphones or generic audio dongles), Volume Locker **never guesses**. If multiple missing or active candidates qualify for Tiers 2, 5, or 6, migration is rejected to prevent swapping settings between identical peripherals.
 
 ---
