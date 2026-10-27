@@ -44,6 +44,8 @@ struct DeviceNotifySubscribeParameters {
 }
 
 const DEVICE_NOTIFY_CALLBACK: u32 = 2;
+// In Win32, PBT_APMRESUMEAUTOMATIC (0x0012) is automatic resume, and PBT_APMRESUMESUSPEND (0x0007)
+// is user-initiated resume. We ignore PBT_APMSUSPEND (0x0004) since the system is suspending anyway.
 const PBT_APMRESUMEAUTOMATIC: u32 = 0x0012;
 const PBT_APMRESUMESUSPEND: u32 = 0x0007;
 
@@ -52,6 +54,7 @@ unsafe extern "system" fn power_suspend_resume_callback(
     event_type: u32,
     _setting: *mut std::ffi::c_void,
 ) -> u32 {
+    // Only react on resume from sleep, never on suspend
     if event_type == PBT_APMRESUMEAUTOMATIC || event_type == PBT_APMRESUMESUSPEND {
         let sender = unsafe { &*(context as *const std::sync::mpsc::Sender<std::time::Duration>) };
         let _ = sender.send(std::time::Duration::from_millis(500));
@@ -207,32 +210,21 @@ impl AudioBackend for WindowsAudioBackend {
         std::thread::Builder::new()
             .name("device-change-debouncer".into())
             .spawn(move || {
-                loop {
-                    match rx.recv_timeout(std::time::Duration::from_secs(60)) {
-                        Ok(mut delay) => {
-                            loop {
-                                match rx.recv_timeout(delay) {
-                                    Ok(more_delay) => {
-                                        delay = delay.max(more_delay);
-                                    }
-                                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                                        break;
-                                    }
-                                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                                        return;
-                                    }
-                                }
+                while let Ok(mut delay) = rx.recv() {
+                    loop {
+                        match rx.recv_timeout(delay) {
+                            Ok(more_delay) => {
+                                delay = delay.max(more_delay);
                             }
-                            callback();
-                        }
-                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                            // Periodic 60-second health check to catch any missed hardware transitions
-                            callback();
-                        }
-                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                            return;
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                                break;
+                            }
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                                return;
+                            }
                         }
                     }
+                    callback();
                 }
             })?;
 
