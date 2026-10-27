@@ -13,7 +13,7 @@ use crate::bindings::{
 use crate::types::{DeviceFingerprint, DeviceId, DeviceRole, DeviceType, VolumeScalar};
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use windows_core::{PCWSTR, implement};
 
 const PKEY_DEVICE_INTERFACE_PATH: PROPERTYKEY = PROPERTYKEY {
@@ -56,8 +56,8 @@ unsafe extern "system" fn power_suspend_resume_callback(
 ) -> u32 {
     // Only react on resume from sleep, never on suspend
     if event_type == PBT_APMRESUMEAUTOMATIC || event_type == PBT_APMRESUMESUSPEND {
-        let sender = unsafe { &*(context as *const std::sync::mpsc::Sender<std::time::Duration>) };
-        let _ = sender.send(std::time::Duration::from_millis(500));
+        let callback = unsafe { &*(context as *const Arc<dyn Fn() + Send + Sync>) };
+        callback();
     }
     0
 }
@@ -67,10 +67,10 @@ windows_core::link!("user32.dll" "system" fn UnregisterSuspendResumeNotification
 
 struct PowerNotifyGuard {
     handle: *mut std::ffi::c_void,
-    _context: Box<std::sync::mpsc::Sender<std::time::Duration>>,
+    _context: Box<Arc<dyn Fn() + Send + Sync>>,
 }
 
-// SAFETY: handle is an opaque OS registration handle and context is a Send Sender.
+// SAFETY: handle is an opaque OS registration handle and context is Send + Sync.
 unsafe impl Send for PowerNotifyGuard {}
 unsafe impl Sync for PowerNotifyGuard {}
 
@@ -205,31 +205,10 @@ impl AudioBackend for WindowsAudioBackend {
         &self,
         callback: Box<dyn Fn() + Send + Sync>,
     ) -> anyhow::Result<()> {
-        let (tx, rx) = std::sync::mpsc::channel::<std::time::Duration>();
-
-        std::thread::Builder::new()
-            .name("device-change-debouncer".into())
-            .spawn(move || {
-                while let Ok(mut delay) = rx.recv() {
-                    loop {
-                        match rx.recv_timeout(delay) {
-                            Ok(more_delay) => {
-                                delay = delay.max(more_delay);
-                            }
-                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                                break;
-                            }
-                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                                return;
-                            }
-                        }
-                    }
-                    callback();
-                }
-            })?;
+        let callback: Arc<dyn Fn() + Send + Sync> = Arc::from(callback);
 
         let cb: IMMNotificationClient = AudioDevicesChangedCallback {
-            notifier: tx.clone(),
+            callback: callback.clone(),
         }
         .into();
 
@@ -241,12 +220,11 @@ impl AudioBackend for WindowsAudioBackend {
                 .ok()?
         };
 
-        // Register for Windows system suspend/resume (sleep/wake) events
-        let context = Box::new(tx);
+        // Register for Windows system resume (sleep/wake) events
+        let context = Box::new(callback);
         let params = DeviceNotifySubscribeParameters {
             callback: power_suspend_resume_callback,
-            context: &*context as *const std::sync::mpsc::Sender<std::time::Duration>
-                as *mut std::ffi::c_void,
+            context: &*context as *const Arc<dyn Fn() + Send + Sync> as *mut std::ffi::c_void,
         };
         // SAFETY: params points to a valid DeviceNotifySubscribeParameters on the stack; context remains alive in PowerNotifyGuard.
         let handle = unsafe { RegisterSuspendResumeNotification(&params, DEVICE_NOTIFY_CALLBACK) };
@@ -345,22 +323,22 @@ impl AudioDevice for WindowsAudioDevice {
 
 #[implement(IMMNotificationClient)]
 pub struct AudioDevicesChangedCallback {
-    pub notifier: std::sync::mpsc::Sender<std::time::Duration>,
+    pub callback: Arc<dyn Fn() + Send + Sync>,
 }
 
 impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
     fn OnDeviceStateChanged(&self, _: &PCWSTR, _: u32) -> windows_core::Result<()> {
-        let _ = self.notifier.send(std::time::Duration::from_millis(200));
+        (self.callback)();
         Ok(())
     }
 
     fn OnDeviceAdded(&self, _: &PCWSTR) -> windows_core::Result<()> {
-        let _ = self.notifier.send(std::time::Duration::from_millis(200));
+        (self.callback)();
         Ok(())
     }
 
     fn OnDeviceRemoved(&self, _: &PCWSTR) -> windows_core::Result<()> {
-        let _ = self.notifier.send(std::time::Duration::from_millis(200));
+        (self.callback)();
         Ok(())
     }
 
@@ -370,12 +348,12 @@ impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
         _: ERole,
         _: &PCWSTR,
     ) -> windows_core::Result<()> {
-        let _ = self.notifier.send(std::time::Duration::from_millis(200));
+        (self.callback)();
         Ok(())
     }
 
     fn OnPropertyValueChanged(&self, _: &PCWSTR, _: &PROPERTYKEY) -> windows_core::Result<()> {
-        let _ = self.notifier.send(std::time::Duration::from_millis(200));
+        (self.callback)();
         Ok(())
     }
 }

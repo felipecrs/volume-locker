@@ -146,6 +146,8 @@ fn run() -> anyhow::Result<()> {
         CheckMenuItem::new("Auto-launch on startup", true, false, None);
     let check_updates_on_launch_item: CheckMenuItem =
         CheckMenuItem::new("Check for updates on launch", true, false, None);
+    let notify_on_device_migration_item: CheckMenuItem =
+        CheckMenuItem::new("Notify on device migration", true, false, None);
     let quit_item = MenuItem::new("Quit", true, None);
 
     let tray_menu = Menu::new();
@@ -201,6 +203,7 @@ fn run() -> anyhow::Result<()> {
             auto_launch: &auto_launch,
             auto_launch_check_item: &auto_launch_check_item,
             check_updates_on_launch_item: &check_updates_on_launch_item,
+            notify_on_device_migration_item: &notify_on_device_migration_item,
             quit_item: &quit_item,
             tray_menu: &tray_menu,
             output_devices_heading_item: &output_devices_heading_item,

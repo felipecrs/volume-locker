@@ -33,6 +33,7 @@ pub struct EventLoopRefs<'a> {
     pub auto_launch: &'a AutoLaunch,
     pub auto_launch_check_item: &'a CheckMenuItem,
     pub check_updates_on_launch_item: &'a CheckMenuItem,
+    pub notify_on_device_migration_item: &'a CheckMenuItem,
     pub quit_item: &'a MenuItem,
     pub tray_menu: &'a Menu,
     pub output_devices_heading_item: &'a MenuItem,
@@ -96,9 +97,9 @@ impl AppState {
     }
 
     pub fn migrate_device_ids_if_needed(&mut self) {
-        let migrations_occurred = migrate_device_ids(&self.backend, &mut self.persistent_state);
+        let result = migrate_device_ids(&self.backend, &mut self.persistent_state);
 
-        if migrations_occurred {
+        if result.state_changed {
             if let Err(e) = save_state(&self.persistent_state) {
                 log_and_notify_error(
                     "Failed to Save State",
@@ -106,6 +107,16 @@ impl AppState {
                 );
             } else {
                 log::info!("Saved state after device migration");
+            }
+
+            if self.persistent_state.notify_on_device_migration {
+                for name in result.migrated_device_names {
+                    self.notification_throttler.send_if_not_throttled(
+                        &format!("migration_{name}"),
+                        "Device Settings Transferred",
+                        &format!("Settings for '{name}' were transferred to its new connection."),
+                    );
+                }
             }
         }
     }
@@ -397,6 +408,7 @@ impl AppState {
             &TrayMenuItems {
                 auto_launch_check: refs.auto_launch_check_item,
                 check_updates_on_launch: refs.check_updates_on_launch_item,
+                notify_on_device_migration: refs.notify_on_device_migration_item,
                 quit: refs.quit_item,
                 output_devices_heading: refs.output_devices_heading_item,
                 input_devices_heading: refs.input_devices_heading_item,

@@ -376,6 +376,11 @@ fn handle_app_event(
                 ctx.persistent_state.check_updates_on_launch = checked;
             })
         }
+        AppAction::ToggleNotifyOnDeviceMigration => {
+            with_check_state(ctx.tray_menu, &event.id, |checked| {
+                ctx.persistent_state.notify_on_device_migration = checked;
+            })
+        }
         AppAction::OpenAppDirectory => {
             match get_executable_directory() {
                 Ok(dir) => {

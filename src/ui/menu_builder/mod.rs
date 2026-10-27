@@ -92,6 +92,7 @@ fn lookup_device_name(
 pub struct TrayMenuItems<'a> {
     pub auto_launch_check: &'a CheckMenuItem,
     pub check_updates_on_launch: &'a CheckMenuItem,
+    pub notify_on_device_migration: &'a CheckMenuItem,
     pub quit: &'a MenuItem,
     pub output_devices_heading: &'a MenuItem,
     pub input_devices_heading: &'a MenuItem,
@@ -204,6 +205,18 @@ fn append_preferences_section(
         },
     );
     tray_menu.append(items.check_updates_on_launch)?;
+
+    items
+        .notify_on_device_migration
+        .set_checked(persistent_state.notify_on_device_migration);
+    map.insert(
+        items.notify_on_device_migration.id().clone(),
+        MenuItemInfo {
+            name: "Notify on device migration".to_string(),
+            action: MenuAction::App(AppAction::ToggleNotifyOnDeviceMigration),
+        },
+    );
+    tray_menu.append(items.notify_on_device_migration)?;
     tray_menu.append(&PredefinedMenuItem::separator())?;
 
     Ok(())
