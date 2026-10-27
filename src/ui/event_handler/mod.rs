@@ -68,6 +68,11 @@ fn apply_device_lock_toggle(
         device_name.to_string(),
         device_type,
     );
+    if device_settings.fingerprint.is_none()
+        && let Ok(device) = backend.device_by_id(device_id)
+    {
+        device_settings.fingerprint = device.fingerprint();
+    }
 
     match action {
         DeviceAction::VolumeLock => {
@@ -266,6 +271,12 @@ fn handle_device_event(
                 device_name,
                 ctx.persistent_state,
             ) {
+                if let Some(s) = ctx.persistent_state.device_settings_mut(device_id)
+                    && s.fingerprint.is_none()
+                    && let Ok(dev) = ctx.backend.device_by_id(device_id)
+                {
+                    s.fingerprint = dev.fingerprint();
+                }
                 MenuEventResult::SaveConfig
             } else {
                 MenuEventResult::NoChange

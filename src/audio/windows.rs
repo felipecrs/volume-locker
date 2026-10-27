@@ -1,18 +1,25 @@
+use super::migration::{build_fingerprint, clean_device_name};
 use super::{AudioBackend, AudioDevice, windows_com_policy_config};
 use crate::bindings::{
     AUDIO_VOLUME_NOTIFICATION_DATA, CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree,
     DEVICE_STATE_ACTIVE, EDataFlow, ERole, IAudioEndpointVolume, IAudioEndpointVolumeCallback,
     IAudioEndpointVolumeCallback_Impl, IMMDevice, IMMDeviceEnumerator, IMMNotificationClient,
-    IMMNotificationClient_Impl, MMDeviceEnumerator, PKEY_Device_FriendlyName, PROPERTYKEY,
-    PropVariantClear, PropVariantToStringAlloc, STGM_READ, eCapture, eCommunications, eConsole,
+    IMMNotificationClient_Impl, MMDeviceEnumerator, PKEY_AudioEndpoint_FormFactor,
+    PKEY_Device_ContainerId, PKEY_Device_DeviceDesc, PKEY_Device_EnumeratorName,
+    PKEY_Device_FriendlyName, PKEY_DeviceInterface_FriendlyName, PROPERTYKEY, PropVariantClear,
+    PropVariantToStringAlloc, PropVariantToUInt32, STGM_READ, eCapture, eCommunications, eConsole,
     eMultimedia, eRender,
 };
-use crate::types::{DeviceId, DeviceRole, DeviceType, VolumeScalar};
-use regex_lite::Regex;
+use crate::types::{DeviceFingerprint, DeviceId, DeviceRole, DeviceType, VolumeScalar};
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use std::sync::{LazyLock, Mutex};
+use std::sync::Mutex;
 use windows_core::{PCWSTR, implement};
+
+const PKEY_DEVICE_INTERFACE_PATH: PROPERTYKEY = PROPERTYKEY {
+    fmtid: windows_core::GUID::from_u128(0xb3f8fa53_0004_438e_9003_51a46e139bfc),
+    pid: 2,
+};
 
 /// Encodes a string slice as a null-terminated UTF-16 wide string for Win32 APIs.
 fn encode_wide_null(s: &str) -> Vec<u16> {
@@ -55,6 +62,7 @@ pub struct WindowsAudioDevice {
     endpoint: IAudioEndpointVolume,
     id: DeviceId,
     name: String,
+    fingerprint: Option<DeviceFingerprint>,
 }
 
 impl WindowsAudioDevice {
@@ -70,11 +78,13 @@ impl WindowsAudioDevice {
         unsafe { CoTaskMemFree(raw_id.0 as _) };
         let id = DeviceId::from(id_result?);
         let name = get_device_name(&device)?;
+        let fingerprint = get_device_fingerprint(&device);
         Ok(Self {
             device,
             endpoint,
             id,
             name,
+            fingerprint,
         })
     }
 }
@@ -161,6 +171,13 @@ impl AudioBackend for WindowsAudioBackend {
         *guard = Some(cb);
         Ok(())
     }
+
+    fn device_fingerprint(&self, id: &DeviceId) -> Option<DeviceFingerprint> {
+        let wide = encode_wide_null(id);
+        // SAFETY: wide is a null-terminated UTF-16 string on the stack, valid for this call.
+        let device = unsafe { self.enumerator.GetDevice(PCWSTR(wide.as_ptr())).ok()? };
+        get_device_fingerprint(&device)
+    }
 }
 
 impl AudioDevice for WindowsAudioDevice {
@@ -215,6 +232,10 @@ impl AudioDevice for WindowsAudioDevice {
         // COM ref-counting manages lifetimes; registration persists until the endpoint is dropped.
         unsafe { self.endpoint.RegisterControlChangeNotify(&cb).ok()? };
         Ok(())
+    }
+
+    fn fingerprint(&self) -> Option<DeviceFingerprint> {
+        self.fingerprint.clone()
     }
 }
 
@@ -273,49 +294,65 @@ impl IAudioEndpointVolumeCallback_Impl for VolumeChangeCallback_Impl {
     }
 }
 
+unsafe fn read_prop_string(
+    prop_store: &crate::bindings::IPropertyStore,
+    key: &PROPERTYKEY,
+) -> Option<String> {
+    // SAFETY: prop_store is a valid COM interface pointer; key is a valid PROPERTYKEY.
+    let mut prop = unsafe { prop_store.GetValue(key).ok()? };
+    let str_result = match unsafe { PropVariantToStringAlloc(&raw const prop) } {
+        Ok(pwstr) => {
+            let s = unsafe { pwstr.to_string().ok() };
+            unsafe { CoTaskMemFree(pwstr.0 as _) };
+            s
+        }
+        Err(_) => None,
+    };
+    let _ = unsafe { PropVariantClear(&mut prop) };
+    str_result
+}
+
+unsafe fn read_prop_u32(
+    prop_store: &crate::bindings::IPropertyStore,
+    key: &PROPERTYKEY,
+) -> Option<u32> {
+    // SAFETY: prop_store is a valid COM interface pointer; key is a valid PROPERTYKEY.
+    let mut prop = unsafe { prop_store.GetValue(key).ok()? };
+    let val = unsafe { PropVariantToUInt32(&raw const prop) }.ok();
+    let _ = unsafe { PropVariantClear(&mut prop) };
+    val
+}
+
 fn get_device_name(device: &IMMDevice) -> windows_core::Result<String> {
     // SAFETY: device from IMMDeviceEnumerator; property store operations are standard COM calls.
     let friendly_name = unsafe {
         let prop_store = device.OpenPropertyStore(STGM_READ as u32)?;
-        let mut friendly_name_prop = prop_store.GetValue(&PKEY_Device_FriendlyName)?;
-        let name_result = match PropVariantToStringAlloc(&raw const friendly_name_prop) {
-            Ok(pwstr) => {
-                let result = pwstr
-                    .to_string()
-                    .map_err(|_| windows_core::Error::from_hresult(windows_core::HRESULT(-1)));
-                CoTaskMemFree(pwstr.0 as _);
-                result
-            }
-            Err(e) => Err(e),
-        };
-        let _ = PropVariantClear(&mut friendly_name_prop);
-        name_result?
+        read_prop_string(&prop_store, &PKEY_Device_FriendlyName)
+            .ok_or_else(|| windows_core::Error::from_hresult(windows_core::HRESULT(-1)))?
     };
     Ok(clean_device_name(&friendly_name))
 }
 
-// Reimplemented from https://github.com/Belphemur/SoundSwitch/blob/50063dd35d3e648192cbcaa1f9a82a5856302562/SoundSwitch.Common/Framework/Audio/Device/DeviceInfo.cs#L33-L56
-fn clean_device_name(name: &str) -> String {
-    // SAFETY: These patterns are compile-time constants — Regex::new cannot fail.
-    static NAME_SPLITTER: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?P<friendlyName>.+)\s\([\d\s\-|]*(?P<deviceName>.+)\)")
-            .unwrap_or_else(|_| unreachable!("constant regex pattern"))
-    });
-    static NAME_CLEANER: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"\s?\(\d\)|^\d+\s?-\s?")
-            .unwrap_or_else(|_| unreachable!("constant regex pattern"))
-    });
+fn get_device_fingerprint(device: &IMMDevice) -> Option<DeviceFingerprint> {
+    unsafe {
+        let prop_store = device.OpenPropertyStore(STGM_READ as u32).ok()?;
+        let friendly_name = read_prop_string(&prop_store, &PKEY_Device_FriendlyName);
+        let hardware_desc = read_prop_string(&prop_store, &PKEY_Device_DeviceDesc);
+        let interface_name = read_prop_string(&prop_store, &PKEY_DeviceInterface_FriendlyName);
+        let enumerator_name = read_prop_string(&prop_store, &PKEY_Device_EnumeratorName);
+        let container_id = read_prop_string(&prop_store, &PKEY_Device_ContainerId);
+        let form_factor = read_prop_u32(&prop_store, &PKEY_AudioEndpoint_FormFactor);
+        let pnp_interface = read_prop_string(&prop_store, &PKEY_DEVICE_INTERFACE_PATH);
 
-    if let Some(captures) = NAME_SPLITTER.captures(name) {
-        let friendly_name = captures.name("friendlyName").map_or("", |m| m.as_str());
-        let device_name = captures.name("deviceName").map_or("", |m| m.as_str());
-
-        let cleaned_friendly = NAME_CLEANER.replace_all(friendly_name, "");
-        let cleaned_friendly = cleaned_friendly.trim();
-
-        format!("{cleaned_friendly} ({device_name})")
-    } else {
-        name.to_string()
+        Some(build_fingerprint(
+            friendly_name,
+            hardware_desc,
+            interface_name,
+            enumerator_name,
+            container_id,
+            form_factor,
+            pnp_interface,
+        ))
     }
 }
 

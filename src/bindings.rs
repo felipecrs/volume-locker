@@ -78,6 +78,14 @@ pub unsafe fn PropVariantToStringAlloc(
     }
 }
 #[inline]
+pub unsafe fn PropVariantToUInt32(propvarin: *const PROPVARIANT) -> windows_core::Result<u32> {
+    windows_core::link!("propsys.dll" "system" fn PropVariantToUInt32(propvarin : *const PROPVARIANT, pulret : *mut u32) -> windows_core::HRESULT);
+    unsafe {
+        let mut result__ = core::mem::zeroed();
+        PropVariantToUInt32(propvarin, &mut result__).map(|| result__)
+    }
+}
+#[inline]
 pub unsafe fn SetCurrentProcessExplicitAppUserModelID<P0>(appid: P0) -> windows_core::HRESULT
 where
     P0: windows_core::Param<windows_core::PCWSTR>,
@@ -1321,6 +1329,26 @@ pub type LPSAFEARRAY = *mut SAFEARRAY;
 pub type LPVERSIONEDSTREAM = *mut VERSIONEDSTREAM;
 pub const MMDeviceEnumerator: windows_core::GUID =
     windows_core::GUID::from_u128(0xbcde0395_e52f_467c_8e3d_c4579291692e);
+pub const PKEY_AudioEndpoint_FormFactor: PROPERTYKEY = PROPERTYKEY {
+    fmtid: windows_core::GUID::from_u128(0x1da5d803_d492_4edd_8c23_e0c0ffee7f0e),
+    pid: 0,
+};
+pub const PKEY_DeviceInterface_FriendlyName: PROPERTYKEY = PROPERTYKEY {
+    fmtid: windows_core::GUID::from_u128(0x026e516e_b814_414b_83cd_856d6fef4822),
+    pid: 2,
+};
+pub const PKEY_Device_ContainerId: PROPERTYKEY = PROPERTYKEY {
+    fmtid: windows_core::GUID::from_u128(0x8c7ed206_3f8a_4827_b3ab_ae9e1faefc6c),
+    pid: 2,
+};
+pub const PKEY_Device_DeviceDesc: PROPERTYKEY = PROPERTYKEY {
+    fmtid: windows_core::GUID::from_u128(0xa45c254e_df1c_4efd_8020_67d146a850e0),
+    pid: 2,
+};
+pub const PKEY_Device_EnumeratorName: PROPERTYKEY = PROPERTYKEY {
+    fmtid: windows_core::GUID::from_u128(0xa45c254e_df1c_4efd_8020_67d146a850e0),
+    pid: 24,
+};
 pub const PKEY_Device_FriendlyName: PROPERTYKEY = PROPERTYKEY {
     fmtid: windows_core::GUID::from_u128(0xa45c254e_df1c_4efd_8020_67d146a850e0),
     pid: 14,

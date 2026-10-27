@@ -337,6 +337,7 @@ mod tests {
                     unmute_lock: UnmuteLockPolicy::default(),
                     device_type: DeviceType::Output,
                     name: "Test Device".into(),
+                    fingerprint: None,
                 },
             )]),
             ..Default::default()
@@ -529,6 +530,7 @@ mod tests {
                     },
                     device_type: DeviceType::Output,
                     name: "Speakers".into(),
+                    fingerprint: None,
                 },
             )]),
         };

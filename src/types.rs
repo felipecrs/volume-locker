@@ -202,6 +202,61 @@ pub struct UnmuteLockPolicy {
     pub notify: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DeviceBusType {
+    Usb,
+    Bluetooth,
+    HdAudio,
+    RootVirtual,
+    Unknown,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
+pub struct DeviceFingerprint {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bus_type: Option<DeviceBusType>,
+
+    /// Raw driver description from PKEY_Device_DeviceDesc (e.g. "Speakers", "LU28R55")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hardware_desc: Option<String>,
+
+    /// Audio adapter product name from PKEY_DeviceInterface_FriendlyName
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interface_name: Option<String>,
+
+    /// Canonical cleaned original name: "{clean(desc)} ({clean(interface)})"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clean_original_name: Option<String>,
+
+    /// True if PKEY_Device_FriendlyName differed from default template at registration
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_custom_name: bool,
+
+    /// Bluetooth 48-bit MAC address (12 hex digits)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mac_address: Option<String>,
+
+    /// USB Vendor ID and Product ID
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usb_vid_pid: Option<(u16, u16)>,
+
+    /// USB Serial Number (only if not a synthetic port hash)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usb_serial: Option<String>,
+
+    /// Composite interface index (e.g. MI_00, MI_01)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interface_index: Option<u8>,
+
+    /// Physical device container GUID
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container_id: Option<String>,
+
+    /// Audio endpoint form factor (e.g. 1=Speakers, 2=Headphones, 3=Headset, 4=Microphone)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form_factor: Option<u32>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DeviceSettings {
     #[serde(flatten)]
@@ -210,6 +265,8 @@ pub struct DeviceSettings {
     pub unmute_lock: UnmuteLockPolicy,
     pub device_type: DeviceType,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<DeviceFingerprint>,
 }
 
 impl DeviceSettings {
@@ -219,7 +276,14 @@ impl DeviceSettings {
             unmute_lock: UnmuteLockPolicy::default(),
             device_type,
             name,
+            fingerprint: None,
         }
+    }
+
+    #[cfg(test)]
+    pub fn with_fingerprint(mut self, fingerprint: Option<DeviceFingerprint>) -> Self {
+        self.fingerprint = fingerprint;
+        self
     }
 
     /// Returns true if the device has any active volume/unmute lock or notification setting.
@@ -327,6 +391,7 @@ mod tests {
             },
             device_type: DeviceType::Input,
             name: "Microphone".into(),
+            fingerprint: None,
         };
         let json = serde_json::to_string(&settings).unwrap();
         let loaded: DeviceSettings = serde_json::from_str(&json).unwrap();
@@ -337,6 +402,23 @@ mod tests {
         assert!(!loaded.unmute_lock.notify);
         assert_eq!(loaded.device_type, DeviceType::Input);
         assert_eq!(loaded.name, "Microphone");
+    }
+
+    #[test]
+    fn device_settings_fingerprint_roundtrip() {
+        use super::{DeviceBusType, DeviceFingerprint};
+        let fp = DeviceFingerprint {
+            bus_type: Some(DeviceBusType::Usb),
+            hardware_desc: Some("G533".into()),
+            usb_vid_pid: Some((0x046d, 0x0a66)),
+            is_custom_name: true,
+            ..Default::default()
+        };
+        let settings = DeviceSettings::new("Headset".into(), DeviceType::Output)
+            .with_fingerprint(Some(fp.clone()));
+        let json = serde_json::to_string(&settings).unwrap();
+        let loaded: DeviceSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.fingerprint, Some(fp));
     }
 
     #[test]

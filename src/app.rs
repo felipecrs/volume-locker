@@ -1,5 +1,5 @@
 use crate::audio::{
-    AudioBackend, AudioBackendImpl, AudioDevice, check_and_unmute_device, collect_device_names,
+    AudioBackend, AudioBackendImpl, AudioDevice, check_and_unmute_device, collect_device_info,
     enforce_priorities, enforce_volume_lock, migrate_device_ids,
 };
 use crate::config::{PersistentState, save_state};
@@ -209,10 +209,13 @@ impl AppState {
         log::info!("Reloading list of watched devices...");
 
         self.migrate_device_ids_if_needed();
-        for (device_id, new_name, device_type) in collect_device_names(&self.backend) {
+        for (device_id, new_name, device_type, fingerprint) in collect_device_info(&self.backend) {
             if let Some(settings) = self.persistent_state.device_settings_mut(&device_id) {
                 settings.name = new_name;
                 settings.device_type = device_type;
+                if fingerprint.is_some() {
+                    settings.fingerprint = fingerprint;
+                }
             }
         }
 
