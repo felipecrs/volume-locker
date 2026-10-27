@@ -317,3 +317,31 @@ The following property keys are read from `IMMDevice::OpenPropertyStore(STGM_REA
   - Rejection of cross-category name matching (preventing custom name matching default original name).
   - Collision rejection when multiple identical non-serial USB devices are present.
 - Informative `log::info!` logging specifying the exact match tier and rationale during migrations.
+
+---
+
+## 9. Event-Driven Triggers & Debounced Execution Architecture
+
+To guarantee that device migration and volume lock enforcement execute automatically in the background—without requiring application restarts or user interaction with the tray icon—Volume Locker responds to all of the following events:
+
+1. **`IMMNotificationClient` Events (Full Surface Area)**:
+   - `OnDeviceAdded`: Fires when an endpoint is added to the system (e.g. plugged into a new port or newly paired).
+   - `OnDeviceStateChanged`: Fires when a device transitions between `ACTIVE`, `DISABLED`, `NOTPRESENT`, and `UNPLUGGED`.
+   - `OnDeviceRemoved`: Fires when an endpoint is uninstalled.
+   - `OnDefaultDeviceChanged`: Fires when the system default audio endpoint changes.
+   - `OnPropertyValueChanged`: Fires when an endpoint's property store is updated (e.g. user renames a device in Windows Sound Settings, or driver completes writing properties on plug-in).
+
+2. **200ms Settling Debounce**:
+   - When a USB or Bluetooth device arrives, Windows fires a rapid burst of notifications (`OnDeviceAdded`, several `OnPropertyValueChanged`, and `OnDeviceStateChanged`).
+   - A dedicated worker thread coalesces burst notifications using a 200ms quiet-window debounce, ensuring migration runs only once after driver initialization and property writes are fully complete.
+
+3. **System Power Suspend & Resume (`RegisterSuspendResumeNotification`)**:
+   - Listens for `PBT_APMRESUMEAUTOMATIC` and `PBT_APMRESUMESUSPEND` when resuming from sleep or Modern Standby.
+   - Dispatches a settled device check 500ms after wake to allow USB hubs and Bluetooth adapters to power up and re-establish links.
+
+4. **Periodic Health Check**:
+   - The background worker performs a routine check every 60 seconds if no events were received, guaranteeing self-healing against any missed hardware transitions.
+
+5. **Tray Menu Click**:
+   - A synchronous migration check runs whenever the tray icon is clicked (`handle_tray_click`), ensuring the rendered menu always reflects up-to-the-second device states.
+

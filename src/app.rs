@@ -370,6 +370,7 @@ impl AppState {
     }
 
     pub fn handle_tray_click(&mut self, refs: &EventLoopRefs) {
+        self.migrate_device_ids_if_needed();
         let ctx = MenuContext {
             backend: &self.backend,
             persistent_state: &self.persistent_state,
