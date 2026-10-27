@@ -338,10 +338,8 @@ To guarantee that device migration and volume lock enforcement execute automatic
 3. **System Power Suspend & Resume (`RegisterSuspendResumeNotification`)**:
    - Listens for `PBT_APMRESUMEAUTOMATIC` and `PBT_APMRESUMESUSPEND` when resuming from sleep or Modern Standby.
    - Dispatches a settled device check 500ms after wake to allow USB hubs and Bluetooth adapters to power up and re-establish links.
+   - Synchronously re-verifies and enforces volume locks and unmute locks across all locked devices upon wake, guarding against driver volume resets during system sleep.
 
 4. **Periodic Health Check**:
    - The background worker performs a routine check every 60 seconds if no events were received, guaranteeing self-healing against any missed hardware transitions.
-
-5. **Tray Menu Click**:
-   - A synchronous migration check runs whenever the tray icon is clicked (`handle_tray_click`), ensuring the rendered menu always reflects up-to-the-second device states.
 

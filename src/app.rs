@@ -157,6 +157,24 @@ impl AppState {
             return None;
         }
 
+        if device_settings.volume_lock.is_locked {
+            match device.volume() {
+                Ok(vol) => {
+                    enforce_volume_lock(
+                        device_id,
+                        device.as_ref(),
+                        device_name,
+                        device_settings.volume_lock,
+                        vol,
+                        &mut self.notification_throttler,
+                    );
+                }
+                Err(e) => {
+                    log::warn!("Failed to read volume of {device_name} during watch setup: {e:#}");
+                }
+            }
+        }
+
         if device_settings.unmute_lock.is_locked {
             check_and_unmute_device(
                 device.as_ref(),
@@ -171,13 +189,6 @@ impl AppState {
             device_settings.volume_lock.is_locked,
             device_settings.unmute_lock.is_locked
         );
-
-        if let Err(e) = proxy.send_event(UserEvent::VolumeChanged(VolumeChangedEvent {
-            device_id: device_id.clone(),
-            new_volume: None,
-        })) {
-            log::warn!("Failed to send initial VolumeChanged event: {e:#}");
-        }
 
         Some(device)
     }
@@ -370,7 +381,6 @@ impl AppState {
     }
 
     pub fn handle_tray_click(&mut self, refs: &EventLoopRefs) {
-        self.migrate_device_ids_if_needed();
         let ctx = MenuContext {
             backend: &self.backend,
             persistent_state: &self.persistent_state,
