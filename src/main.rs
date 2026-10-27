@@ -42,6 +42,8 @@ use auto_launch::{AutoLaunch, AutoLaunchBuilder};
 use simplelog::{ColorChoice, TermLogger, TerminalMode};
 use simplelog::{CombinedLogger, Config, LevelFilter, SharedLogger, WriteLogger};
 use std::fs::File;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tao::{
     event::Event,
     event_loop::{ControlFlow, EventLoopBuilder},
@@ -166,10 +168,15 @@ fn run() -> anyhow::Result<()> {
     let backend =
         AudioBackendImpl::new(&com_token).context("failed to initialize audio backend")?;
 
+    let devices_changed_pending = Arc::new(AtomicBool::new(false));
     let proxy = event_loop.create_proxy();
+    let cb_pending = Arc::clone(&devices_changed_pending);
     backend
         .register_device_change_callback(Box::new(move || {
-            if let Err(e) = proxy.send_event(UserEvent::DevicesChanged) {
+            if !cb_pending.swap(true, Ordering::SeqCst)
+                && let Err(e) = proxy.send_event(UserEvent::DevicesChanged)
+            {
+                cb_pending.store(false, Ordering::SeqCst);
                 log::warn!("Failed to send DevicesChanged event: {e:#}");
             }
         }))
@@ -234,6 +241,7 @@ fn run() -> anyhow::Result<()> {
             }
 
             Event::UserEvent(UserEvent::DevicesChanged) => {
+                devices_changed_pending.store(false, Ordering::SeqCst);
                 app.handle_devices_changed(&main_proxy, &locked_icon, &unlocked_icon);
             }
 

@@ -209,7 +209,8 @@ flowchart LR
     MIG --> LOCK
 ```
 
-- **`OnPropertyValueChanged`**: Fires when a user renames an endpoint in Windows Sound Settings, allowing immediate migration without app restarts.
+- **`OnPropertyValueChanged`**: Filtered strictly to `PKEY_Device_FriendlyName` so it only fires when a user renames an endpoint in Windows Sound Settings, ignoring continuous driver telemetry (volume, battery, routing, peak meters).
+- **Atomic Event Coalescing**: Rapid bursts of hardware events (e.g. `OnDeviceAdded`, `OnDeviceStateChanged`, `OnDefaultDeviceChanged`) during peripheral connection are coalesced into a single event loop dispatch.
 - **Power Resume**: Handles modern standby and system sleep wakeups, synchronously clamping volume levels in case Windows audio drivers reset endpoint volumes on wake.
 
 ---

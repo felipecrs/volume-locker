@@ -352,8 +352,13 @@ impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
         Ok(())
     }
 
-    fn OnPropertyValueChanged(&self, _: &PCWSTR, _: &PROPERTYKEY) -> windows_core::Result<()> {
-        (self.callback)();
+    fn OnPropertyValueChanged(&self, _: &PCWSTR, key: &PROPERTYKEY) -> windows_core::Result<()> {
+        // Only react when an endpoint's friendly name changes (e.g. user renamed the device
+        // in Windows Sound Settings). Other property updates (internal routing, formats,
+        // volume, Bluetooth battery/telemetry) fire continuously and must be ignored.
+        if *key == PKEY_Device_FriendlyName {
+            (self.callback)();
+        }
         Ok(())
     }
 }
