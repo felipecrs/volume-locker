@@ -1,0 +1,28 @@
+[tools]
+rust = { version = "1.99.1", components = ["rustfmt", "clippy"], profile = "minimal" }
+
+[tasks.fmt]
+description = "Check code formatting"
+run = "cargo fmt --check"
+
+[tasks."fmt:fix"]
+description = "Format code"
+alias = ["format"]
+run = "cargo fmt"
+
+[tasks.lint]
+description = "Run Clippy linter"
+run = "cargo clippy --locked"
+
+[tasks.test]
+description = "Run tests"
+run = "cargo test --locked"
+
+[tasks.check]
+description = "Run all checks (format, lint, test)"
+depends = ["fmt", "lint", "test"]
+
+[tasks.build]
+description = "Build release binary"
+run = "cargo build --release --frozen"
+
