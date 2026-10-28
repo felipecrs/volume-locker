@@ -58,30 +58,37 @@ graph TB
 
 ---
 
-## 1. On-The-Fly Property Store Recovery
+## 1. On-The-Fly Property Store Recovery & In-Memory Fingerprint Cache
 
-When a device is unplugged or re-enumerated, Windows marks the old endpoint as `DEVICE_STATE_NOTPRESENT` (`4`). While activating audio streams fails, **Windows preserves the complete COM property store in the registry**:
+When a USB device is unplugged or re-enumerated, Windows transitions the old endpoint to `DEVICE_STATE_NOTPRESENT` (`4`). While activating audio streams fails, **Windows preserves the complete COM property store in the registry**:
+
+However, when a Bluetooth device is **unpaired** in Windows Settings, Windows completely uninstalls and deletes the endpoint (`0x80070490 Element not found`). To protect unpairing and re-pairing workflows, Volume Locker maintains an in-memory `device_cache` of all active endpoints:
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant APP as Volume Locker
     participant MM as Windows MMDevice API
+    participant MEM as In-Memory Device Cache
     participant REG as Windows Registry (MMDevices)
     participant CFG as PersistentState (Config)
 
-    APP->>MM: IMMDeviceEnumerator::GetDevice(old_id)
-    MM->>REG: OpenPropertyStore(STGM_READ)
-    alt Property store exists in Windows
+    alt Disconnected USB endpoint (DEVICE_STATE_NOTPRESENT)
+        APP->>MM: IMMDeviceEnumerator::GetDevice(old_id)
+        MM->>REG: OpenPropertyStore(STGM_READ)
         REG-->>APP: Return PKEY properties (Hardware ID, Names, FormFactor)
         Note over APP: Fingerprint recovered on the fly!
-    else Registry purged / stale
+    else Unpaired Bluetooth endpoint (Element not found)
+        APP->>MEM: Query in-memory device cache
+        MEM-->>APP: Return cached fingerprint (Bluetooth MAC address)
+        Note over APP: Fingerprint recovered from memory cache!
+    else Offline fallback (Cold start / App restart)
         APP->>CFG: Read saved fingerprint from config
-        CFG-->>APP: Return cached fingerprint fallback
+        CFG-->>APP: Return persistent fingerprint fallback
     end
 ```
 
-Because of this, Volume Locker does not require prior fingerprints to migrate an existing device.
+Because of this tiered recovery, Volume Locker seamlessly migrates settings even across complete Bluetooth unpairing and USB port changes.
 
 ---
 
@@ -211,6 +218,7 @@ flowchart LR
 
 - **`OnPropertyValueChanged`**: Filtered strictly to `PKEY_Device_FriendlyName` so it only fires when a user renames an endpoint in Windows Sound Settings, ignoring continuous driver telemetry (volume, battery, routing, peak meters).
 - **Atomic Event Coalescing**: Rapid bursts of hardware events (e.g. `OnDeviceAdded`, `OnDeviceStateChanged`, `OnDefaultDeviceChanged`) during peripheral connection are coalesced into a single event loop dispatch.
+- **Rich Event Attribution**: Windows callbacks capture the affected `DeviceId` and state transition for the event loop, providing clear and contextual diagnostic logging without blocking COM threads.
 - **Power Resume**: Handles modern standby and system sleep wakeups, synchronously clamping volume levels in case Windows audio drivers reset endpoint volumes on wake.
 
 ---

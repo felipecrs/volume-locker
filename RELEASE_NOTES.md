@@ -30,3 +30,11 @@
 ### Purely Event-Driven Operation
 - Device reconnections, renames, and migrations now happen instantly as Windows events occur.
 - No interaction with the tray icon or application restarts needed to catch device changes.
+
+### Clear & Informative Activity Logs
+- Audio device event logs now report the exact device name, ID, and transition (e.g. `'Speakers' became disconnected`, `'Headphones' became active`, `Default Output changed to '...'`).
+- Menu interactions are clearly logged (e.g. selecting temporary priorities, locking volumes, reordering priorities) making it easy to trace actions in logs.
+- Priority switches now display human-readable device names alongside technical device GUIDs.
+- Cleaned up confusing internal warnings on disconnected devices, replacing them with clear contextual explanations.
+- Added full `RUST_LOG` environment variable support to customize logging verbosity on demand.
+
