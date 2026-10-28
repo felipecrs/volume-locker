@@ -331,37 +331,61 @@ pub struct AudioDevicesChangedCallback {
 }
 
 impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
-    fn OnDeviceStateChanged(&self, _: &PCWSTR, _: u32) -> windows_core::Result<()> {
-        (self.callback)(DeviceChangeSource::DeviceStateChanged);
+    fn OnDeviceStateChanged(&self, dev_id: &PCWSTR, state: u32) -> windows_core::Result<()> {
+        let id = unsafe { dev_id.to_string().map(DeviceId::from).unwrap_or_default() };
+        (self.callback)(DeviceChangeSource::DeviceStateChanged(id, state));
         Ok(())
     }
 
-    fn OnDeviceAdded(&self, _: &PCWSTR) -> windows_core::Result<()> {
-        (self.callback)(DeviceChangeSource::DeviceAdded);
+    fn OnDeviceAdded(&self, dev_id: &PCWSTR) -> windows_core::Result<()> {
+        let id = unsafe { dev_id.to_string().map(DeviceId::from).unwrap_or_default() };
+        (self.callback)(DeviceChangeSource::DeviceAdded(id));
         Ok(())
     }
 
-    fn OnDeviceRemoved(&self, _: &PCWSTR) -> windows_core::Result<()> {
-        (self.callback)(DeviceChangeSource::DeviceRemoved);
+    fn OnDeviceRemoved(&self, dev_id: &PCWSTR) -> windows_core::Result<()> {
+        let id = unsafe { dev_id.to_string().map(DeviceId::from).unwrap_or_default() };
+        (self.callback)(DeviceChangeSource::DeviceRemoved(id));
         Ok(())
     }
 
     fn OnDefaultDeviceChanged(
         &self,
-        _: EDataFlow,
-        _: ERole,
-        _: &PCWSTR,
+        flow: EDataFlow,
+        role: ERole,
+        dev_id: &PCWSTR,
     ) -> windows_core::Result<()> {
-        (self.callback)(DeviceChangeSource::DefaultDeviceChanged);
+        let id = unsafe { dev_id.to_string().map(DeviceId::from).unwrap_or_default() };
+        let flow_str = match flow {
+            f if f == eRender => "Output",
+            f if f == eCapture => "Input",
+            _ => "Audio",
+        };
+        let role_str = match role {
+            r if r == eConsole => "Main",
+            r if r == eMultimedia => "Multimedia",
+            r if r == eCommunications => "Communication",
+            _ => "Default",
+        };
+        (self.callback)(DeviceChangeSource::DefaultDeviceChanged(
+            id,
+            flow_str.to_string(),
+            role_str.to_string(),
+        ));
         Ok(())
     }
 
-    fn OnPropertyValueChanged(&self, _: &PCWSTR, key: &PROPERTYKEY) -> windows_core::Result<()> {
+    fn OnPropertyValueChanged(
+        &self,
+        dev_id: &PCWSTR,
+        key: &PROPERTYKEY,
+    ) -> windows_core::Result<()> {
         // Only react when an endpoint's friendly name changes (e.g. user renamed the device
         // in Windows Sound Settings). Other property updates (internal routing, formats,
         // volume, Bluetooth battery/telemetry) fire continuously and must be ignored.
         if *key == PKEY_Device_FriendlyName {
-            (self.callback)(DeviceChangeSource::DeviceRenamed);
+            let id = unsafe { dev_id.to_string().map(DeviceId::from).unwrap_or_default() };
+            (self.callback)(DeviceChangeSource::DeviceRenamed(id));
         }
         Ok(())
     }

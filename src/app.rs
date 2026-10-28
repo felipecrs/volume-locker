@@ -232,6 +232,19 @@ impl AppState {
         }
     }
 
+    pub fn get_device_display_name(&self, id: &DeviceId) -> String {
+        if let Some((name, _, _)) = self.device_cache.get(id) {
+            return name.clone();
+        }
+        if let Some(s) = self.persistent_state.device_settings(id) {
+            return s.name.clone();
+        }
+        if let Ok(d) = self.backend.device_by_id(id) {
+            return d.name();
+        }
+        id.to_string()
+    }
+
     pub fn handle_devices_changed(
         &mut self,
         source: DeviceChangeSource,
@@ -239,7 +252,8 @@ impl AppState {
         locked_icon: &tray_icon::Icon,
         unlocked_icon: &tray_icon::Icon,
     ) {
-        log::info!("Devices changed ({source}): updating devices and enforcing settings...");
+        let description = source.description(|id| self.get_device_display_name(id));
+        log::info!("Audio event ({description}): updating devices and enforcing settings...");
 
         self.migrate_device_ids_if_needed();
         for (device_id, new_name, device_type, fingerprint) in collect_device_info(&self.backend) {

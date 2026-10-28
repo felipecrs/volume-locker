@@ -72,7 +72,7 @@ impl PartialEq<f32> for VolumePercent {
 
 /// A strongly-typed wrapper around a device identifier string.
 /// Prevents accidental confusion between device IDs and device names.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, Default)]
 #[serde(transparent)]
 pub struct DeviceId(String);
 
@@ -356,29 +356,51 @@ impl TemporaryPriorities {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeviceChangeSource {
     Init,
-    DeviceAdded,
-    DeviceRemoved,
-    DeviceStateChanged,
-    DefaultDeviceChanged,
-    DeviceRenamed,
+    DeviceAdded(DeviceId),
+    DeviceRemoved(DeviceId),
+    DeviceStateChanged(DeviceId, u32),
+    DefaultDeviceChanged(DeviceId, String, String),
+    DeviceRenamed(DeviceId),
     PowerResume,
     UserAction,
 }
 
-impl fmt::Display for DeviceChangeSource {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl DeviceChangeSource {
+    pub fn description(&self, get_name: impl Fn(&DeviceId) -> String) -> String {
         match self {
-            Self::Init => write!(f, "Initialization"),
-            Self::DeviceAdded => write!(f, "Device Added"),
-            Self::DeviceRemoved => write!(f, "Device Removed"),
-            Self::DeviceStateChanged => write!(f, "Device State Changed"),
-            Self::DefaultDeviceChanged => write!(f, "Default Device Changed"),
-            Self::DeviceRenamed => write!(f, "Device Renamed"),
-            Self::PowerResume => write!(f, "Power Resume"),
-            Self::UserAction => write!(f, "User Action"),
+            Self::Init => "Application initialization".to_string(),
+            Self::DeviceAdded(id) => {
+                let name = get_name(id);
+                format!("Device added: '{name}' ({id})")
+            }
+            Self::DeviceRemoved(id) => {
+                let name = get_name(id);
+                format!("Device removed: '{name}' ({id})")
+            }
+            Self::DeviceStateChanged(id, state) => {
+                let name = get_name(id);
+                let state_str = match *state {
+                    1 => "active",
+                    2 => "disabled",
+                    4 => "disconnected",
+                    8 => "unplugged",
+                    _ => "state changed",
+                };
+                format!("Device '{name}' ({id}) became {state_str}")
+            }
+            Self::DefaultDeviceChanged(id, flow, role) => {
+                let name = get_name(id);
+                format!("Default {flow} ({role}) changed to '{name}' ({id})")
+            }
+            Self::DeviceRenamed(id) => {
+                let name = get_name(id);
+                format!("Device renamed: '{name}' ({id})")
+            }
+            Self::PowerResume => "System resume from sleep".to_string(),
+            Self::UserAction => "User menu action".to_string(),
         }
     }
 }
