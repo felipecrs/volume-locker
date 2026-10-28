@@ -225,6 +225,22 @@ fn matches_tier(missing: &MissingDevice, candidate: &ActiveCandidate, tier: Matc
         return false;
     }
 
+    // BusType compatibility: if both specify bus_type, they must match.
+    if let (Some(m), Some(c)) = (m_fp.and_then(|f| f.bus_type), c_fp.and_then(|f| f.bus_type))
+        && m != c
+    {
+        return false;
+    }
+
+    // USB VID/PID compatibility: if both specify usb_vid_pid, they must match.
+    if let (Some(m), Some(c)) = (
+        m_fp.and_then(|f| f.usb_vid_pid),
+        c_fp.and_then(|f| f.usb_vid_pid),
+    ) && m != c
+    {
+        return false;
+    }
+
     match tier {
         MatchTier::ExactHardwareId => {
             // Bluetooth MAC match
@@ -346,6 +362,23 @@ fn matches_tier(missing: &MissingDevice, candidate: &ActiveCandidate, tier: Matc
             let m_custom = m_fp.is_some_and(|f| f.is_custom_name);
             let c_custom = c_fp.is_some_and(|f| f.is_custom_name);
             if m_custom || c_custom {
+                return false;
+            }
+
+            // Reject cross-bus matching when bus types are known and differ
+            if let (Some(m_bus), Some(c_bus)) =
+                (m_fp.and_then(|f| f.bus_type), c_fp.and_then(|f| f.bus_type))
+                && m_bus != c_bus
+            {
+                return false;
+            }
+
+            // Reject conflicting USB VID/PID when both are known and differ
+            if let (Some(m_vp), Some(c_vp)) = (
+                m_fp.and_then(|f| f.usb_vid_pid),
+                c_fp.and_then(|f| f.usb_vid_pid),
+            ) && m_vp != c_vp
+            {
                 return false;
             }
 
@@ -542,10 +575,22 @@ pub fn migrate_device_ids(
             }
         };
 
-        // Filter out active devices that are already registered under their current ID
+        // Filter out active devices that are already registered under their current ID,
+        // or already actively present in priority lists or temporary priorities.
         let mut candidates: Vec<ActiveCandidate> = active_devices
             .into_iter()
-            .filter(|d| !persistent_state.devices.contains_key(d.id()))
+            .filter(|d| {
+                !persistent_state.devices.contains_key(d.id())
+                    && !persistent_state
+                        .priority_list_of(device_type, PriorityKind::Main)
+                        .contains(d.id())
+                    && !persistent_state
+                        .priority_list_of(device_type, PriorityKind::Communication)
+                        .contains(d.id())
+                    && temporary_priorities.get(device_type, PriorityKind::Main) != Some(d.id())
+                    && temporary_priorities.get(device_type, PriorityKind::Communication)
+                        != Some(d.id())
+            })
             .map(|d| ActiveCandidate {
                 id: d.id().clone(),
                 name: d.name(),
@@ -1288,5 +1333,92 @@ mod tests {
             temp.get(DeviceType::Output, PriorityKind::Main),
             Some(&new_id)
         );
+    }
+
+    #[test]
+    fn tier6_rejects_cross_bus_false_match() {
+        let old_hd_fp = DeviceFingerprint {
+            bus_type: Some(DeviceBusType::HdAudio),
+            clean_original_name: Some("Speakers (Realtek Audio)".to_string()),
+            ..Default::default()
+        };
+        let new_usb_fp = DeviceFingerprint {
+            bus_type: Some(DeviceBusType::Usb),
+            clean_original_name: Some("Speakers (USB Audio Device)".to_string()),
+            ..Default::default()
+        };
+
+        let new_dev =
+            MockDevice::new("usb_speakers", "Speakers", true).with_fingerprint(new_usb_fp);
+        let backend = MockAudioBackend::new(vec![new_dev]);
+
+        let mut state = PersistentState::default();
+        let mut settings = make_device_settings("Speakers", DeviceType::Output);
+        settings.fingerprint = Some(old_hd_fp);
+        state
+            .devices
+            .insert("internal_hd_speakers".into(), settings);
+
+        let result = migrate_device_ids(&backend, &mut state);
+        assert!(!result.persistent_changed);
+        assert!(state.devices.contains_key("internal_hd_speakers"));
+        assert!(!state.devices.contains_key("usb_speakers"));
+    }
+
+    #[test]
+    fn tier6_rejects_conflicting_vid_pid() {
+        let old_usb_fp = DeviceFingerprint {
+            bus_type: Some(DeviceBusType::Usb),
+            usb_vid_pid: Some((0x1234, 0x5678)),
+            clean_original_name: Some("USB Audio Device".to_string()),
+            ..Default::default()
+        };
+        let new_usb_fp = DeviceFingerprint {
+            bus_type: Some(DeviceBusType::Usb),
+            usb_vid_pid: Some((0x9999, 0x8888)),
+            clean_original_name: Some("USB Audio Device".to_string()),
+            ..Default::default()
+        };
+
+        let new_dev =
+            MockDevice::new("usb_dev2", "USB Audio Device", true).with_fingerprint(new_usb_fp);
+        let backend = MockAudioBackend::new(vec![new_dev]);
+
+        let mut state = PersistentState::default();
+        let mut settings = make_device_settings("USB Audio Device", DeviceType::Output);
+        settings.fingerprint = Some(old_usb_fp);
+        state.devices.insert("usb_dev1".into(), settings);
+
+        let result = migrate_device_ids(&backend, &mut state);
+        assert!(!result.persistent_changed);
+        assert!(state.devices.contains_key("usb_dev1"));
+        assert!(!state.devices.contains_key("usb_dev2"));
+    }
+
+    #[test]
+    fn migration_does_not_claim_active_priority_or_temporary_devices() {
+        // "active_priority_dev" is currently active and in output priority list,
+        // but has no locks so it is not in state.devices.
+        let active_dev = MockDevice::new("active_priority_dev", "Headset", true);
+        let backend = MockAudioBackend::new(vec![active_dev]);
+
+        let mut state = PersistentState::default();
+        state.devices.insert(
+            "old_disconnected_headset".into(),
+            make_device_settings("Headset", DeviceType::Output),
+        );
+        state.output.priority_list = vec!["active_priority_dev".into()];
+
+        let mut temp = TemporaryPriorities::default();
+        let result = super::migrate_device_ids(
+            &backend,
+            &mut state,
+            &mut temp,
+            &std::collections::HashMap::new(),
+        );
+
+        assert!(!result.persistent_changed);
+        assert!(state.devices.contains_key("old_disconnected_headset"));
+        assert!(!state.devices.contains_key("active_priority_dev"));
     }
 }

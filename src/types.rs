@@ -392,8 +392,12 @@ impl DeviceChangeSource {
                 format!("Device '{name}' ({id}) became {state_str}")
             }
             Self::DefaultDeviceChanged(id, flow, role) => {
-                let name = get_name(id);
-                format!("Default {flow} ({role}) changed to '{name}' ({id})")
+                if id.is_empty() {
+                    format!("Default {flow} ({role}) cleared (no default device)")
+                } else {
+                    let name = get_name(id);
+                    format!("Default {flow} ({role}) changed to '{name}' ({id})")
+                }
             }
             Self::DeviceRenamed(id) => {
                 let name = get_name(id);
@@ -575,5 +579,29 @@ mod tests {
         assert_eq!(over.as_f32(), 100.0);
         let under: VolumePercent = serde_json::from_str("-50.0").unwrap();
         assert_eq!(under.as_f32(), 0.0);
+    }
+
+    #[test]
+    fn default_device_changed_description() {
+        use super::{DeviceChangeSource, DeviceId};
+        let empty_event = DeviceChangeSource::DefaultDeviceChanged(
+            DeviceId::default(),
+            "Output".to_string(),
+            "Main".to_string(),
+        );
+        assert_eq!(
+            empty_event.description(|_| "Ignored".to_string()),
+            "Default Output (Main) cleared (no default device)"
+        );
+
+        let populated_event = DeviceChangeSource::DefaultDeviceChanged(
+            DeviceId::from("dev1"),
+            "Output".to_string(),
+            "Main".to_string(),
+        );
+        assert_eq!(
+            populated_event.description(|_| "Speakers".to_string()),
+            "Default Output (Main) changed to 'Speakers' (dev1)"
+        );
     }
 }

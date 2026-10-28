@@ -233,6 +233,9 @@ impl AppState {
     }
 
     pub fn get_device_display_name(&self, id: &DeviceId) -> String {
+        if id.is_empty() {
+            return String::new();
+        }
         if let Some((name, _, _)) = self.device_cache.get(id) {
             return name.clone();
         }

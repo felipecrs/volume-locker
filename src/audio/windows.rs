@@ -70,10 +70,11 @@ windows_core::link!("user32.dll" "system" fn UnregisterSuspendResumeNotification
 
 struct PowerNotifyGuard {
     handle: *mut std::ffi::c_void,
+    _params: Box<DeviceNotifySubscribeParameters>,
     _context: Box<Arc<dyn Fn(DeviceChangeSource) + Send + Sync>>,
 }
 
-// SAFETY: handle is an opaque OS registration handle and context is Send + Sync.
+// SAFETY: handle is an opaque OS registration handle, _params is heap-allocated and immovable, and context is Send + Sync.
 unsafe impl Send for PowerNotifyGuard {}
 unsafe impl Sync for PowerNotifyGuard {}
 
@@ -81,6 +82,7 @@ impl Drop for PowerNotifyGuard {
     fn drop(&mut self) {
         if !self.handle.is_null() {
             // SAFETY: handle was obtained from RegisterSuspendResumeNotification.
+            // Unregister before _params and _context are freed.
             unsafe {
                 let _ = UnregisterSuspendResumeNotification(self.handle);
             }
@@ -225,16 +227,17 @@ impl AudioBackend for WindowsAudioBackend {
 
         // Register for Windows system resume (sleep/wake) events
         let context = Box::new(callback);
-        let params = DeviceNotifySubscribeParameters {
+        let params = Box::new(DeviceNotifySubscribeParameters {
             callback: power_suspend_resume_callback,
             context: &*context as *const Arc<dyn Fn(DeviceChangeSource) + Send + Sync>
                 as *mut std::ffi::c_void,
-        };
-        // SAFETY: params points to a valid DeviceNotifySubscribeParameters on the stack; context remains alive in PowerNotifyGuard.
-        let handle = unsafe { RegisterSuspendResumeNotification(&params, DEVICE_NOTIFY_CALLBACK) };
+        });
+        // SAFETY: params is heap-allocated and kept alive in PowerNotifyGuard until UnregisterSuspendResumeNotification.
+        let handle = unsafe { RegisterSuspendResumeNotification(&*params, DEVICE_NOTIFY_CALLBACK) };
         let power_guard = if !handle.is_null() {
             Some(PowerNotifyGuard {
                 handle,
+                _params: params,
                 _context: context,
             })
         } else {
@@ -325,6 +328,14 @@ impl AudioDevice for WindowsAudioDevice {
     }
 }
 
+fn pcwstr_to_device_id(dev_id: &PCWSTR) -> DeviceId {
+    if dev_id.is_null() {
+        DeviceId::default()
+    } else {
+        unsafe { dev_id.to_string().map(DeviceId::from).unwrap_or_default() }
+    }
+}
+
 #[implement(IMMNotificationClient)]
 pub struct AudioDevicesChangedCallback {
     pub callback: Arc<dyn Fn(DeviceChangeSource) + Send + Sync>,
@@ -332,19 +343,19 @@ pub struct AudioDevicesChangedCallback {
 
 impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
     fn OnDeviceStateChanged(&self, dev_id: &PCWSTR, state: u32) -> windows_core::Result<()> {
-        let id = unsafe { dev_id.to_string().map(DeviceId::from).unwrap_or_default() };
+        let id = pcwstr_to_device_id(dev_id);
         (self.callback)(DeviceChangeSource::DeviceStateChanged(id, state));
         Ok(())
     }
 
     fn OnDeviceAdded(&self, dev_id: &PCWSTR) -> windows_core::Result<()> {
-        let id = unsafe { dev_id.to_string().map(DeviceId::from).unwrap_or_default() };
+        let id = pcwstr_to_device_id(dev_id);
         (self.callback)(DeviceChangeSource::DeviceAdded(id));
         Ok(())
     }
 
     fn OnDeviceRemoved(&self, dev_id: &PCWSTR) -> windows_core::Result<()> {
-        let id = unsafe { dev_id.to_string().map(DeviceId::from).unwrap_or_default() };
+        let id = pcwstr_to_device_id(dev_id);
         (self.callback)(DeviceChangeSource::DeviceRemoved(id));
         Ok(())
     }
@@ -355,7 +366,7 @@ impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
         role: ERole,
         dev_id: &PCWSTR,
     ) -> windows_core::Result<()> {
-        let id = unsafe { dev_id.to_string().map(DeviceId::from).unwrap_or_default() };
+        let id = pcwstr_to_device_id(dev_id);
         let flow_str = match flow {
             f if f == eRender => "Output",
             f if f == eCapture => "Input",
@@ -384,8 +395,10 @@ impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
         // in Windows Sound Settings). Other property updates (internal routing, formats,
         // volume, Bluetooth battery/telemetry) fire continuously and must be ignored.
         if *key == PKEY_Device_FriendlyName {
-            let id = unsafe { dev_id.to_string().map(DeviceId::from).unwrap_or_default() };
-            (self.callback)(DeviceChangeSource::DeviceRenamed(id));
+            let id = pcwstr_to_device_id(dev_id);
+            if !id.is_empty() {
+                (self.callback)(DeviceChangeSource::DeviceRenamed(id));
+            }
         }
         Ok(())
     }
