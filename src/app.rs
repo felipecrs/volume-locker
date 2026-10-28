@@ -156,7 +156,7 @@ impl AppState {
         let device = match self.backend.device_by_id(device_id) {
             Ok(d) => d,
             Err(e) => {
-                log::debug!("Not watching {device_name}: failed to get device by id: {e}");
+                log::info!("Not watching {device_name}: device is not connected ({e})");
                 return None;
             }
         };

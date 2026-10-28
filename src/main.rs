@@ -63,16 +63,21 @@ fn main() -> std::process::ExitCode {
 }
 
 fn setup_logging(executable_directory: &std::path::Path) -> anyhow::Result<()> {
+    let level = std::env::var("RUST_LOG")
+        .ok()
+        .and_then(|s| s.parse::<LevelFilter>().ok())
+        .unwrap_or(LevelFilter::Info);
+
     let log_path = executable_directory.join(LOG_FILE_NAME);
     let loggers: Vec<Box<dyn SharedLogger>> = vec![
         WriteLogger::new(
-            LevelFilter::Info,
+            level,
             Config::default(),
             File::create(&log_path).context("failed to create log file")?,
         ),
         #[cfg(debug_assertions)]
         TermLogger::new(
-            LevelFilter::Info,
+            level,
             Config::default(),
             TerminalMode::Stderr,
             ColorChoice::Auto,

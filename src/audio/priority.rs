@@ -191,14 +191,20 @@ fn find_highest_priority_active_device(
         .find_map(|device_id| match backend.device_by_id(device_id) {
             Ok(device) => match device.is_active() {
                 Ok(true) => Some(device_id.clone()),
-                Ok(false) => None,
+                Ok(false) => {
+                    log::info!(
+                        "Device '{}' ({device_id}) is inactive, skipping in priority order",
+                        device.name()
+                    );
+                    None
+                }
                 Err(e) => {
-                    log::debug!("Failed to check if device {device_id} is active: {e:#}");
+                    log::warn!("Failed to check if device {device_id} is active: {e:#}");
                     None
                 }
             },
             Err(e) => {
-                log::debug!("Device {device_id} is not present for priority check: {e:#}");
+                log::info!("Device {device_id} is not connected, skipping in priority order ({e})");
                 None
             }
         })

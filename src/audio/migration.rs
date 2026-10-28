@@ -639,8 +639,8 @@ pub fn migrate_device_ids(
 
         for m in missing_devices {
             if persistent_state.devices.contains_key(&m.id) {
-                log::debug!(
-                    "Device {} with ID {} could not be found, keeping it in case it returns",
+                log::info!(
+                    "Tracked device '{}' ({}) is currently disconnected, keeping settings in case it returns",
                     m.settings.name,
                     m.id
                 );
