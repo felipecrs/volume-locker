@@ -207,6 +207,7 @@ fn run() -> anyhow::Result<()> {
         tray_icon: None,
         backend,
         device_cache: std::collections::HashMap::new(),
+        is_menu_open: false,
     };
 
     event_loop.run(move |event, _, control_flow| {
@@ -248,7 +249,14 @@ fn run() -> anyhow::Result<()> {
 
             Event::UserEvent(UserEvent::DevicesChanged(source)) => {
                 devices_changed_pending.store(false, Ordering::SeqCst);
-                app.handle_devices_changed(source, &main_proxy, &locked_icon, &unlocked_icon);
+                let refs = make_refs();
+                app.handle_devices_changed(
+                    source,
+                    &main_proxy,
+                    &locked_icon,
+                    &unlocked_icon,
+                    &refs,
+                );
             }
 
             Event::UserEvent(UserEvent::ConfigurationChanged) => {

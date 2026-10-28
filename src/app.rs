@@ -32,6 +32,7 @@ pub struct AppState {
     pub tray_icon: Option<tray_icon::TrayIcon>,
     pub backend: AudioBackendImpl,
     pub device_cache: HashMap<DeviceId, (String, DeviceType, Option<DeviceFingerprint>)>,
+    pub is_menu_open: bool,
 }
 
 pub struct EventLoopRefs<'a> {
@@ -254,6 +255,7 @@ impl AppState {
         proxy: &EventLoopProxy<UserEvent>,
         locked_icon: &tray_icon::Icon,
         unlocked_icon: &tray_icon::Icon,
+        refs: &EventLoopRefs,
     ) {
         let description = source.description(|id| self.get_device_display_name(id));
         log::info!("Audio event ({description}): updating devices and enforcing settings...");
@@ -283,6 +285,11 @@ impl AppState {
         let any_device_locked = self.rebuild_watched_devices(proxy);
 
         self.update_tray_icon(any_device_locked, locked_icon, unlocked_icon);
+
+        if self.is_menu_open {
+            log::info!("Re-rendering open tray menu due to audio device change...");
+            self.rebuild_menu(refs);
+        }
     }
 
     fn start_update_check(&mut self, manual_request: bool, proxy: &EventLoopProxy<UserEvent>) {
@@ -426,7 +433,7 @@ impl AppState {
         }
     }
 
-    pub fn handle_tray_click(&mut self, refs: &EventLoopRefs) {
+    pub fn rebuild_menu(&mut self, refs: &EventLoopRefs) {
         let ctx = MenuContext {
             backend: &self.backend,
             persistent_state: &self.persistent_state,
@@ -451,9 +458,6 @@ impl AppState {
         ) {
             Ok(map) => {
                 self.menu_id_map = map;
-                if let Some(tray_icon) = &self.tray_icon {
-                    tray_icon.show_menu();
-                }
             }
             Err(e) => {
                 log_and_notify_error(
@@ -462,6 +466,15 @@ impl AppState {
                 );
             }
         }
+    }
+
+    pub fn handle_tray_click(&mut self, refs: &EventLoopRefs) {
+        self.rebuild_menu(refs);
+        self.is_menu_open = true;
+        if let Some(tray_icon) = &self.tray_icon {
+            tray_icon.show_menu();
+        }
+        self.is_menu_open = false;
     }
 }
 
