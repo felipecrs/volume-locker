@@ -68,7 +68,7 @@ Volume Locker can automatically switch your audio devices based on a priority li
 Output and input each support an independent communication priority list for voice calls and chat apps.
 
 1.  Open **Communication priority settings** under output or input.
-2.  By default, communication follows the main priority list (**Output device priority** or **Input device priority**).
+2.  By default, communication follows the main priority list (**Follow output device priority** or **Follow input device priority**).
 3.  You can reorder priorities, add specific devices to take precedence over following the main list, or remove the main priority entry.
 4.  Check **Notify on restore** inside communication priority settings to receive notifications when communication devices switch.
 
