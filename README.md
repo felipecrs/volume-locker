@@ -84,7 +84,7 @@ Temporarily route audio to a specific device without altering your saved priorit
 
 Windows frequently regenerates audio device endpoint IDs when you plug a device into a different USB port, unpair and re-pair a Bluetooth headset, or update audio drivers.
 
-Volume Locker automatically detects physical hardware across ID changes and transfers your volume locks, unmute settings, priority lists, and temporary overrides to the new connection. See [docs/device-id-migration.md](docs/device-id-migration.md) for full architectural details.
+Volume Locker automatically detects physical hardware across ID changes and transfers your volume locks, unmute settings, priority lists to the new connection. See [docs/device-id-migration.md](docs/device-id-migration.md) for full architectural details.
 
 ### Preferences
 

@@ -8,6 +8,3 @@ mise.*.local.lock
 
 # mbx
 .mbx-*
-
-# release notes (pasted directly into GitHub release)
-RELEASE_NOTES.md
