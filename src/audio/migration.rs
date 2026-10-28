@@ -428,6 +428,57 @@ pub fn migrate_device_ids(
         state_changed = true;
     }
 
+    // Also include any disconnected devices in priority lists not tracked in persistent_state.devices
+    for device_type in [DeviceType::Output, DeviceType::Input] {
+        for kind in [PriorityKind::Main, PriorityKind::Communication] {
+            for priority_id in persistent_state
+                .priority_list_of(device_type, kind)
+                .to_vec()
+            {
+                if !priority_id.is_main_priority()
+                    && !missing_by_type.iter().any(|m| m.id == priority_id)
+                    && backend.device_by_id(&priority_id).is_err()
+                {
+                    let recovered_fp = backend.device_fingerprint(&priority_id);
+                    let name = recovered_fp
+                        .as_ref()
+                        .and_then(|f| f.clean_original_name.clone())
+                        .or_else(|| recovered_fp.as_ref().and_then(|f| f.hardware_desc.clone()))
+                        .unwrap_or_else(|| "Priority Device".to_string());
+
+                    missing_by_type.push(MissingDevice {
+                        id: priority_id.clone(),
+                        settings: DeviceSettings::new(name, device_type),
+                        fingerprint: recovered_fp,
+                    });
+                }
+            }
+        }
+    }
+
+    // Also include any disconnected devices in temporary priorities not tracked in persistent_state.devices
+    for device_type in [DeviceType::Output, DeviceType::Input] {
+        for kind in [PriorityKind::Main, PriorityKind::Communication] {
+            if let Some(temp_id) = temporary_priorities.get(device_type, kind)
+                && !missing_by_type.iter().any(|m| m.id == *temp_id)
+                && backend.device_by_id(temp_id).is_err()
+            {
+                let recovered_fp = backend.device_fingerprint(temp_id);
+                let name = recovered_fp
+                    .as_ref()
+                    .and_then(|f| f.clean_original_name.clone())
+                    .or_else(|| recovered_fp.as_ref().and_then(|f| f.hardware_desc.clone()))
+                    .unwrap_or_else(|| "Temporary Device".to_string());
+
+                missing_by_type.push(MissingDevice {
+                    id: temp_id.clone(),
+                    settings: DeviceSettings::new(name, device_type),
+                    fingerprint: recovered_fp,
+                });
+            }
+        }
+    }
+
     if missing_by_type.is_empty() {
         return MigrationResult {
             state_changed,
@@ -523,8 +574,10 @@ pub fn migrate_device_ids(
                     new_settings.fingerprint = candidate.fingerprint;
                 }
 
-                persistent_state.remove_device(&old_device_id);
-                persistent_state.insert_device(new_device_id.clone(), new_settings);
+                if persistent_state.devices.contains_key(&old_device_id) {
+                    persistent_state.remove_device(&old_device_id);
+                    persistent_state.insert_device(new_device_id.clone(), new_settings);
+                }
 
                 for kind in [PriorityKind::Main, PriorityKind::Communication] {
                     let priority_list = persistent_state.priority_list_of_mut(device_type, kind);
@@ -1032,5 +1085,41 @@ mod tests {
             temp.get(DeviceType::Output, PriorityKind::Communication),
             Some(&DeviceId::from("id_new"))
         );
+    }
+
+    #[test]
+    fn migrate_temporary_priority_when_not_in_persistent_devices() {
+        let fp = DeviceFingerprint {
+            bus_type: Some(DeviceBusType::Usb),
+            usb_vid_pid: Some((0x046d, 0x0a66)),
+            interface_index: Some(0),
+            hardware_desc: Some("Logitech G533".to_string()),
+            ..Default::default()
+        };
+        let new_dev =
+            MockDevice::new("g533_new_port", "Logitech G533", true).with_fingerprint(fp.clone());
+        let backend = MockAudioBackend::new(vec![new_dev]);
+        backend
+            .disconnected_fingerprints
+            .borrow_mut()
+            .insert("g533_old_port".into(), fp);
+
+        let mut state = PersistentState::default();
+        assert!(state.devices.is_empty());
+
+        let mut temp = TemporaryPriorities::default();
+        temp.set(
+            DeviceType::Output,
+            PriorityKind::Main,
+            Some("g533_old_port".into()),
+        );
+
+        let result = super::migrate_device_ids(&backend, &mut state, &mut temp);
+        assert!(result.state_changed);
+        assert_eq!(
+            temp.get(DeviceType::Output, PriorityKind::Main),
+            Some(&DeviceId::from("g533_new_port"))
+        );
+        assert!(state.devices.is_empty());
     }
 }

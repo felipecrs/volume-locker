@@ -335,12 +335,15 @@ impl TemporaryPriorities {
         device_type: DeviceType,
         old_id: &DeviceId,
         new_id: &DeviceId,
-    ) {
+    ) -> bool {
+        let mut changed = false;
         for kind in [PriorityKind::Main, PriorityKind::Communication] {
             if self.get(device_type, kind) == Some(old_id) {
                 self.set(device_type, kind, Some(new_id.clone()));
+                changed = true;
             }
         }
+        changed
     }
 }
 
