@@ -76,7 +76,11 @@ fn enforce_priority_for_type(
             }
         }
         if changed {
-            log::info!("Enforced {device_type} priority: switched to {target_id}");
+            let name = backend
+                .device_by_id(target_id)
+                .map(|d| d.name())
+                .unwrap_or_else(|_| target_id.to_string());
+            log::info!("Enforced {device_type} priority: switched to '{name}' ({target_id})");
             switched.push((target_id.clone(), PriorityKind::Main));
         }
     }
@@ -84,14 +88,20 @@ fn enforce_priority_for_type(
     if let Some(target_id) = &comm_target
         && !is_default_device(backend, device_type, DeviceRole::Communications, target_id)
     {
-        log::info!("Enforcing {device_type} priority (Communication): Switching to {target_id}");
+        let name = backend
+            .device_by_id(target_id)
+            .map(|d| d.name())
+            .unwrap_or_else(|_| target_id.to_string());
         match backend.set_default_device(target_id, DeviceRole::Communications) {
             Err(e) => log::error!(
-                "Failed to set default {device_type} communications device to {target_id}: {e:#}"
+                "Failed to set default {device_type} communications device to '{name}' ({target_id}): {e:#}"
             ),
             // Report a successful communication switch separately only when
             // the main roles did not already switch to the same device.
             Ok(()) if !switched.iter().any(|(id, _)| id == target_id) => {
+                log::info!(
+                    "Enforced {device_type} communication priority: switched to '{name}' ({target_id})"
+                );
                 switched.push((target_id.clone(), PriorityKind::Communication));
             }
             Ok(()) => {}
@@ -181,14 +191,20 @@ fn find_highest_priority_active_device(
         .find_map(|device_id| match backend.device_by_id(device_id) {
             Ok(device) => match device.is_active() {
                 Ok(true) => Some(device_id.clone()),
-                Ok(false) => None,
+                Ok(false) => {
+                    log::debug!(
+                        "Device '{}' ({device_id}) is inactive, skipping in priority order",
+                        device.name()
+                    );
+                    None
+                }
                 Err(e) => {
                     log::warn!("Failed to check if device {device_id} is active: {e:#}");
                     None
                 }
             },
             Err(e) => {
-                log::warn!("Failed to get device {device_id} for priority check: {e:#}");
+                log::debug!("Device {device_id} is not connected, skipping in priority order: {e}");
                 None
             }
         })

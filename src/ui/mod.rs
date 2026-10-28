@@ -45,6 +45,7 @@ pub enum AppAction {
     OpenAppDirectory,
     ToggleAutoLaunch,
     ToggleCheckUpdatesOnLaunch,
+    ToggleNotifyOnDeviceMigration,
 }
 
 #[derive(Debug)]

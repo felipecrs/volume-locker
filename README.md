@@ -8,7 +8,7 @@
 
 Tired of apps changing your microphone volume without your consent? Or Windows constantly switching to the wrong audio device?
 
-Volume Locker is a tray icon app that keeps the volume of your audio devices locked and manages your audio and communication devices based on priority lists. It is a portable, ~1MB binary written in Rust for Windows.
+Volume Locker is a tray icon app that keeps the volume of your audio devices locked and manages your audio and communication devices based on priority lists. It also seamlessly preserves your volume locks, unmute settings, and priority lists across USB port changes, Bluetooth re-pairings, and driver updates. It is a portable, ~1MB binary written in Rust for Windows.
 
 Never worry about your microphone volume or audio devices again!
 
@@ -79,6 +79,20 @@ Temporarily route audio to a specific device without altering your saved priorit
 1.  Open **Temporary priority** in the tray menu.
 2.  Select the desired role: **Output**, **Communication**, **Input**, or **Communication**. The submenu label displays the selected device when active.
 3.  Select the device to use temporarily. It remains active until unchecked or when the app restarts. Temporary communication overrides take precedence over configured communication priorities.
+
+### Seamless Device ID Migration
+
+Windows frequently regenerates audio device endpoint IDs when you plug a device into a different USB port, unpair and re-pair a Bluetooth headset, or update audio drivers.
+
+Volume Locker automatically detects physical hardware across ID changes and transfers your volume locks, unmute settings, priority lists to the new connection. See [docs/device-id-migration.md](docs/device-id-migration.md) for full architectural details.
+
+### Preferences
+
+Configure global application behavior under **Preferences**:
+
+- **Auto-launch on startup**: Starts Volume Locker automatically when you sign in to Windows.
+- **Check for updates on launch**: Automatically checks for new releases on startup.
+- **Notify on device migration**: Displays a desktop notification whenever settings are transferred to a reconnected device.
 
 ## Credits
 

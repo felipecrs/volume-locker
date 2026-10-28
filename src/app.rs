@@ -1,11 +1,14 @@
 use crate::audio::{
-    AudioBackend, AudioBackendImpl, AudioDevice, check_and_unmute_device, collect_device_names,
+    AudioBackend, AudioBackendImpl, AudioDevice, check_and_unmute_device, collect_device_info,
     enforce_priorities, enforce_volume_lock, migrate_device_ids,
 };
 use crate::config::{PersistentState, save_state};
 use crate::consts::{APP_NAME, APP_UID, CURRENT_VERSION};
 use crate::notification::{NotificationThrottler, log_and_notify_error};
-use crate::types::{DeviceId, TemporaryPriorities, UserEvent, VolumeChangedEvent, VolumeScalar};
+use crate::types::{
+    DeviceChangeSource, DeviceFingerprint, DeviceId, DeviceType, TemporaryPriorities, UserEvent,
+    VolumeChangedEvent, VolumeScalar,
+};
 use crate::ui::{
     MenuContext, MenuEventContext, MenuEventResult, MenuIdMap, TrayMenuItems, handle_menu_event,
     rebuild_tray_menu,
@@ -13,6 +16,7 @@ use crate::ui::{
 use crate::update;
 use crate::update::UpdateInfo;
 use auto_launch::AutoLaunch;
+use std::collections::HashMap;
 use tao::event_loop::{ControlFlow, EventLoopProxy};
 use tray_icon::TrayIconBuilder;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuItem};
@@ -27,12 +31,15 @@ pub struct AppState {
     pub update_check_in_progress: bool,
     pub tray_icon: Option<tray_icon::TrayIcon>,
     pub backend: AudioBackendImpl,
+    pub device_cache: HashMap<DeviceId, (String, DeviceType, Option<DeviceFingerprint>)>,
+    pub is_menu_open: bool,
 }
 
 pub struct EventLoopRefs<'a> {
     pub auto_launch: &'a AutoLaunch,
     pub auto_launch_check_item: &'a CheckMenuItem,
     pub check_updates_on_launch_item: &'a CheckMenuItem,
+    pub notify_on_device_migration_item: &'a CheckMenuItem,
     pub quit_item: &'a MenuItem,
     pub tray_menu: &'a Menu,
     pub output_devices_heading_item: &'a MenuItem,
@@ -96,9 +103,14 @@ impl AppState {
     }
 
     pub fn migrate_device_ids_if_needed(&mut self) {
-        let migrations_occurred = migrate_device_ids(&self.backend, &mut self.persistent_state);
+        let result = migrate_device_ids(
+            &self.backend,
+            &mut self.persistent_state,
+            &mut self.temporary_priorities,
+            &self.device_cache,
+        );
 
-        if migrations_occurred {
+        if result.persistent_changed {
             if let Err(e) = save_state(&self.persistent_state) {
                 log_and_notify_error(
                     "Failed to Save State",
@@ -106,6 +118,16 @@ impl AppState {
                 );
             } else {
                 log::info!("Saved state after device migration");
+            }
+        }
+
+        if self.persistent_state.notify_on_device_migration {
+            for name in result.migrated_device_names {
+                self.notification_throttler.send_if_not_throttled(
+                    &format!("migration_{name}"),
+                    "Device Settings Transferred",
+                    &format!("Settings for '{name}' were transferred to its new connection."),
+                );
             }
         }
     }
@@ -135,7 +157,7 @@ impl AppState {
         let device = match self.backend.device_by_id(device_id) {
             Ok(d) => d,
             Err(e) => {
-                log::warn!("Not watching {device_name}: failed to get device by id: {e}");
+                log::info!("Not watching {device_name}: device is not connected ({e})");
                 return None;
             }
         };
@@ -157,6 +179,24 @@ impl AppState {
             return None;
         }
 
+        if device_settings.volume_lock.is_locked {
+            match device.volume() {
+                Ok(vol) => {
+                    enforce_volume_lock(
+                        device_id,
+                        device.as_ref(),
+                        device_name,
+                        device_settings.volume_lock,
+                        vol,
+                        &mut self.notification_throttler,
+                    );
+                }
+                Err(e) => {
+                    log::warn!("Failed to read volume of {device_name} during watch setup: {e:#}");
+                }
+            }
+        }
+
         if device_settings.unmute_lock.is_locked {
             check_and_unmute_device(
                 device.as_ref(),
@@ -167,17 +207,10 @@ impl AppState {
         }
 
         log::info!(
-            "Watching {device_name} (Locked: {}, Unmute: {})",
+            "Watching '{device_name}' (Locked: {}, Unmute: {})",
             device_settings.volume_lock.is_locked,
             device_settings.unmute_lock.is_locked
         );
-
-        if let Err(e) = proxy.send_event(UserEvent::VolumeChanged(VolumeChangedEvent {
-            device_id: device_id.clone(),
-            new_volume: None,
-        })) {
-            log::warn!("Failed to send initial VolumeChanged event: {e:#}");
-        }
 
         Some(device)
     }
@@ -200,19 +233,45 @@ impl AppState {
         }
     }
 
+    pub fn get_device_display_name(&self, id: &DeviceId) -> String {
+        if id.is_empty() {
+            return String::new();
+        }
+        if let Some((name, _, _)) = self.device_cache.get(id) {
+            return name.clone();
+        }
+        if let Some(s) = self.persistent_state.device_settings(id) {
+            return s.name.clone();
+        }
+        if let Ok(d) = self.backend.device_by_id(id) {
+            return d.name();
+        }
+        id.to_string()
+    }
+
     pub fn handle_devices_changed(
         &mut self,
+        source: DeviceChangeSource,
         proxy: &EventLoopProxy<UserEvent>,
         locked_icon: &tray_icon::Icon,
         unlocked_icon: &tray_icon::Icon,
+        refs: &EventLoopRefs,
     ) {
-        log::info!("Reloading list of watched devices...");
+        let description = source.description(|id| self.get_device_display_name(id));
+        log::info!("Audio event ({description}): updating devices and enforcing settings...");
 
         self.migrate_device_ids_if_needed();
-        for (device_id, new_name, device_type) in collect_device_names(&self.backend) {
+        for (device_id, new_name, device_type, fingerprint) in collect_device_info(&self.backend) {
+            self.device_cache.insert(
+                device_id.clone(),
+                (new_name.clone(), device_type, fingerprint.clone()),
+            );
             if let Some(settings) = self.persistent_state.device_settings_mut(&device_id) {
                 settings.name = new_name;
                 settings.device_type = device_type;
+                if fingerprint.is_some() {
+                    settings.fingerprint = fingerprint;
+                }
             }
         }
 
@@ -226,6 +285,11 @@ impl AppState {
         let any_device_locked = self.rebuild_watched_devices(proxy);
 
         self.update_tray_icon(any_device_locked, locked_icon, unlocked_icon);
+
+        if self.is_menu_open {
+            log::info!("Re-rendering open tray menu due to audio device change...");
+            self.rebuild_menu(refs);
+        }
     }
 
     fn start_update_check(&mut self, manual_request: bool, proxy: &EventLoopProxy<UserEvent>) {
@@ -268,7 +332,8 @@ impl AppState {
             "Configuration saved ({} devices tracked)",
             self.persistent_state.device_count()
         );
-        if let Err(e) = proxy.send_event(UserEvent::DevicesChanged) {
+        if let Err(e) = proxy.send_event(UserEvent::DevicesChanged(DeviceChangeSource::UserAction))
+        {
             log::warn!("Failed to send DevicesChanged event: {e:#}");
         }
     }
@@ -295,7 +360,9 @@ impl AppState {
 
             match result {
                 MenuEventResult::DevicesChanged => {
-                    if let Err(e) = proxy.send_event(UserEvent::DevicesChanged) {
+                    if let Err(e) =
+                        proxy.send_event(UserEvent::DevicesChanged(DeviceChangeSource::UserAction))
+                    {
                         log::warn!("Failed to send DevicesChanged event: {e:#}");
                     }
                 }
@@ -361,12 +428,12 @@ impl AppState {
             self.start_update_check(false, proxy);
         }
 
-        if let Err(e) = proxy.send_event(UserEvent::DevicesChanged) {
+        if let Err(e) = proxy.send_event(UserEvent::DevicesChanged(DeviceChangeSource::Init)) {
             log::warn!("Failed to send initial DevicesChanged event: {e:#}");
         }
     }
 
-    pub fn handle_tray_click(&mut self, refs: &EventLoopRefs) {
+    pub fn rebuild_menu(&mut self, refs: &EventLoopRefs) {
         let ctx = MenuContext {
             backend: &self.backend,
             persistent_state: &self.persistent_state,
@@ -383,6 +450,7 @@ impl AppState {
             &TrayMenuItems {
                 auto_launch_check: refs.auto_launch_check_item,
                 check_updates_on_launch: refs.check_updates_on_launch_item,
+                notify_on_device_migration: refs.notify_on_device_migration_item,
                 quit: refs.quit_item,
                 output_devices_heading: refs.output_devices_heading_item,
                 input_devices_heading: refs.input_devices_heading_item,
@@ -390,9 +458,6 @@ impl AppState {
         ) {
             Ok(map) => {
                 self.menu_id_map = map;
-                if let Some(tray_icon) = &self.tray_icon {
-                    tray_icon.show_menu();
-                }
             }
             Err(e) => {
                 log_and_notify_error(
@@ -401,6 +466,15 @@ impl AppState {
                 );
             }
         }
+    }
+
+    pub fn handle_tray_click(&mut self, refs: &EventLoopRefs) {
+        self.rebuild_menu(refs);
+        self.is_menu_open = true;
+        if let Some(tray_icon) = &self.tray_icon {
+            tray_icon.show_menu();
+        }
+        self.is_menu_open = false;
     }
 }
 

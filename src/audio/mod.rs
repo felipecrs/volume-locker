@@ -1,4 +1,4 @@
-use crate::types::{DeviceId, DeviceRole, DeviceType, VolumeScalar};
+use crate::types::{DeviceChangeSource, DeviceId, DeviceRole, DeviceType, VolumeScalar};
 
 #[cfg(target_os = "windows")]
 mod windows_com_policy_config;
@@ -15,8 +15,12 @@ pub trait AudioBackend {
 
     fn register_device_change_callback(
         &self,
-        callback: Box<dyn Fn() + Send + Sync>,
+        callback: Box<dyn Fn(DeviceChangeSource) + Send + Sync>,
     ) -> anyhow::Result<()>;
+
+    fn device_fingerprint(&self, _id: &DeviceId) -> Option<crate::types::DeviceFingerprint> {
+        None
+    }
 }
 
 pub trait AudioDevice {
@@ -32,6 +36,10 @@ pub trait AudioDevice {
         &self,
         callback: Box<dyn Fn(Option<VolumeScalar>) + Send + Sync>,
     ) -> anyhow::Result<()>;
+
+    fn fingerprint(&self) -> Option<crate::types::DeviceFingerprint> {
+        None
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -65,12 +73,12 @@ pub fn check_and_unmute_device(
     if !is_muted {
         return;
     }
+    let device_name = device.name();
     if let Err(e) = device.set_mute(false) {
-        log::error!("Failed to unmute {}: {e:#}", device.name());
+        log::error!("Failed to unmute '{device_name}': {e:#}");
         return;
     }
-    let device_name = device.name();
-    log::info!("Unmuted {device_name} due to lock settings");
+    log::info!("Unmuted '{device_name}' due to lock settings");
     if notify {
         let (notification_title, notification_suffix) =
             get_unmute_notification_details(device_type);
@@ -100,11 +108,11 @@ pub fn enforce_volume_lock(
     let target_volume = target_volume_percent.to_scalar();
 
     if let Err(e) = device.set_volume(target_volume) {
-        log::error!("Failed to set volume of {device_name} to {target_volume_percent}%: {e:#}");
+        log::error!("Failed to set volume of '{device_name}' to {target_volume_percent}%: {e:#}");
         return;
     }
     log::info!(
-        "Restored volume of {device_name} from {new_volume_percent}% to {target_volume_percent}%"
+        "Restored volume of '{device_name}' from {new_volume_percent}% to {target_volume_percent}%"
     );
     if lock.notify {
         throttler.send_if_not_throttled(
@@ -125,9 +133,16 @@ fn get_unmute_notification_details(device_type: DeviceType) -> (&'static str, &'
     (title, "was unmuted due to Keep unmuted setting.")
 }
 
-/// Returns a list of `(device_id, new_name, device_type)` tuples for all
+/// Returns a list of `(device_id, new_name, device_type, Option<DeviceFingerprint>)` tuples for all
 /// known devices, so the caller can apply updates to persistent state.
-pub fn collect_device_names(backend: &impl AudioBackend) -> Vec<(DeviceId, String, DeviceType)> {
+pub fn collect_device_info(
+    backend: &impl AudioBackend,
+) -> Vec<(
+    DeviceId,
+    String,
+    DeviceType,
+    Option<crate::types::DeviceFingerprint>,
+)> {
     [DeviceType::Output, DeviceType::Input]
         .into_iter()
         .flat_map(|device_type| {
@@ -138,7 +153,14 @@ pub fn collect_device_names(backend: &impl AudioBackend) -> Vec<(DeviceId, Strin
                     Vec::new()
                 })
                 .into_iter()
-                .map(move |device| (device.id().clone(), device.name(), device_type))
+                .map(move |device| {
+                    (
+                        device.id().clone(),
+                        device.name(),
+                        device_type,
+                        device.fingerprint(),
+                    )
+                })
         })
         .collect()
 }
@@ -149,7 +171,8 @@ pub(crate) mod tests {
     use crate::config::PersistentState;
     use crate::notification::NotificationThrottler;
     use crate::types::{
-        DeviceId, DeviceSettings, TemporaryPriorities, VolumePercent, VolumeScalar,
+        DeviceFingerprint, DeviceId, DeviceSettings, TemporaryPriorities, VolumePercent,
+        VolumeScalar,
     };
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -161,6 +184,7 @@ pub(crate) mod tests {
         pub(crate) device_type: DeviceType,
         pub(crate) volume: RefCell<f32>,
         pub(crate) muted: RefCell<bool>,
+        pub(crate) fingerprint: Option<DeviceFingerprint>,
     }
 
     impl MockDevice {
@@ -172,7 +196,13 @@ pub(crate) mod tests {
                 device_type: DeviceType::Output,
                 volume: RefCell::new(1.0),
                 muted: RefCell::new(false),
+                fingerprint: None,
             }
+        }
+
+        pub(crate) fn with_fingerprint(mut self, fingerprint: DeviceFingerprint) -> Self {
+            self.fingerprint = Some(fingerprint);
+            self
         }
     }
 
@@ -206,6 +236,9 @@ pub(crate) mod tests {
         ) -> anyhow::Result<()> {
             Ok(())
         }
+        fn fingerprint(&self) -> Option<DeviceFingerprint> {
+            self.fingerprint.clone()
+        }
     }
 
     pub(crate) struct MockAudioBackend {
@@ -217,6 +250,7 @@ pub(crate) mod tests {
         pub(crate) failing_device_ids: RefCell<Vec<String>>,
         /// If true, `set_default_device` will return `Err`.
         pub(crate) set_default_fails: RefCell<bool>,
+        pub(crate) disconnected_fingerprints: RefCell<HashMap<DeviceId, DeviceFingerprint>>,
     }
 
     impl MockAudioBackend {
@@ -228,6 +262,7 @@ pub(crate) mod tests {
                 default_communications: RefCell::new(HashMap::new()),
                 failing_device_ids: RefCell::new(Vec::new()),
                 set_default_fails: RefCell::new(false),
+                disconnected_fingerprints: RefCell::new(HashMap::new()),
             }
         }
 
@@ -248,7 +283,10 @@ pub(crate) mod tests {
                 .iter()
                 .filter(|d| d.device_type == device_type)
                 .map(|d| {
-                    Box::new(MockDevice::new(&d.id, &d.name, d.active)) as Box<dyn AudioDevice>
+                    let mut dev = MockDevice::new(&d.id, &d.name, d.active);
+                    dev.device_type = d.device_type;
+                    dev.fingerprint = d.fingerprint.clone();
+                    Box::new(dev) as Box<dyn AudioDevice>
                 })
                 .collect())
         }
@@ -261,9 +299,22 @@ pub(crate) mod tests {
                 .iter()
                 .find(|d| d.id == **id)
                 .map(|d| {
-                    Box::new(MockDevice::new(&d.id, &d.name, d.active)) as Box<dyn AudioDevice>
+                    let mut dev = MockDevice::new(&d.id, &d.name, d.active);
+                    dev.device_type = d.device_type;
+                    dev.fingerprint = d.fingerprint.clone();
+                    Box::new(dev) as Box<dyn AudioDevice>
                 })
                 .ok_or_else(|| anyhow::anyhow!("Device not found: {id}"))
+        }
+
+        fn device_fingerprint(&self, id: &DeviceId) -> Option<DeviceFingerprint> {
+            if let Some(fp) = self.disconnected_fingerprints.borrow().get(id) {
+                return Some(fp.clone());
+            }
+            self.devices
+                .iter()
+                .find(|d| &d.id == id)
+                .and_then(|d| d.fingerprint.clone())
         }
 
         fn default_device(
@@ -315,7 +366,7 @@ pub(crate) mod tests {
 
         fn register_device_change_callback(
             &self,
-            _callback: Box<dyn Fn() + Send + Sync>,
+            _callback: Box<dyn Fn(DeviceChangeSource) + Send + Sync>,
         ) -> anyhow::Result<()> {
             Ok(())
         }
@@ -359,6 +410,16 @@ pub(crate) mod tests {
         let (title, suffix) = get_unmute_notification_details(DeviceType::Output);
         assert_eq!(title, "Output Device Unmuted");
         assert!(suffix.contains("unmuted"));
+    }
+
+    #[test]
+    fn test_collect_device_info() {
+        let backend = MockAudioBackend::new(vec![
+            MockDevice::new("dev1", "Speaker", true),
+            MockDevice::new("dev2", "Mic", true),
+        ]);
+        let info = collect_device_info(&backend);
+        assert_eq!(info.len(), 2);
     }
 
     #[test]
@@ -454,13 +515,18 @@ pub(crate) mod tests {
             make_device_settings("Speakers", DeviceType::Output),
         );
 
-        migrate_device_ids(&backend, &mut state);
+        let mut temp_priorities = TemporaryPriorities::default();
+        migrate_device_ids(
+            &backend,
+            &mut state,
+            &mut temp_priorities,
+            &std::collections::HashMap::new(),
+        );
         assert!(state.devices.contains_key("new_id"));
         assert!(!state.devices.contains_key("old_id"));
         assert_eq!(state.output.priority_list, vec!["new_id"]);
 
         let mut throttler = NotificationThrottler::new();
-        let temp_priorities = TemporaryPriorities::default();
         enforce_priorities(&backend, &state, &mut throttler, &temp_priorities);
 
         let default = backend

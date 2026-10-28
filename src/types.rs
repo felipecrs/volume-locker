@@ -72,7 +72,7 @@ impl PartialEq<f32> for VolumePercent {
 
 /// A strongly-typed wrapper around a device identifier string.
 /// Prevents accidental confusion between device IDs and device names.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, Default)]
 #[serde(transparent)]
 pub struct DeviceId(String);
 
@@ -174,6 +174,15 @@ pub enum PriorityKind {
     Communication,
 }
 
+impl fmt::Display for PriorityKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Main => f.write_str("main"),
+            Self::Communication => f.write_str("communication"),
+        }
+    }
+}
+
 impl fmt::Display for DeviceRole {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -202,6 +211,61 @@ pub struct UnmuteLockPolicy {
     pub notify: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DeviceBusType {
+    Usb,
+    Bluetooth,
+    HdAudio,
+    RootVirtual,
+    Unknown,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
+pub struct DeviceFingerprint {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bus_type: Option<DeviceBusType>,
+
+    /// Raw driver description from PKEY_Device_DeviceDesc (e.g. "Speakers", "LU28R55")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hardware_desc: Option<String>,
+
+    /// Audio adapter product name from PKEY_DeviceInterface_FriendlyName
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interface_name: Option<String>,
+
+    /// Canonical cleaned original name: "{clean(desc)} ({clean(interface)})"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clean_original_name: Option<String>,
+
+    /// True if PKEY_Device_FriendlyName differed from default template at registration
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_custom_name: bool,
+
+    /// Bluetooth 48-bit MAC address (12 hex digits)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mac_address: Option<String>,
+
+    /// USB Vendor ID and Product ID
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usb_vid_pid: Option<(u16, u16)>,
+
+    /// USB Serial Number (only if not a synthetic port hash)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usb_serial: Option<String>,
+
+    /// Composite interface index (e.g. MI_00, MI_01)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interface_index: Option<u8>,
+
+    /// Physical device container GUID
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container_id: Option<String>,
+
+    /// Audio endpoint form factor (e.g. 1=Speakers, 2=Headphones, 3=Headset, 4=Microphone)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form_factor: Option<u32>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DeviceSettings {
     #[serde(flatten)]
@@ -210,6 +274,8 @@ pub struct DeviceSettings {
     pub unmute_lock: UnmuteLockPolicy,
     pub device_type: DeviceType,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<DeviceFingerprint>,
 }
 
 impl DeviceSettings {
@@ -219,7 +285,14 @@ impl DeviceSettings {
             unmute_lock: UnmuteLockPolicy::default(),
             device_type,
             name,
+            fingerprint: None,
         }
+    }
+
+    #[cfg(test)]
+    pub fn with_fingerprint(mut self, fingerprint: Option<DeviceFingerprint>) -> Self {
+        self.fingerprint = fingerprint;
+        self
     }
 
     /// Returns true if the device has any active volume/unmute lock or notification setting.
@@ -265,6 +338,75 @@ impl TemporaryPriorities {
             (DeviceType::Input, PriorityKind::Communication) => self.input_communication = value,
         }
     }
+
+    pub fn migrate_device_id(
+        &mut self,
+        device_type: DeviceType,
+        old_id: &DeviceId,
+        new_id: &DeviceId,
+    ) -> bool {
+        let mut changed = false;
+        for kind in [PriorityKind::Main, PriorityKind::Communication] {
+            if self.get(device_type, kind) == Some(old_id) {
+                self.set(device_type, kind, Some(new_id.clone()));
+                changed = true;
+            }
+        }
+        changed
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeviceChangeSource {
+    Init,
+    DeviceAdded(DeviceId),
+    DeviceRemoved(DeviceId),
+    DeviceStateChanged(DeviceId, u32),
+    DefaultDeviceChanged(DeviceId, String, String),
+    DeviceRenamed(DeviceId),
+    PowerResume,
+    UserAction,
+}
+
+impl DeviceChangeSource {
+    pub fn description(&self, get_name: impl Fn(&DeviceId) -> String) -> String {
+        match self {
+            Self::Init => "Application initialization".to_string(),
+            Self::DeviceAdded(id) => {
+                let name = get_name(id);
+                format!("Device added: '{name}' ({id})")
+            }
+            Self::DeviceRemoved(id) => {
+                let name = get_name(id);
+                format!("Device removed: '{name}' ({id})")
+            }
+            Self::DeviceStateChanged(id, state) => {
+                let name = get_name(id);
+                let state_str = match *state {
+                    1 => "active",
+                    2 => "disabled",
+                    4 => "disconnected",
+                    8 => "unplugged",
+                    _ => "state changed",
+                };
+                format!("Device '{name}' ({id}) became {state_str}")
+            }
+            Self::DefaultDeviceChanged(id, flow, role) => {
+                if id.is_empty() {
+                    format!("Default {flow} ({role}) cleared (no default device)")
+                } else {
+                    let name = get_name(id);
+                    format!("Default {flow} ({role}) changed to '{name}' ({id})")
+                }
+            }
+            Self::DeviceRenamed(id) => {
+                let name = get_name(id);
+                format!("Device renamed: '{name}' ({id})")
+            }
+            Self::PowerResume => "System resume from sleep".to_string(),
+            Self::UserAction => "User menu action".to_string(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -272,7 +414,7 @@ pub enum UserEvent {
     TrayIcon(tray_icon::TrayIconEvent),
     Menu(tray_icon::menu::MenuEvent),
     VolumeChanged(VolumeChangedEvent),
-    DevicesChanged,
+    DevicesChanged(DeviceChangeSource),
     ConfigurationChanged,
     UpdateCheckCompleted {
         manual_request: bool,
@@ -327,6 +469,7 @@ mod tests {
             },
             device_type: DeviceType::Input,
             name: "Microphone".into(),
+            fingerprint: None,
         };
         let json = serde_json::to_string(&settings).unwrap();
         let loaded: DeviceSettings = serde_json::from_str(&json).unwrap();
@@ -337,6 +480,23 @@ mod tests {
         assert!(!loaded.unmute_lock.notify);
         assert_eq!(loaded.device_type, DeviceType::Input);
         assert_eq!(loaded.name, "Microphone");
+    }
+
+    #[test]
+    fn device_settings_fingerprint_roundtrip() {
+        use super::{DeviceBusType, DeviceFingerprint};
+        let fp = DeviceFingerprint {
+            bus_type: Some(DeviceBusType::Usb),
+            hardware_desc: Some("G533".into()),
+            usb_vid_pid: Some((0x046d, 0x0a66)),
+            is_custom_name: true,
+            ..Default::default()
+        };
+        let settings = DeviceSettings::new("Headset".into(), DeviceType::Output)
+            .with_fingerprint(Some(fp.clone()));
+        let json = serde_json::to_string(&settings).unwrap();
+        let loaded: DeviceSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.fingerprint, Some(fp));
     }
 
     #[test]
@@ -419,5 +579,29 @@ mod tests {
         assert_eq!(over.as_f32(), 100.0);
         let under: VolumePercent = serde_json::from_str("-50.0").unwrap();
         assert_eq!(under.as_f32(), 0.0);
+    }
+
+    #[test]
+    fn default_device_changed_description() {
+        use super::{DeviceChangeSource, DeviceId};
+        let empty_event = DeviceChangeSource::DefaultDeviceChanged(
+            DeviceId::default(),
+            "Output".to_string(),
+            "Main".to_string(),
+        );
+        assert_eq!(
+            empty_event.description(|_| "Ignored".to_string()),
+            "Default Output (Main) cleared (no default device)"
+        );
+
+        let populated_event = DeviceChangeSource::DefaultDeviceChanged(
+            DeviceId::from("dev1"),
+            "Output".to_string(),
+            "Main".to_string(),
+        );
+        assert_eq!(
+            populated_event.description(|_| "Speakers".to_string()),
+            "Default Output (Main) changed to 'Speakers' (dev1)"
+        );
     }
 }
