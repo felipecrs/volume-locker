@@ -34,7 +34,7 @@ use crate::platform::{
     send_notification,
 };
 use crate::types::{TemporaryPriorities, UserEvent};
-use crate::ui::MenuIdMap;
+use crate::ui::{MenuIdMap, dismiss_tray_menu};
 use crate::utils::{get_executable_directory, get_executable_path_str};
 use anyhow::Context;
 use auto_launch::{AutoLaunch, AutoLaunchBuilder};
@@ -43,7 +43,7 @@ use simplelog::{ColorChoice, TermLogger, TerminalMode};
 use simplelog::{CombinedLogger, Config, LevelFilter, SharedLogger, WriteLogger};
 use std::fs::File;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use tao::{
     event::Event,
     event_loop::{ControlFlow, EventLoopBuilder},
@@ -174,10 +174,25 @@ fn run() -> anyhow::Result<()> {
         AudioBackendImpl::new(&com_token).context("failed to initialize audio backend")?;
 
     let devices_changed_pending = Arc::new(AtomicBool::new(false));
+    let tray_hwnd = Arc::new(AtomicIsize::new(0));
+    let menu_open = Arc::new(AtomicBool::new(false));
+    let reopen_menu = Arc::new(AtomicBool::new(false));
+
     let proxy = event_loop.create_proxy();
     let cb_pending = Arc::clone(&devices_changed_pending);
+    let cb_tray_hwnd = Arc::clone(&tray_hwnd);
+    let cb_menu_open = Arc::clone(&menu_open);
+    let cb_reopen_menu = Arc::clone(&reopen_menu);
     backend
         .register_device_change_callback(Box::new(move |source| {
+            if cb_menu_open.load(Ordering::SeqCst) {
+                cb_reopen_menu.store(true, Ordering::SeqCst);
+                let hwnd = cb_tray_hwnd.load(Ordering::SeqCst);
+                if hwnd != 0 {
+                    dismiss_tray_menu(hwnd);
+                }
+            }
+
             if !cb_pending.swap(true, Ordering::SeqCst)
                 && let Err(e) = proxy.send_event(UserEvent::DevicesChanged(source))
             {
@@ -207,7 +222,9 @@ fn run() -> anyhow::Result<()> {
         tray_icon: None,
         backend,
         device_cache: std::collections::HashMap::new(),
-        is_menu_open: false,
+        menu_open,
+        reopen_menu,
+        tray_hwnd,
     };
 
     event_loop.run(move |event, _, control_flow| {

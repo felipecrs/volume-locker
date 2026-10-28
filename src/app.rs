@@ -17,6 +17,8 @@ use crate::update;
 use crate::update::UpdateInfo;
 use auto_launch::AutoLaunch;
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use tao::event_loop::{ControlFlow, EventLoopProxy};
 use tray_icon::TrayIconBuilder;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuItem};
@@ -32,7 +34,9 @@ pub struct AppState {
     pub tray_icon: Option<tray_icon::TrayIcon>,
     pub backend: AudioBackendImpl,
     pub device_cache: HashMap<DeviceId, (String, DeviceType, Option<DeviceFingerprint>)>,
-    pub is_menu_open: bool,
+    pub menu_open: Arc<AtomicBool>,
+    pub reopen_menu: Arc<AtomicBool>,
+    pub tray_hwnd: Arc<AtomicIsize>,
 }
 
 pub struct EventLoopRefs<'a> {
@@ -286,9 +290,9 @@ impl AppState {
 
         self.update_tray_icon(any_device_locked, locked_icon, unlocked_icon);
 
-        if self.is_menu_open {
-            log::info!("Re-rendering open tray menu due to audio device change...");
-            self.rebuild_menu(refs);
+        if self.reopen_menu.swap(false, Ordering::SeqCst) {
+            log::info!("Re-rendering and reopening tray menu due to audio device change...");
+            self.handle_tray_click(refs);
         }
     }
 
@@ -345,7 +349,9 @@ impl AppState {
         proxy: &EventLoopProxy<UserEvent>,
         control_flow: &mut ControlFlow,
     ) {
+        self.reopen_menu.store(false, Ordering::SeqCst);
         if event.id == refs.quit_item.id() {
+            self.tray_hwnd.store(0, Ordering::SeqCst);
             self.tray_icon.take();
             *control_flow = ControlFlow::Exit;
         } else if let Some(menu_info) = self.menu_id_map.get(&event.id) {
@@ -373,6 +379,7 @@ impl AppState {
                 }
                 MenuEventResult::UpdatePerform(info) => match update::install_update(&info) {
                     Ok(()) => {
+                        self.tray_hwnd.store(0, Ordering::SeqCst);
                         self.tray_icon.take();
                         *control_flow = ControlFlow::Exit;
                     }
@@ -420,7 +427,12 @@ impl AppState {
             .with_menu_on_right_click(false)
             .build()
         {
-            Ok(icon) => self.tray_icon = Some(icon),
+            Ok(icon) => {
+                #[cfg(target_os = "windows")]
+                self.tray_hwnd
+                    .store(icon.window_handle() as isize, Ordering::SeqCst);
+                self.tray_icon = Some(icon);
+            }
             Err(e) => log::error!("Failed to build tray icon: {e:#}"),
         }
 
@@ -470,11 +482,11 @@ impl AppState {
 
     pub fn handle_tray_click(&mut self, refs: &EventLoopRefs) {
         self.rebuild_menu(refs);
-        self.is_menu_open = true;
+        self.menu_open.store(true, Ordering::SeqCst);
         if let Some(tray_icon) = &self.tray_icon {
             tray_icon.show_menu();
         }
-        self.is_menu_open = false;
+        self.menu_open.store(false, Ordering::SeqCst);
     }
 }
 
