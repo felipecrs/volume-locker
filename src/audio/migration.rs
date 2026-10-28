@@ -345,40 +345,13 @@ fn matches_tier(missing: &MissingDevice, candidate: &ActiveCandidate, tier: Matc
                 (Some(m_orig), Some(c_orig)) if !m_orig.is_empty() => m_orig == c_orig,
                 _ => false,
             };
-            if !orig_matches {
-                return false;
-            }
-
-            if let (Some(m_bus), Some(c_bus)) = (m.bus_type, c.bus_type)
-                && m_bus != c_bus
-            {
-                return false;
-            }
-
-            true
+            orig_matches
         }
         MatchTier::HeuristicFallback => {
             // Anti-cross-matching: Do not match if either has a custom name
             let m_custom = m_fp.is_some_and(|f| f.is_custom_name);
             let c_custom = c_fp.is_some_and(|f| f.is_custom_name);
             if m_custom || c_custom {
-                return false;
-            }
-
-            // Reject cross-bus matching when bus types are known and differ
-            if let (Some(m_bus), Some(c_bus)) =
-                (m_fp.and_then(|f| f.bus_type), c_fp.and_then(|f| f.bus_type))
-                && m_bus != c_bus
-            {
-                return false;
-            }
-
-            // Reject conflicting USB VID/PID when both are known and differ
-            if let (Some(m_vp), Some(c_vp)) = (
-                m_fp.and_then(|f| f.usb_vid_pid),
-                c_fp.and_then(|f| f.usb_vid_pid),
-            ) && m_vp != c_vp
-            {
                 return false;
             }
 
@@ -1244,9 +1217,6 @@ mod tests {
             Some(1),
             Some(r"{1}.USB\VID_046D&PID_0A66&MI_00\9&279C0F32&0&0000".to_string()),
         );
-
-        println!("OLD FP: {old_fp:#?}");
-        println!("NEW FP: {new_fp:#?}");
 
         let old_inactive_dev = MockDevice::new(
             "{0.0.0.00000000}.{ce699537-6ac9-4b42-a0f2-dd7965a73d4b}",

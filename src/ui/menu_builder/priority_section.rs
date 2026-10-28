@@ -93,8 +93,8 @@ fn append_priority_list_and_add_entries(
         for (index, device_id) in priority_list.iter().enumerate() {
             let device_name = if device_id.is_main_priority() {
                 match device_type {
-                    DeviceType::Output => "Output device priority".to_string(),
-                    DeviceType::Input => "Input device priority".to_string(),
+                    DeviceType::Output => "Follow output device priority".to_string(),
+                    DeviceType::Input => "Follow input device priority".to_string(),
                 }
             } else {
                 lookup_device_name(device_id, persistent_state, backend)
@@ -119,8 +119,8 @@ fn append_priority_list_and_add_entries(
     if kind == PriorityKind::Communication && !priority_list.iter().any(|id| id.is_main_priority())
     {
         let label = match device_type {
-            DeviceType::Output => "Output device priority".to_string(),
-            DeviceType::Input => "Input device priority".to_string(),
+            DeviceType::Output => "Follow output device priority".to_string(),
+            DeviceType::Input => "Follow input device priority".to_string(),
         };
         devices_to_add.push((DeviceId::main_priority(), label));
     }
@@ -445,8 +445,8 @@ mod tests {
             assert_eq!(comm_items[0].as_menuitem().unwrap().text(), "Priority list");
             // Default communication priority list contains main priority entry
             let main_priority_title = match device_type {
-                DeviceType::Output => "1. Output device priority",
-                DeviceType::Input => "1. Input device priority",
+                DeviceType::Output => "1. Follow output device priority",
+                DeviceType::Input => "1. Follow input device priority",
             };
             assert!(comm_items.iter().any(|i| {
                 i.as_submenu()
