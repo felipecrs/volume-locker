@@ -152,6 +152,11 @@ flowchart LR
     S1 -->|Strip '\s*\(\d+\)$'| CLEAN["Logitech USB Headset"]
 ```
 
+3. **Bus-Type & VID/PID Isolation**: Endpoints with differing hardware buses (e.g. motherboard `HDAUDIO` vs. `USB` or `Bluetooth`) or conflicting USB VID/PIDs are strictly prevented from matching across all tiers.
+   - _Prevents:_ Motherboard speakers named `"Speakers"` from cross-migrating onto a newly attached USB or Bluetooth speaker.
+4. **Active In-Use Protection**: Active endpoints that are already participating in priority lists or active temporary priority overrides are excluded from the candidate pool.
+   - _Prevents:_ Currently assigned or active priority devices from being claimed or overwritten as migration targets.
+
 ---
 
 ## 4. The 6-Tier Migration Cascade
@@ -182,14 +187,14 @@ flowchart TD
     T5 -->|Match| MIGRATE
     T5 -->|No Match| T6
 
-    T6{"Tier 6: Heuristic VID/PID Fallback<br/>• Unclaimed VID/PID + FormFactor + DeviceType<br/>• Strictly 1 missing to 1 active pair"}
+    T6{"Tier 6: Heuristic Fallback<br/>• Unclaimed VID/PID or clean name<br/>• BusType + FormFactor compatibility<br/>• Strictly 1 missing to 1 active pair"}
     T6 -->|Match| MIGRATE
     T6 -->|No Match| NONE([No Migration / Safe Abort])
 ```
 
 ### Collision Rejection
 
-For non-serial USB devices or shared original names (e.g. two identical microphones or generic audio dongles), Volume Locker **never guesses**. If multiple missing or active candidates qualify for Tiers 2, 5, or 6, migration is rejected to prevent swapping settings between identical peripherals.
+For non-serial USB devices or shared original names (e.g. two identical microphones or generic audio dongles), Volume Locker **never guesses**. If multiple missing or active candidates qualify for Tiers 2, 5, or 6, migration is rejected to prevent swapping settings between identical peripherals. Furthermore, active devices currently assigned to priority lists or active temporary priorities are protected from being treated as unclaimed candidates.
 
 ---
 
