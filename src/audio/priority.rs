@@ -92,9 +92,6 @@ fn enforce_priority_for_type(
             .device_by_id(target_id)
             .map(|d| d.name())
             .unwrap_or_else(|_| target_id.to_string());
-        log::info!(
-            "Enforcing {device_type} priority (Communication): Switching to '{name}' ({target_id})"
-        );
         match backend.set_default_device(target_id, DeviceRole::Communications) {
             Err(e) => log::error!(
                 "Failed to set default {device_type} communications device to '{name}' ({target_id}): {e:#}"
@@ -102,6 +99,9 @@ fn enforce_priority_for_type(
             // Report a successful communication switch separately only when
             // the main roles did not already switch to the same device.
             Ok(()) if !switched.iter().any(|(id, _)| id == target_id) => {
+                log::info!(
+                    "Enforced {device_type} communication priority: switched to '{name}' ({target_id})"
+                );
                 switched.push((target_id.clone(), PriorityKind::Communication));
             }
             Ok(()) => {}
@@ -192,7 +192,7 @@ fn find_highest_priority_active_device(
             Ok(device) => match device.is_active() {
                 Ok(true) => Some(device_id.clone()),
                 Ok(false) => {
-                    log::info!(
+                    log::debug!(
                         "Device '{}' ({device_id}) is inactive, skipping in priority order",
                         device.name()
                     );
@@ -204,7 +204,7 @@ fn find_highest_priority_active_device(
                 }
             },
             Err(e) => {
-                log::info!("Device {device_id} is not connected, skipping in priority order ({e})");
+                log::debug!("Device {device_id} is not connected, skipping in priority order: {e}");
                 None
             }
         })

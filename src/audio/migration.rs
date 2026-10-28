@@ -411,10 +411,8 @@ pub fn migrate_device_ids(
 
             if current_name != device_settings.name {
                 log::info!(
-                    "Device {} with ID {} had the name changed to {}",
+                    "Device '{}' ({device_id}) renamed to '{current_name}'",
                     device_settings.name,
-                    device_id,
-                    current_name,
                 );
                 updated_settings.name = current_name;
                 changed = true;

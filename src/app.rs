@@ -206,7 +206,7 @@ impl AppState {
         }
 
         log::info!(
-            "Watching {device_name} (Locked: {}, Unmute: {})",
+            "Watching '{device_name}' (Locked: {}, Unmute: {})",
             device_settings.volume_lock.is_locked,
             device_settings.unmute_lock.is_locked
         );

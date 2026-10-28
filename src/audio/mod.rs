@@ -73,12 +73,12 @@ pub fn check_and_unmute_device(
     if !is_muted {
         return;
     }
+    let device_name = device.name();
     if let Err(e) = device.set_mute(false) {
-        log::error!("Failed to unmute {}: {e:#}", device.name());
+        log::error!("Failed to unmute '{device_name}': {e:#}");
         return;
     }
-    let device_name = device.name();
-    log::info!("Unmuted {device_name} due to lock settings");
+    log::info!("Unmuted '{device_name}' due to lock settings");
     if notify {
         let (notification_title, notification_suffix) =
             get_unmute_notification_details(device_type);
@@ -108,11 +108,11 @@ pub fn enforce_volume_lock(
     let target_volume = target_volume_percent.to_scalar();
 
     if let Err(e) = device.set_volume(target_volume) {
-        log::error!("Failed to set volume of {device_name} to {target_volume_percent}%: {e:#}");
+        log::error!("Failed to set volume of '{device_name}' to {target_volume_percent}%: {e:#}");
         return;
     }
     log::info!(
-        "Restored volume of {device_name} from {new_volume_percent}% to {target_volume_percent}%"
+        "Restored volume of '{device_name}' from {new_volume_percent}% to {target_volume_percent}%"
     );
     if lock.notify {
         throttler.send_if_not_throttled(
