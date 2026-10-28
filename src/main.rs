@@ -172,9 +172,9 @@ fn run() -> anyhow::Result<()> {
     let proxy = event_loop.create_proxy();
     let cb_pending = Arc::clone(&devices_changed_pending);
     backend
-        .register_device_change_callback(Box::new(move || {
+        .register_device_change_callback(Box::new(move |source| {
             if !cb_pending.swap(true, Ordering::SeqCst)
-                && let Err(e) = proxy.send_event(UserEvent::DevicesChanged)
+                && let Err(e) = proxy.send_event(UserEvent::DevicesChanged(source))
             {
                 cb_pending.store(false, Ordering::SeqCst);
                 log::warn!("Failed to send DevicesChanged event: {e:#}");
@@ -201,6 +201,7 @@ fn run() -> anyhow::Result<()> {
         update_check_in_progress: false,
         tray_icon: None,
         backend,
+        device_cache: std::collections::HashMap::new(),
     };
 
     event_loop.run(move |event, _, control_flow| {
@@ -240,9 +241,9 @@ fn run() -> anyhow::Result<()> {
                 app.handle_volume_changed(event);
             }
 
-            Event::UserEvent(UserEvent::DevicesChanged) => {
+            Event::UserEvent(UserEvent::DevicesChanged(source)) => {
                 devices_changed_pending.store(false, Ordering::SeqCst);
-                app.handle_devices_changed(&main_proxy, &locked_icon, &unlocked_icon);
+                app.handle_devices_changed(source, &main_proxy, &locked_icon, &unlocked_icon);
             }
 
             Event::UserEvent(UserEvent::ConfigurationChanged) => {

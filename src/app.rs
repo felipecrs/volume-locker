@@ -5,7 +5,10 @@ use crate::audio::{
 use crate::config::{PersistentState, save_state};
 use crate::consts::{APP_NAME, APP_UID, CURRENT_VERSION};
 use crate::notification::{NotificationThrottler, log_and_notify_error};
-use crate::types::{DeviceId, TemporaryPriorities, UserEvent, VolumeChangedEvent, VolumeScalar};
+use crate::types::{
+    DeviceChangeSource, DeviceFingerprint, DeviceId, DeviceType, TemporaryPriorities, UserEvent,
+    VolumeChangedEvent, VolumeScalar,
+};
 use crate::ui::{
     MenuContext, MenuEventContext, MenuEventResult, MenuIdMap, TrayMenuItems, handle_menu_event,
     rebuild_tray_menu,
@@ -13,6 +16,7 @@ use crate::ui::{
 use crate::update;
 use crate::update::UpdateInfo;
 use auto_launch::AutoLaunch;
+use std::collections::HashMap;
 use tao::event_loop::{ControlFlow, EventLoopProxy};
 use tray_icon::TrayIconBuilder;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuItem};
@@ -27,6 +31,7 @@ pub struct AppState {
     pub update_check_in_progress: bool,
     pub tray_icon: Option<tray_icon::TrayIcon>,
     pub backend: AudioBackendImpl,
+    pub device_cache: HashMap<DeviceId, (String, DeviceType, Option<DeviceFingerprint>)>,
 }
 
 pub struct EventLoopRefs<'a> {
@@ -101,6 +106,7 @@ impl AppState {
             &self.backend,
             &mut self.persistent_state,
             &mut self.temporary_priorities,
+            &self.device_cache,
         );
 
         if result.persistent_changed {
@@ -150,7 +156,7 @@ impl AppState {
         let device = match self.backend.device_by_id(device_id) {
             Ok(d) => d,
             Err(e) => {
-                log::warn!("Not watching {device_name}: failed to get device by id: {e}");
+                log::debug!("Not watching {device_name}: failed to get device by id: {e}");
                 return None;
             }
         };
@@ -228,14 +234,19 @@ impl AppState {
 
     pub fn handle_devices_changed(
         &mut self,
+        source: DeviceChangeSource,
         proxy: &EventLoopProxy<UserEvent>,
         locked_icon: &tray_icon::Icon,
         unlocked_icon: &tray_icon::Icon,
     ) {
-        log::info!("Reloading list of watched devices...");
+        log::info!("Devices changed ({source}): updating devices and enforcing settings...");
 
         self.migrate_device_ids_if_needed();
         for (device_id, new_name, device_type, fingerprint) in collect_device_info(&self.backend) {
+            self.device_cache.insert(
+                device_id.clone(),
+                (new_name.clone(), device_type, fingerprint.clone()),
+            );
             if let Some(settings) = self.persistent_state.device_settings_mut(&device_id) {
                 settings.name = new_name;
                 settings.device_type = device_type;
@@ -297,7 +308,8 @@ impl AppState {
             "Configuration saved ({} devices tracked)",
             self.persistent_state.device_count()
         );
-        if let Err(e) = proxy.send_event(UserEvent::DevicesChanged) {
+        if let Err(e) = proxy.send_event(UserEvent::DevicesChanged(DeviceChangeSource::UserAction))
+        {
             log::warn!("Failed to send DevicesChanged event: {e:#}");
         }
     }
@@ -324,7 +336,9 @@ impl AppState {
 
             match result {
                 MenuEventResult::DevicesChanged => {
-                    if let Err(e) = proxy.send_event(UserEvent::DevicesChanged) {
+                    if let Err(e) =
+                        proxy.send_event(UserEvent::DevicesChanged(DeviceChangeSource::UserAction))
+                    {
                         log::warn!("Failed to send DevicesChanged event: {e:#}");
                     }
                 }
@@ -390,7 +404,7 @@ impl AppState {
             self.start_update_check(false, proxy);
         }
 
-        if let Err(e) = proxy.send_event(UserEvent::DevicesChanged) {
+        if let Err(e) = proxy.send_event(UserEvent::DevicesChanged(DeviceChangeSource::Init)) {
             log::warn!("Failed to send initial DevicesChanged event: {e:#}");
         }
     }

@@ -387,6 +387,10 @@ pub fn migrate_device_ids(
     backend: &impl AudioBackend,
     persistent_state: &mut PersistentState,
     temporary_priorities: &mut TemporaryPriorities,
+    device_cache: &std::collections::HashMap<
+        DeviceId,
+        (String, DeviceType, Option<DeviceFingerprint>),
+    >,
 ) -> MigrationResult {
     let mut persistent_changed = false;
     let mut migrated_device_names: Vec<String> = Vec::new();
@@ -425,10 +429,15 @@ pub fn migrate_device_ids(
                 devices_to_update.push((device_id.clone(), updated_settings));
             }
         } else {
-            // Attempt to recover fingerprint on the fly from Windows if not already saved
+            // Attempt to recover fingerprint from saved settings, device cache, or Windows
             let recovered_fp = device_settings
                 .fingerprint
                 .clone()
+                .or_else(|| {
+                    device_cache
+                        .get(device_id)
+                        .and_then(|(_, _, fp)| fp.clone())
+                })
                 .or_else(|| backend.device_fingerprint(device_id));
 
             missing_by_type.push(MissingDevice {
@@ -455,10 +464,17 @@ pub fn migrate_device_ids(
                     && !missing_by_type.iter().any(|m| m.id == priority_id)
                     && !is_device_active(backend, &priority_id)
                 {
-                    let recovered_fp = backend.device_fingerprint(&priority_id);
-                    let name = recovered_fp
-                        .as_ref()
-                        .and_then(|f| f.clean_original_name.clone())
+                    let cached = device_cache.get(&priority_id);
+                    let recovered_fp = cached
+                        .and_then(|(_, _, fp)| fp.clone())
+                        .or_else(|| backend.device_fingerprint(&priority_id));
+                    let name = cached
+                        .map(|(n, _, _)| n.clone())
+                        .or_else(|| {
+                            recovered_fp
+                                .as_ref()
+                                .and_then(|f| f.clean_original_name.clone())
+                        })
                         .or_else(|| recovered_fp.as_ref().and_then(|f| f.hardware_desc.clone()))
                         .unwrap_or_else(|| "Priority Device".to_string());
 
@@ -479,10 +495,17 @@ pub fn migrate_device_ids(
                 && !missing_by_type.iter().any(|m| m.id == *temp_id)
                 && !is_device_active(backend, temp_id)
             {
-                let recovered_fp = backend.device_fingerprint(temp_id);
-                let name = recovered_fp
-                    .as_ref()
-                    .and_then(|f| f.clean_original_name.clone())
+                let cached = device_cache.get(temp_id);
+                let recovered_fp = cached
+                    .and_then(|(_, _, fp)| fp.clone())
+                    .or_else(|| backend.device_fingerprint(temp_id));
+                let name = cached
+                    .map(|(n, _, _)| n.clone())
+                    .or_else(|| {
+                        recovered_fp
+                            .as_ref()
+                            .and_then(|f| f.clean_original_name.clone())
+                    })
                     .or_else(|| recovered_fp.as_ref().and_then(|f| f.hardware_desc.clone()))
                     .unwrap_or_else(|| "Temporary Device".to_string());
 
@@ -640,7 +663,12 @@ mod tests {
         backend: &impl AudioBackend,
         state: &mut PersistentState,
     ) -> MigrationResult {
-        super::migrate_device_ids(backend, state, &mut TemporaryPriorities::default())
+        super::migrate_device_ids(
+            backend,
+            state,
+            &mut TemporaryPriorities::default(),
+            &std::collections::HashMap::new(),
+        )
     }
 
     #[test]
@@ -1094,7 +1122,12 @@ mod tests {
             Some("id_old".into()),
         );
 
-        let result = super::migrate_device_ids(&backend, &mut state, &mut temp);
+        let result = super::migrate_device_ids(
+            &backend,
+            &mut state,
+            &mut temp,
+            &std::collections::HashMap::new(),
+        );
         assert!(result.persistent_changed);
         assert_eq!(
             temp.get(DeviceType::Output, PriorityKind::Main),
@@ -1133,7 +1166,12 @@ mod tests {
             Some("g533_old_port".into()),
         );
 
-        let result = super::migrate_device_ids(&backend, &mut state, &mut temp);
+        let result = super::migrate_device_ids(
+            &backend,
+            &mut state,
+            &mut temp,
+            &std::collections::HashMap::new(),
+        );
         assert!(!result.persistent_changed);
         assert!(result.has_migrations());
         assert_eq!(
@@ -1190,7 +1228,67 @@ mod tests {
             Some("{0.0.0.00000000}.{ce699537-6ac9-4b42-a0f2-dd7965a73d4b}".into()),
         );
 
-        let result = super::migrate_device_ids(&backend, &mut state, &mut temp);
+        let result = super::migrate_device_ids(
+            &backend,
+            &mut state,
+            &mut temp,
+            &std::collections::HashMap::new(),
+        );
         assert!(result.has_migrations(), "Migration should have succeeded!");
+    }
+
+    #[test]
+    fn test_live_bluetooth_unpair_re_pair_migration() {
+        let mac = "A0AC69494DD3".to_string();
+        let old_id = DeviceId::from("{0.0.0.00000000}.{e801d086-a873-4852-9c6b-66d7df7be3d0}");
+        let new_id = DeviceId::from("{0.0.0.00000000}.{8e89cde4-58c0-432c-a776-bce5eff55f2b}");
+
+        let old_fp = DeviceFingerprint {
+            bus_type: Some(DeviceBusType::Bluetooth),
+            mac_address: Some(mac.clone()),
+            form_factor: Some(3),
+            hardware_desc: Some("Headphones".to_string()),
+            clean_original_name: Some("Headphones (Buds2 Pro de Felipe)".to_string()),
+            ..Default::default()
+        };
+
+        let new_fp = DeviceFingerprint {
+            bus_type: Some(DeviceBusType::Bluetooth),
+            mac_address: Some(mac),
+            form_factor: Some(3),
+            hardware_desc: Some("Headphones".to_string()),
+            clean_original_name: Some("Headphones (Buds2 Pro de Felipe)".to_string()),
+            ..Default::default()
+        };
+
+        // When unpaired, the old device is completely DELETED from Windows (not in backend.devices)
+        let new_dev = MockDevice::new(&new_id, "Headphones (Buds2 Pro de Felipe)", true)
+            .with_fingerprint(new_fp);
+        let backend = MockAudioBackend::new(vec![new_dev]);
+
+        // device_cache remembered the device while it was active
+        let mut cache = std::collections::HashMap::new();
+        cache.insert(
+            old_id.clone(),
+            (
+                "Headphones (Buds2 Pro de Felipe)".to_string(),
+                DeviceType::Output,
+                Some(old_fp),
+            ),
+        );
+
+        let mut state = PersistentState::default();
+        let mut temp = TemporaryPriorities::default();
+        temp.set(DeviceType::Output, PriorityKind::Main, Some(old_id));
+
+        let result = super::migrate_device_ids(&backend, &mut state, &mut temp, &cache);
+        assert!(
+            result.has_migrations(),
+            "Bluetooth migration via cached fingerprint should succeed!"
+        );
+        assert_eq!(
+            temp.get(DeviceType::Output, PriorityKind::Main),
+            Some(&new_id)
+        );
     }
 }

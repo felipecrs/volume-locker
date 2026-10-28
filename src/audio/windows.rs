@@ -10,7 +10,9 @@ use crate::bindings::{
     PropVariantToStringAlloc, PropVariantToUInt32, STGM_READ, eCapture, eCommunications, eConsole,
     eMultimedia, eRender,
 };
-use crate::types::{DeviceFingerprint, DeviceId, DeviceRole, DeviceType, VolumeScalar};
+use crate::types::{
+    DeviceChangeSource, DeviceFingerprint, DeviceId, DeviceRole, DeviceType, VolumeScalar,
+};
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::sync::{Arc, Mutex};
@@ -56,8 +58,9 @@ unsafe extern "system" fn power_suspend_resume_callback(
 ) -> u32 {
     // Only react on resume from sleep, never on suspend
     if event_type == PBT_APMRESUMEAUTOMATIC || event_type == PBT_APMRESUMESUSPEND {
-        let callback = unsafe { &*(context as *const Arc<dyn Fn() + Send + Sync>) };
-        callback();
+        let callback =
+            unsafe { &*(context as *const Arc<dyn Fn(DeviceChangeSource) + Send + Sync>) };
+        callback(DeviceChangeSource::PowerResume);
     }
     0
 }
@@ -67,7 +70,7 @@ windows_core::link!("user32.dll" "system" fn UnregisterSuspendResumeNotification
 
 struct PowerNotifyGuard {
     handle: *mut std::ffi::c_void,
-    _context: Box<Arc<dyn Fn() + Send + Sync>>,
+    _context: Box<Arc<dyn Fn(DeviceChangeSource) + Send + Sync>>,
 }
 
 // SAFETY: handle is an opaque OS registration handle and context is Send + Sync.
@@ -203,9 +206,9 @@ impl AudioBackend for WindowsAudioBackend {
 
     fn register_device_change_callback(
         &self,
-        callback: Box<dyn Fn() + Send + Sync>,
+        callback: Box<dyn Fn(DeviceChangeSource) + Send + Sync>,
     ) -> anyhow::Result<()> {
-        let callback: Arc<dyn Fn() + Send + Sync> = Arc::from(callback);
+        let callback: Arc<dyn Fn(DeviceChangeSource) + Send + Sync> = Arc::from(callback);
 
         let cb: IMMNotificationClient = AudioDevicesChangedCallback {
             callback: callback.clone(),
@@ -224,7 +227,8 @@ impl AudioBackend for WindowsAudioBackend {
         let context = Box::new(callback);
         let params = DeviceNotifySubscribeParameters {
             callback: power_suspend_resume_callback,
-            context: &*context as *const Arc<dyn Fn() + Send + Sync> as *mut std::ffi::c_void,
+            context: &*context as *const Arc<dyn Fn(DeviceChangeSource) + Send + Sync>
+                as *mut std::ffi::c_void,
         };
         // SAFETY: params points to a valid DeviceNotifySubscribeParameters on the stack; context remains alive in PowerNotifyGuard.
         let handle = unsafe { RegisterSuspendResumeNotification(&params, DEVICE_NOTIFY_CALLBACK) };
@@ -323,22 +327,22 @@ impl AudioDevice for WindowsAudioDevice {
 
 #[implement(IMMNotificationClient)]
 pub struct AudioDevicesChangedCallback {
-    pub callback: Arc<dyn Fn() + Send + Sync>,
+    pub callback: Arc<dyn Fn(DeviceChangeSource) + Send + Sync>,
 }
 
 impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
     fn OnDeviceStateChanged(&self, _: &PCWSTR, _: u32) -> windows_core::Result<()> {
-        (self.callback)();
+        (self.callback)(DeviceChangeSource::DeviceStateChanged);
         Ok(())
     }
 
     fn OnDeviceAdded(&self, _: &PCWSTR) -> windows_core::Result<()> {
-        (self.callback)();
+        (self.callback)(DeviceChangeSource::DeviceAdded);
         Ok(())
     }
 
     fn OnDeviceRemoved(&self, _: &PCWSTR) -> windows_core::Result<()> {
-        (self.callback)();
+        (self.callback)(DeviceChangeSource::DeviceRemoved);
         Ok(())
     }
 
@@ -348,7 +352,7 @@ impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
         _: ERole,
         _: &PCWSTR,
     ) -> windows_core::Result<()> {
-        (self.callback)();
+        (self.callback)(DeviceChangeSource::DefaultDeviceChanged);
         Ok(())
     }
 
@@ -357,7 +361,7 @@ impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
         // in Windows Sound Settings). Other property updates (internal routing, formats,
         // volume, Bluetooth battery/telemetry) fire continuously and must be ignored.
         if *key == PKEY_Device_FriendlyName {
-            (self.callback)();
+            (self.callback)(DeviceChangeSource::DeviceRenamed);
         }
         Ok(())
     }

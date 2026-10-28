@@ -82,7 +82,7 @@ fn lookup_device_name(
         match backend.device_by_id(device_id) {
             Ok(d) => d.name(),
             Err(e) => {
-                log::warn!("Failed to look up device name for {device_id}: {e:#}");
+                log::debug!("Device {device_id} is not present for name lookup: {e:#}");
                 "Unknown Device".to_string()
             }
         }

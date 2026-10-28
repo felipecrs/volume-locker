@@ -174,6 +174,15 @@ pub enum PriorityKind {
     Communication,
 }
 
+impl fmt::Display for PriorityKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Main => f.write_str("main"),
+            Self::Communication => f.write_str("communication"),
+        }
+    }
+}
+
 impl fmt::Display for DeviceRole {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -347,12 +356,39 @@ impl TemporaryPriorities {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeviceChangeSource {
+    Init,
+    DeviceAdded,
+    DeviceRemoved,
+    DeviceStateChanged,
+    DefaultDeviceChanged,
+    DeviceRenamed,
+    PowerResume,
+    UserAction,
+}
+
+impl fmt::Display for DeviceChangeSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Init => write!(f, "Initialization"),
+            Self::DeviceAdded => write!(f, "Device Added"),
+            Self::DeviceRemoved => write!(f, "Device Removed"),
+            Self::DeviceStateChanged => write!(f, "Device State Changed"),
+            Self::DefaultDeviceChanged => write!(f, "Default Device Changed"),
+            Self::DeviceRenamed => write!(f, "Device Renamed"),
+            Self::PowerResume => write!(f, "Power Resume"),
+            Self::UserAction => write!(f, "User Action"),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum UserEvent {
     TrayIcon(tray_icon::TrayIconEvent),
     Menu(tray_icon::menu::MenuEvent),
     VolumeChanged(VolumeChangedEvent),
-    DevicesChanged,
+    DevicesChanged(DeviceChangeSource),
     ConfigurationChanged,
     UpdateCheckCompleted {
         manual_request: bool,

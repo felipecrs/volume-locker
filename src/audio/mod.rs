@@ -1,4 +1,4 @@
-use crate::types::{DeviceId, DeviceRole, DeviceType, VolumeScalar};
+use crate::types::{DeviceChangeSource, DeviceId, DeviceRole, DeviceType, VolumeScalar};
 
 #[cfg(target_os = "windows")]
 mod windows_com_policy_config;
@@ -15,7 +15,7 @@ pub trait AudioBackend {
 
     fn register_device_change_callback(
         &self,
-        callback: Box<dyn Fn() + Send + Sync>,
+        callback: Box<dyn Fn(DeviceChangeSource) + Send + Sync>,
     ) -> anyhow::Result<()>;
 
     fn device_fingerprint(&self, _id: &DeviceId) -> Option<crate::types::DeviceFingerprint> {
@@ -366,7 +366,7 @@ pub(crate) mod tests {
 
         fn register_device_change_callback(
             &self,
-            _callback: Box<dyn Fn() + Send + Sync>,
+            _callback: Box<dyn Fn(DeviceChangeSource) + Send + Sync>,
         ) -> anyhow::Result<()> {
             Ok(())
         }
@@ -516,7 +516,12 @@ pub(crate) mod tests {
         );
 
         let mut temp_priorities = TemporaryPriorities::default();
-        migrate_device_ids(&backend, &mut state, &mut temp_priorities);
+        migrate_device_ids(
+            &backend,
+            &mut state,
+            &mut temp_priorities,
+            &std::collections::HashMap::new(),
+        );
         assert!(state.devices.contains_key("new_id"));
         assert!(!state.devices.contains_key("old_id"));
         assert_eq!(state.output.priority_list, vec!["new_id"]);
