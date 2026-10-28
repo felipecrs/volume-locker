@@ -21,6 +21,25 @@ windows_core::imp::define_interface!(
 windows_core::imp::interface_hierarchy!(IPolicyConfig, windows_core::IUnknown);
 
 impl IPolicyConfig {
+    pub unsafe fn SetPropertyValue(
+        &self,
+        device_name: impl Param<PCWSTR>,
+        fx_store: i32,
+        key: *const PROPERTYKEY,
+        value: *mut PROPVARIANT,
+    ) -> Result<()> {
+        unsafe {
+            (Interface::vtable(self).SetPropertyValue)(
+                Interface::as_raw(self),
+                device_name.param().abi(),
+                fx_store,
+                key,
+                value,
+            )
+            .ok()
+        }
+    }
+
     pub unsafe fn SetDefaultEndpoint(
         &self,
         device_name: impl Param<PCWSTR>,

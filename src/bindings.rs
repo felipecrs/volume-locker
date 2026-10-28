@@ -1329,6 +1329,10 @@ pub type LPSAFEARRAY = *mut SAFEARRAY;
 pub type LPVERSIONEDSTREAM = *mut VERSIONEDSTREAM;
 pub const MMDeviceEnumerator: windows_core::GUID =
     windows_core::GUID::from_u128(0xbcde0395_e52f_467c_8e3d_c4579291692e);
+pub const PKEY_AudioEndpointLogo_IconPath: PROPERTYKEY = PROPERTYKEY {
+    fmtid: windows_core::GUID::from_u128(0xf1ab780d_2010_4ed3_a3a6_8b87f0f0c476),
+    pid: 1,
+};
 pub const PKEY_AudioEndpoint_FormFactor: PROPERTYKEY = PROPERTYKEY {
     fmtid: windows_core::GUID::from_u128(0x1da5d803_d492_4edd_8c23_e0c0ffee7f0e),
     pid: 0,
@@ -1533,6 +1537,7 @@ pub struct SECURITY_ATTRIBUTES {
     pub bInheritHandle: windows_core::BOOL,
 }
 pub const STGM_READ: i32 = 0;
+pub type VARENUM = i32;
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct VARIANT_BOOL(pub i16);
@@ -1545,6 +1550,7 @@ pub struct VERSIONEDSTREAM {
     pub guidVersion: windows_core::GUID,
     pub pStream: core::mem::ManuallyDrop<Option<IStream>>,
 }
+pub const VT_LPWSTR: VARENUM = 31;
 #[repr(C, packed(1))]
 #[derive(Clone, Copy, Default)]
 pub struct WAVEFORMATEX {

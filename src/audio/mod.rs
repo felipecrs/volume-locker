@@ -21,6 +21,14 @@ pub trait AudioBackend {
     fn device_fingerprint(&self, _id: &DeviceId) -> Option<crate::types::DeviceFingerprint> {
         None
     }
+
+    /// Restores user-assigned Windows endpoint properties after a device ID migration.
+    fn restore_device_properties(
+        &self,
+        id: &DeviceId,
+        friendly_name: Option<&str>,
+        icon_path: Option<&str>,
+    ) -> anyhow::Result<()>;
 }
 
 pub trait AudioDevice {
@@ -177,6 +185,8 @@ pub(crate) mod tests {
     use std::cell::RefCell;
     use std::collections::HashMap;
 
+    type RestoredProperties = Vec<(DeviceId, Option<String>, Option<String>)>;
+
     pub(crate) struct MockDevice {
         pub(crate) id: DeviceId,
         pub(crate) name: String,
@@ -251,6 +261,8 @@ pub(crate) mod tests {
         /// If true, `set_default_device` will return `Err`.
         pub(crate) set_default_fails: RefCell<bool>,
         pub(crate) disconnected_fingerprints: RefCell<HashMap<DeviceId, DeviceFingerprint>>,
+        pub(crate) restored_properties: RefCell<RestoredProperties>,
+        pub(crate) restore_properties_fails: bool,
     }
 
     impl MockAudioBackend {
@@ -263,6 +275,8 @@ pub(crate) mod tests {
                 failing_device_ids: RefCell::new(Vec::new()),
                 set_default_fails: RefCell::new(false),
                 disconnected_fingerprints: RefCell::new(HashMap::new()),
+                restored_properties: RefCell::new(Vec::new()),
+                restore_properties_fails: false,
             }
         }
 
@@ -315,6 +329,23 @@ pub(crate) mod tests {
                 .iter()
                 .find(|d| &d.id == id)
                 .and_then(|d| d.fingerprint.clone())
+        }
+
+        fn restore_device_properties(
+            &self,
+            id: &DeviceId,
+            friendly_name: Option<&str>,
+            icon_path: Option<&str>,
+        ) -> anyhow::Result<()> {
+            self.restored_properties.borrow_mut().push((
+                id.clone(),
+                friendly_name.map(str::to_string),
+                icon_path.map(str::to_string),
+            ));
+            if self.restore_properties_fails {
+                return Err(anyhow::anyhow!("Injected restore properties failure"));
+            }
+            Ok(())
         }
 
         fn default_device(

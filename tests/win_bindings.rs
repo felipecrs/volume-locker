@@ -42,6 +42,7 @@ fn gen_bindings() {
             "Windows.Win32.PKEY_Device_EnumeratorName",
             "Windows.Win32.PKEY_Device_ContainerId",
             "Windows.Win32.PKEY_AudioEndpoint_FormFactor",
+            "Windows.Win32.PKEY_AudioEndpointLogo_IconPath",
             "Windows.Win32.PROPERTYKEY",
             "Windows.Win32.PROPVARIANT",
             "Windows.Win32.PropVariantClear",
@@ -49,6 +50,7 @@ fn gen_bindings() {
             "Windows.Win32.PropVariantToUInt32",
             "Windows.Win32.SetCurrentProcessExplicitAppUserModelID",
             "Windows.Win32.STGM_READ",
+            "Windows.Win32.VT_LPWSTR",
             "Windows.Win32.WAVEFORMATEX",
         ])
         .implements([

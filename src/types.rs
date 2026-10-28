@@ -241,6 +241,15 @@ pub struct DeviceFingerprint {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_custom_name: bool,
 
+    /// Raw PKEY_Device_FriendlyName value when the device has a user-assigned custom name.
+    /// Stored so it can be re-applied to a new endpoint after a device ID migration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_name: Option<String>,
+
+    /// PKEY_AudioEndpointLogo_IconPath value, when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_icon_path: Option<String>,
+
     /// Bluetooth 48-bit MAC address (12 hex digits)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mac_address: Option<String>,

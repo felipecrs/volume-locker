@@ -2,6 +2,8 @@
 
 This document describes how **Volume Locker** reliably tracks audio devices and migrates user configurations (volume locks, unmute locks, and priority lists) when Windows changes their endpoint IDs.
 
+For the related migration of Windows-assigned custom endpoint names and logo URIs, see [Windows Audio Endpoint Property Migration](./device-property-migration.md).
+
 ---
 
 ## The Problem

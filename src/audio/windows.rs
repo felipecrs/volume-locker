@@ -5,15 +5,18 @@ use crate::bindings::{
     DEVICE_STATE_ACTIVE, EDataFlow, ERole, IAudioEndpointVolume, IAudioEndpointVolumeCallback,
     IAudioEndpointVolumeCallback_Impl, IMMDevice, IMMDeviceEnumerator, IMMNotificationClient,
     IMMNotificationClient_Impl, MMDeviceEnumerator, PKEY_AudioEndpoint_FormFactor,
-    PKEY_Device_ContainerId, PKEY_Device_DeviceDesc, PKEY_Device_EnumeratorName,
-    PKEY_Device_FriendlyName, PKEY_DeviceInterface_FriendlyName, PROPERTYKEY, PropVariantClear,
-    PropVariantToStringAlloc, PropVariantToUInt32, STGM_READ, eCapture, eCommunications, eConsole,
+    PKEY_AudioEndpointLogo_IconPath, PKEY_Device_ContainerId, PKEY_Device_DeviceDesc,
+    PKEY_Device_EnumeratorName, PKEY_Device_FriendlyName, PKEY_DeviceInterface_FriendlyName,
+    PROPERTYKEY, PROPVAR_PAD1, PROPVAR_PAD2, PROPVAR_PAD3, PROPVARIANT, PROPVARIANT_0,
+    PROPVARIANT_0_0, PROPVARIANT_0_0_0, PropVariantClear, PropVariantToStringAlloc,
+    PropVariantToUInt32, STGM_READ, VARTYPE, VT_LPWSTR, eCapture, eCommunications, eConsole,
     eMultimedia, eRender,
 };
 use crate::types::{
     DeviceChangeSource, DeviceFingerprint, DeviceId, DeviceRole, DeviceType, VolumeScalar,
 };
 use std::ffi::OsStr;
+use std::mem::ManuallyDrop;
 use std::os::windows::ffi::OsStrExt;
 use std::sync::{Arc, Mutex};
 use windows_core::{PCWSTR, implement};
@@ -267,6 +270,54 @@ impl AudioBackend for WindowsAudioBackend {
         let device = unsafe { self.enumerator.GetDevice(PCWSTR(wide.as_ptr())).ok()? };
         get_device_fingerprint(&device)
     }
+
+    fn restore_device_properties(
+        &self,
+        id: &DeviceId,
+        friendly_name: Option<&str>,
+        icon_path: Option<&str>,
+    ) -> anyhow::Result<()> {
+        if friendly_name.is_none() && icon_path.is_none() {
+            return Ok(());
+        }
+
+        // SAFETY: PolicyConfigClient is the existing Windows endpoint configuration COM class.
+        let policy_config: windows_com_policy_config::IPolicyConfig = unsafe {
+            CoCreateInstance(
+                &windows_com_policy_config::PolicyConfigClient,
+                None,
+                CLSCTX_INPROC_SERVER,
+            )?
+        };
+        let wide_id = encode_wide_null(id);
+        let mut errors = Vec::new();
+
+        if let Some(name) = friendly_name
+            && let Err(e) =
+                set_policy_config_string(&policy_config, &wide_id, &PKEY_Device_FriendlyName, name)
+        {
+            errors.push(format!("friendly name: {e:#}"));
+        }
+        if let Some(path) = icon_path
+            && let Err(e) = set_policy_config_string(
+                &policy_config,
+                &wide_id,
+                &PKEY_AudioEndpointLogo_IconPath,
+                path,
+            )
+        {
+            errors.push(format!("logo path: {e:#}"));
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            anyhow::bail!(
+                "failed to restore endpoint properties ({})",
+                errors.join("; ")
+            )
+        }
+    }
 }
 
 impl AudioDevice for WindowsAudioDevice {
@@ -472,8 +523,9 @@ fn get_device_fingerprint(device: &IMMDevice) -> Option<DeviceFingerprint> {
         let container_id = read_prop_string(&prop_store, &PKEY_Device_ContainerId);
         let form_factor = read_prop_u32(&prop_store, &PKEY_AudioEndpoint_FormFactor);
         let pnp_interface = read_prop_string(&prop_store, &PKEY_DEVICE_INTERFACE_PATH);
+        let icon_path = read_prop_string(&prop_store, &PKEY_AudioEndpointLogo_IconPath);
 
-        Some(build_fingerprint(
+        let mut fingerprint = build_fingerprint(
             friendly_name,
             hardware_desc,
             interface_name,
@@ -481,8 +533,42 @@ fn get_device_fingerprint(device: &IMMDevice) -> Option<DeviceFingerprint> {
             container_id,
             form_factor,
             pnp_interface,
-        ))
+        );
+        fingerprint.custom_icon_path = icon_path;
+        Some(fingerprint)
     }
+}
+
+fn set_policy_config_string(
+    policy_config: &windows_com_policy_config::IPolicyConfig,
+    device_id: &[u16],
+    key: &PROPERTYKEY,
+    value: &str,
+) -> anyhow::Result<()> {
+    let wide_value = encode_wide_null(value);
+    let mut prop = PROPVARIANT {
+        Anonymous: PROPVARIANT_0 {
+            Anonymous: ManuallyDrop::new(PROPVARIANT_0_0 {
+                vt: VARTYPE(VT_LPWSTR as u16),
+                wReserved1: PROPVAR_PAD1(0),
+                wReserved2: PROPVAR_PAD2(0),
+                wReserved3: PROPVAR_PAD3(0),
+                Anonymous: PROPVARIANT_0_0_0 {
+                    pwszVal: windows_core::PWSTR(wide_value.as_ptr().cast_mut()),
+                },
+            }),
+        },
+    };
+    // SAFETY: the UTF-16 buffers and PROPVARIANT remain alive through this COM call.
+    unsafe {
+        policy_config.SetPropertyValue(
+            PCWSTR(device_id.as_ptr()),
+            0, // bFxStore = false selects the endpoint's regular property store.
+            key,
+            &mut prop,
+        )?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
