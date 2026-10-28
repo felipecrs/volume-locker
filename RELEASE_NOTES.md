@@ -5,6 +5,7 @@
 ### Seamless Audio Device Migration
 - Volume Locker now tracks your audio devices across physical connection changes.
 - Moving a USB headset, DAC, or microphone to a different USB port preserves all your volume locks, unmute locks, and priority positions.
+- Active temporary priority overrides are also preserved when a temporarily chosen device reconnects under a new endpoint ID.
 - Unpairing and re-pairing Bluetooth devices no longer loses your configured settings or priority order.
 - Audio driver updates (such as NVIDIA, AMD, or Realtek updates) no longer disconnect your saved device settings.
 
