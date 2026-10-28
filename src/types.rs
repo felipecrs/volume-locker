@@ -329,6 +329,19 @@ impl TemporaryPriorities {
             (DeviceType::Input, PriorityKind::Communication) => self.input_communication = value,
         }
     }
+
+    pub fn migrate_device_id(
+        &mut self,
+        device_type: DeviceType,
+        old_id: &DeviceId,
+        new_id: &DeviceId,
+    ) {
+        for kind in [PriorityKind::Main, PriorityKind::Communication] {
+            if self.get(device_type, kind) == Some(old_id) {
+                self.set(device_type, kind, Some(new_id.clone()));
+            }
+        }
+    }
 }
 
 #[derive(Debug)]

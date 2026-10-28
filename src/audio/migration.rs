@@ -1,6 +1,7 @@
 use crate::config::PersistentState;
 use crate::types::{
     DeviceBusType, DeviceFingerprint, DeviceId, DeviceSettings, DeviceType, PriorityKind,
+    TemporaryPriorities,
 };
 use regex_lite::Regex;
 use std::sync::LazyLock;
@@ -372,6 +373,7 @@ pub struct MigrationResult {
 pub fn migrate_device_ids(
     backend: &impl AudioBackend,
     persistent_state: &mut PersistentState,
+    temporary_priorities: &mut TemporaryPriorities,
 ) -> MigrationResult {
     let mut state_changed = false;
     let mut migrated_device_names: Vec<String> = Vec::new();
@@ -531,6 +533,8 @@ pub fn migrate_device_ids(
                     }
                 }
 
+                temporary_priorities.migrate_device_id(device_type, &old_device_id, &new_device_id);
+
                 log::info!(
                     "Migrated {device_type} device '{}' from ID {old_device_id} to {new_device_id} via {tier}",
                     missing.settings.name
@@ -559,6 +563,13 @@ pub fn migrate_device_ids(
 mod tests {
     use super::*;
     use crate::audio::tests::{MockAudioBackend, MockDevice, make_device_settings};
+
+    fn migrate_device_ids(
+        backend: &impl AudioBackend,
+        state: &mut PersistentState,
+    ) -> MigrationResult {
+        super::migrate_device_ids(backend, state, &mut TemporaryPriorities::default())
+    }
 
     #[test]
     fn clean_name_component_strips_prefixes_and_clones() {
@@ -988,6 +999,38 @@ mod tests {
         assert_eq!(
             state.output.communication_priority_list,
             vec!["id_new".to_string()]
+        );
+    }
+
+    #[test]
+    fn migrate_updates_temporary_priorities() {
+        let backend = MockAudioBackend::new(vec![MockDevice::new("id_new", "Headset", true)]);
+        let mut state = PersistentState::default();
+        state.devices.insert(
+            "id_old".into(),
+            make_device_settings("Headset", DeviceType::Output),
+        );
+        let mut temp = TemporaryPriorities::default();
+        temp.set(
+            DeviceType::Output,
+            PriorityKind::Main,
+            Some("id_old".into()),
+        );
+        temp.set(
+            DeviceType::Output,
+            PriorityKind::Communication,
+            Some("id_old".into()),
+        );
+
+        let result = super::migrate_device_ids(&backend, &mut state, &mut temp);
+        assert!(result.state_changed);
+        assert_eq!(
+            temp.get(DeviceType::Output, PriorityKind::Main),
+            Some(&DeviceId::from("id_new"))
+        );
+        assert_eq!(
+            temp.get(DeviceType::Output, PriorityKind::Communication),
+            Some(&DeviceId::from("id_new"))
         );
     }
 }

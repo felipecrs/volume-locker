@@ -97,7 +97,11 @@ impl AppState {
     }
 
     pub fn migrate_device_ids_if_needed(&mut self) {
-        let result = migrate_device_ids(&self.backend, &mut self.persistent_state);
+        let result = migrate_device_ids(
+            &self.backend,
+            &mut self.persistent_state,
+            &mut self.temporary_priorities,
+        );
 
         if result.state_changed {
             if let Err(e) = save_state(&self.persistent_state) {

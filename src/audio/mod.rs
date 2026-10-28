@@ -515,13 +515,13 @@ pub(crate) mod tests {
             make_device_settings("Speakers", DeviceType::Output),
         );
 
-        migrate_device_ids(&backend, &mut state);
+        let mut temp_priorities = TemporaryPriorities::default();
+        migrate_device_ids(&backend, &mut state, &mut temp_priorities);
         assert!(state.devices.contains_key("new_id"));
         assert!(!state.devices.contains_key("old_id"));
         assert_eq!(state.output.priority_list, vec!["new_id"]);
 
         let mut throttler = NotificationThrottler::new();
-        let temp_priorities = TemporaryPriorities::default();
         enforce_priorities(&backend, &state, &mut throttler, &temp_priorities);
 
         let default = backend
