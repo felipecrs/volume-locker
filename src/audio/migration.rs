@@ -370,6 +370,12 @@ pub struct MigrationResult {
     pub migrated_device_names: Vec<String>,
 }
 
+fn is_device_active(backend: &impl AudioBackend, id: &DeviceId) -> bool {
+    backend
+        .device_by_id(id)
+        .is_ok_and(|d| d.is_active().unwrap_or(false))
+}
+
 pub fn migrate_device_ids(
     backend: &impl AudioBackend,
     persistent_state: &mut PersistentState,
@@ -383,7 +389,10 @@ pub fn migrate_device_ids(
     // Collect first, then mutate — avoids borrowing `persistent_state.devices`
     // while iterating over it.
     for (device_id, device_settings) in persistent_state.devices_iter() {
-        if let Ok(device) = backend.device_by_id(device_id) {
+        if is_device_active(backend, device_id) {
+            let Ok(device) = backend.device_by_id(device_id) else {
+                continue;
+            };
             let current_name = device.name();
             let current_fp = device.fingerprint();
             let mut updated_settings = device_settings.clone();
@@ -437,7 +446,7 @@ pub fn migrate_device_ids(
             {
                 if !priority_id.is_main_priority()
                     && !missing_by_type.iter().any(|m| m.id == priority_id)
-                    && backend.device_by_id(&priority_id).is_err()
+                    && !is_device_active(backend, &priority_id)
                 {
                     let recovered_fp = backend.device_fingerprint(&priority_id);
                     let name = recovered_fp
@@ -461,7 +470,7 @@ pub fn migrate_device_ids(
         for kind in [PriorityKind::Main, PriorityKind::Communication] {
             if let Some(temp_id) = temporary_priorities.get(device_type, kind)
                 && !missing_by_type.iter().any(|m| m.id == *temp_id)
-                && backend.device_by_id(temp_id).is_err()
+                && !is_device_active(backend, temp_id)
             {
                 let recovered_fp = backend.device_fingerprint(temp_id);
                 let name = recovered_fp
@@ -1121,5 +1130,56 @@ mod tests {
             Some(&DeviceId::from("g533_new_port"))
         );
         assert!(state.devices.is_empty());
+    }
+
+    #[test]
+    fn test_live_g533_exact_strings() {
+        let old_fp = build_fingerprint(
+            Some("Speakers (5- Logitech G533 Gaming Headset)".to_string()),
+            Some("Speakers".to_string()),
+            Some("5- Logitech G533 Gaming Headset".to_string()),
+            Some("USB".to_string()),
+            Some("{B34D6196-D262-11F1-AFAE-64BC581DA843}".to_string()),
+            Some(1),
+            Some(r"{1}.USB\VID_046D&PID_0A66&MI_00\9&247E1D72&0&0000".to_string()),
+        );
+        let new_fp = build_fingerprint(
+            Some("Speakers (2- Logitech G533 Gaming Headset)".to_string()),
+            Some("Speakers".to_string()),
+            Some("2- Logitech G533 Gaming Headset".to_string()),
+            Some("USB".to_string()),
+            Some("{55C790CC-D25A-11F1-AFAE-64BC581DA843}".to_string()),
+            Some(1),
+            Some(r"{1}.USB\VID_046D&PID_0A66&MI_00\9&279C0F32&0&0000".to_string()),
+        );
+
+        println!("OLD FP: {old_fp:#?}");
+        println!("NEW FP: {new_fp:#?}");
+
+        let old_inactive_dev = MockDevice::new(
+            "{0.0.0.00000000}.{ce699537-6ac9-4b42-a0f2-dd7965a73d4b}",
+            "Speakers (5- Logitech G533 Gaming Headset)",
+            false,
+        )
+        .with_fingerprint(old_fp);
+
+        let new_dev = MockDevice::new(
+            "{0.0.0.00000000}.{06caeba9-45a3-4c97-a1d3-25fb7b2871fe}",
+            "Speakers (2- Logitech G533 Gaming Headset)",
+            true,
+        )
+        .with_fingerprint(new_fp);
+        let backend = MockAudioBackend::new(vec![old_inactive_dev, new_dev]);
+
+        let mut state = PersistentState::default();
+        let mut temp = TemporaryPriorities::default();
+        temp.set(
+            DeviceType::Output,
+            PriorityKind::Main,
+            Some("{0.0.0.00000000}.{ce699537-6ac9-4b42-a0f2-dd7965a73d4b}".into()),
+        );
+
+        let result = super::migrate_device_ids(&backend, &mut state, &mut temp);
+        assert!(result.state_changed, "Migration should have succeeded!");
     }
 }
