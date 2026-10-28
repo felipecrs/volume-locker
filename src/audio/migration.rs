@@ -366,8 +366,15 @@ fn matches_tier(missing: &MissingDevice, candidate: &ActiveCandidate, tier: Matc
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct MigrationResult {
-    pub state_changed: bool,
+    pub persistent_changed: bool,
     pub migrated_device_names: Vec<String>,
+}
+
+impl MigrationResult {
+    #[cfg(test)]
+    pub fn has_migrations(&self) -> bool {
+        !self.migrated_device_names.is_empty()
+    }
 }
 
 fn is_device_active(backend: &impl AudioBackend, id: &DeviceId) -> bool {
@@ -381,7 +388,7 @@ pub fn migrate_device_ids(
     persistent_state: &mut PersistentState,
     temporary_priorities: &mut TemporaryPriorities,
 ) -> MigrationResult {
-    let mut state_changed = false;
+    let mut persistent_changed = false;
     let mut migrated_device_names: Vec<String> = Vec::new();
     let mut devices_to_update: Vec<(DeviceId, DeviceSettings)> = Vec::new();
     let mut missing_by_type: Vec<MissingDevice> = Vec::new();
@@ -434,7 +441,7 @@ pub fn migrate_device_ids(
 
     for (device_id, updated_settings) in devices_to_update {
         persistent_state.insert_device(device_id, updated_settings);
-        state_changed = true;
+        persistent_changed = true;
     }
 
     // Also include any disconnected devices in priority lists not tracked in persistent_state.devices
@@ -490,7 +497,7 @@ pub fn migrate_device_ids(
 
     if missing_by_type.is_empty() {
         return MigrationResult {
-            state_changed,
+            persistent_changed,
             migrated_device_names,
         };
     }
@@ -586,12 +593,14 @@ pub fn migrate_device_ids(
                 if persistent_state.devices.contains_key(&old_device_id) {
                     persistent_state.remove_device(&old_device_id);
                     persistent_state.insert_device(new_device_id.clone(), new_settings);
+                    persistent_changed = true;
                 }
 
                 for kind in [PriorityKind::Main, PriorityKind::Communication] {
                     let priority_list = persistent_state.priority_list_of_mut(device_type, kind);
                     if let Some(pos) = priority_list.iter().position(|id| id == &old_device_id) {
                         priority_list[pos] = new_device_id.clone();
+                        persistent_changed = true;
                     }
                 }
 
@@ -602,21 +611,22 @@ pub fn migrate_device_ids(
                     missing.settings.name
                 );
                 migrated_device_names.push(missing.settings.name.clone());
-                state_changed = true;
             }
         }
 
         for m in missing_devices {
-            log::warn!(
-                "Device {} with ID {} could not be found, keeping it in case it returns",
-                m.settings.name,
-                m.id
-            );
+            if persistent_state.devices.contains_key(&m.id) {
+                log::debug!(
+                    "Device {} with ID {} could not be found, keeping it in case it returns",
+                    m.settings.name,
+                    m.id
+                );
+            }
         }
     }
 
     MigrationResult {
-        state_changed,
+        persistent_changed,
         migrated_device_names,
     }
 }
@@ -725,7 +735,7 @@ mod tests {
         );
 
         let result = migrate_device_ids(&backend, &mut state);
-        assert!(!result.state_changed);
+        assert!(!result.persistent_changed);
         assert!(state.devices.contains_key("id1"));
         assert!(state.devices.contains_key("id2"));
     }
@@ -746,7 +756,7 @@ mod tests {
         );
 
         let result = migrate_device_ids(&backend, &mut state);
-        assert!(result.state_changed);
+        assert!(result.persistent_changed);
         assert_eq!(state.devices["id1"].name, "New Speaker Name");
         assert_eq!(state.devices["id1"].fingerprint, Some(fp));
     }
@@ -762,7 +772,7 @@ mod tests {
         state.output.priority_list = vec!["id_old".into()];
 
         let result = migrate_device_ids(&backend, &mut state);
-        assert!(result.state_changed);
+        assert!(result.persistent_changed);
         assert_eq!(result.migrated_device_names, vec!["Speakers"]);
         assert!(!state.devices.contains_key("id_old"));
         assert!(state.devices.contains_key("id_new"));
@@ -795,7 +805,7 @@ mod tests {
         state.output.priority_list = vec!["bth_old_id".into()];
 
         let result = migrate_device_ids(&backend, &mut state);
-        assert!(result.state_changed);
+        assert!(result.persistent_changed);
         assert_eq!(result.migrated_device_names, vec!["Old Buds2 Name"]);
         assert!(!state.devices.contains_key("bth_old_id"));
         assert!(state.devices.contains_key("bth_new_id"));
@@ -831,7 +841,7 @@ mod tests {
 
         let result = migrate_device_ids(&backend, &mut state);
         // Should NOT migrate stereo headphones onto hands-free headset!
-        assert!(!result.state_changed);
+        assert!(!result.persistent_changed);
         assert!(state.devices.contains_key("bth_a2dp_old"));
         assert!(!state.devices.contains_key("bth_hfp_id"));
     }
@@ -865,7 +875,7 @@ mod tests {
         state.devices.insert("usb_old_port_id".into(), settings);
 
         let result = migrate_device_ids(&backend, &mut state);
-        assert!(result.state_changed);
+        assert!(result.persistent_changed);
         assert_eq!(result.migrated_device_names, vec!["Logitech G533"]);
         assert!(!state.devices.contains_key("usb_old_port_id"));
         assert!(state.devices.contains_key("usb_new_port_id"));
@@ -907,7 +917,7 @@ mod tests {
         state.input.priority_list = vec!["mic_port1".into()];
 
         let result = migrate_device_ids(&backend, &mut state);
-        assert!(result.state_changed);
+        assert!(result.persistent_changed);
         assert_eq!(result.migrated_device_names, vec!["Logitech C930e"]);
         assert!(!state.devices.contains_key("mic_port1"));
         assert!(state.devices.contains_key("mic_port2"));
@@ -941,7 +951,7 @@ mod tests {
         state.devices.insert("internal_jack".into(), settings);
 
         let result = migrate_device_ids(&backend, &mut state);
-        assert!(!result.state_changed);
+        assert!(!result.persistent_changed);
         assert!(state.devices.contains_key("internal_jack"));
         assert!(!state.devices.contains_key("usb_soundbar"));
     }
@@ -973,7 +983,7 @@ mod tests {
 
         let result = migrate_device_ids(&backend, &mut state);
         // Ambiguous match (1 missing vs 2 candidates) must be rejected
-        assert!(!result.state_changed);
+        assert!(!result.persistent_changed);
         assert!(state.devices.contains_key("mic_old_id"));
     }
 
@@ -1006,7 +1016,7 @@ mod tests {
         state.devices.insert("old_bth_id".into(), settings);
 
         let result = migrate_device_ids(&backend, &mut state);
-        assert!(result.state_changed);
+        assert!(result.persistent_changed);
         assert_eq!(result.migrated_device_names, vec!["Galaxy Buds"]);
         assert!(!state.devices.contains_key("old_bth_id"));
         assert!(state.devices.contains_key("new_bth_id"));
@@ -1022,7 +1032,7 @@ mod tests {
         );
 
         let result = migrate_device_ids(&backend, &mut state);
-        assert!(!result.state_changed);
+        assert!(!result.persistent_changed);
         assert!(state.devices.contains_key("id_gone"));
     }
 
@@ -1039,7 +1049,7 @@ mod tests {
         state.input.priority_list = vec!["mic_old".into()];
 
         let result = migrate_device_ids(&backend, &mut state);
-        assert!(result.state_changed);
+        assert!(result.persistent_changed);
         assert!(state.devices.contains_key("mic_new"));
         assert_eq!(state.input.priority_list, vec!["mic_new"]);
     }
@@ -1056,7 +1066,7 @@ mod tests {
         state.output.communication_priority_list = vec!["id_old".into()];
 
         let result = migrate_device_ids(&backend, &mut state);
-        assert!(result.state_changed);
+        assert!(result.persistent_changed);
         assert_eq!(state.output.priority_list, vec!["id_new".to_string()]);
         assert_eq!(
             state.output.communication_priority_list,
@@ -1085,7 +1095,7 @@ mod tests {
         );
 
         let result = super::migrate_device_ids(&backend, &mut state, &mut temp);
-        assert!(result.state_changed);
+        assert!(result.persistent_changed);
         assert_eq!(
             temp.get(DeviceType::Output, PriorityKind::Main),
             Some(&DeviceId::from("id_new"))
@@ -1124,7 +1134,8 @@ mod tests {
         );
 
         let result = super::migrate_device_ids(&backend, &mut state, &mut temp);
-        assert!(result.state_changed);
+        assert!(!result.persistent_changed);
+        assert!(result.has_migrations());
         assert_eq!(
             temp.get(DeviceType::Output, PriorityKind::Main),
             Some(&DeviceId::from("g533_new_port"))
@@ -1180,6 +1191,6 @@ mod tests {
         );
 
         let result = super::migrate_device_ids(&backend, &mut state, &mut temp);
-        assert!(result.state_changed, "Migration should have succeeded!");
+        assert!(result.has_migrations(), "Migration should have succeeded!");
     }
 }

@@ -103,7 +103,7 @@ impl AppState {
             &mut self.temporary_priorities,
         );
 
-        if result.state_changed {
+        if result.persistent_changed {
             if let Err(e) = save_state(&self.persistent_state) {
                 log_and_notify_error(
                     "Failed to Save State",
@@ -112,15 +112,15 @@ impl AppState {
             } else {
                 log::info!("Saved state after device migration");
             }
+        }
 
-            if self.persistent_state.notify_on_device_migration {
-                for name in result.migrated_device_names {
-                    self.notification_throttler.send_if_not_throttled(
-                        &format!("migration_{name}"),
-                        "Device Settings Transferred",
-                        &format!("Settings for '{name}' were transferred to its new connection."),
-                    );
-                }
+        if self.persistent_state.notify_on_device_migration {
+            for name in result.migrated_device_names {
+                self.notification_throttler.send_if_not_throttled(
+                    &format!("migration_{name}"),
+                    "Device Settings Transferred",
+                    &format!("Settings for '{name}' were transferred to its new connection."),
+                );
             }
         }
     }
