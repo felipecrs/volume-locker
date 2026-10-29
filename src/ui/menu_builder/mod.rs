@@ -8,32 +8,9 @@ use crate::config::PersistentState;
 use crate::types::{DeviceId, DeviceType, TemporaryPriorities, VolumePercent};
 use crate::update::UpdateInfo;
 use std::collections::HashMap;
-use tray_icon::menu::{
-    CheckMenuItem, IsMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu,
-};
+use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem};
 
 use super::MenuIdMap;
-
-/// Lets menu-building helpers append to either the root [`Menu`] or a nested
-/// [`Submenu`]. `muda` exposes `append` on both types but not through a shared
-/// trait, so this thin wrapper stands in for one.
-pub(super) trait MenuContainer {
-    fn add(&self, item: &dyn IsMenuItem) -> anyhow::Result<()>;
-}
-
-impl MenuContainer for Menu {
-    fn add(&self, item: &dyn IsMenuItem) -> anyhow::Result<()> {
-        self.append(item)?;
-        Ok(())
-    }
-}
-
-impl MenuContainer for Submenu {
-    fn add(&self, item: &dyn IsMenuItem) -> anyhow::Result<()> {
-        self.append(item)?;
-        Ok(())
-    }
-}
 
 use device_section::append_device_list_to_menu;
 use priority_section::{append_priority_list_to_menu, append_temporary_priority_section};
@@ -41,17 +18,15 @@ use priority_section::{append_priority_list_to_menu, append_temporary_priority_s
 pub struct DeviceDisplayInfo<'a> {
     pub name: &'a str,
     pub volume_percent: VolumePercent,
-    pub is_default: bool,
     pub is_locked: bool,
     pub is_muted: bool,
 }
 
 pub fn format_device_menu_label(info: &DeviceDisplayInfo) -> String {
-    let default_indicator = if info.is_default { " · ☆" } else { "" };
     let locked_indicator = if info.is_locked { " · 🔒" } else { "" };
     let muted_indicator = if info.is_muted { " 🚫" } else { "" };
     format!(
-        "{}{default_indicator} · {}%{muted_indicator}{locked_indicator}",
+        "{} · {}%{muted_indicator}{locked_indicator}",
         info.name, info.volume_percent
     )
 }
@@ -108,8 +83,8 @@ fn lookup_device_name(
         match backend.device_by_id(device_id) {
             Ok(d) => d.name(),
             Err(e) => {
-                log::warn!("Failed to look up device name for {device_id}: {e:#}");
-                "Unknown Device".to_string()
+                log::info!("Device {device_id} is not connected for name lookup: {e:#}");
+                device_id.to_string()
             }
         }
     }
@@ -118,6 +93,7 @@ fn lookup_device_name(
 pub struct TrayMenuItems<'a> {
     pub auto_launch_check: &'a CheckMenuItem,
     pub check_updates_on_launch: &'a CheckMenuItem,
+    pub notify_on_device_migration: &'a CheckMenuItem,
     pub quit: &'a MenuItem,
     pub output_devices_heading: &'a MenuItem,
     pub input_devices_heading: &'a MenuItem,
@@ -170,13 +146,11 @@ pub fn rebuild_tray_menu(
     tray_menu.append(&PredefinedMenuItem::separator())?;
 
     for device_type in [DeviceType::Output, DeviceType::Input] {
-        let temporary_priority = ctx.temporary_priorities.get(device_type);
         append_priority_list_to_menu(
             tray_menu,
             device_type,
             ctx.backend,
             ctx.persistent_state,
-            temporary_priority,
             &mut map,
         )?;
     }
@@ -232,6 +206,18 @@ fn append_preferences_section(
         },
     );
     tray_menu.append(items.check_updates_on_launch)?;
+
+    items
+        .notify_on_device_migration
+        .set_checked(persistent_state.notify_on_device_migration);
+    map.insert(
+        items.notify_on_device_migration.id().clone(),
+        MenuItemInfo {
+            name: "Notify on device migration".to_string(),
+            action: MenuAction::App(AppAction::ToggleNotifyOnDeviceMigration),
+        },
+    );
+    tray_menu.append(items.notify_on_device_migration)?;
     tray_menu.append(&PredefinedMenuItem::separator())?;
 
     Ok(())

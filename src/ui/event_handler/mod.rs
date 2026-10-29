@@ -68,6 +68,11 @@ fn apply_device_lock_toggle(
         device_name.to_string(),
         device_type,
     );
+    if device_settings.fingerprint.is_none()
+        && let Ok(device) = backend.device_by_id(device_id)
+    {
+        device_settings.fingerprint = device.fingerprint();
+    }
 
     match action {
         DeviceAction::VolumeLock => {
@@ -75,7 +80,9 @@ fn apply_device_lock_toggle(
                 if let Ok(device) = backend.device_by_id(device_id)
                     && let Ok(vol) = device.volume()
                 {
-                    device_settings.volume_lock.target_percent = vol.to_percent();
+                    let percent = vol.to_percent();
+                    log::info!("User locked volume of '{device_name}' to {percent}%");
+                    device_settings.volume_lock.target_percent = percent;
                     device_settings.volume_lock.is_locked = true;
                 } else {
                     log_and_notify_error(
@@ -85,16 +92,20 @@ fn apply_device_lock_toggle(
                     device_settings.volume_lock.is_locked = false;
                 }
             } else {
+                log::info!("User unlocked volume of '{device_name}'");
                 device_settings.volume_lock.is_locked = false;
             }
         }
         DeviceAction::VolumeLockNotify => {
+            log::info!("User set 'Notify on volume lock' for '{device_name}' to {is_checked}");
             device_settings.volume_lock.notify = is_checked;
         }
         DeviceAction::UnmuteLock => {
+            log::info!("User set 'Keep unmuted' for '{device_name}' to {is_checked}");
             device_settings.unmute_lock.is_locked = is_checked;
         }
         DeviceAction::UnmuteLockNotify => {
+            log::info!("User set 'Notify on unmute lock' for '{device_name}' to {is_checked}");
             device_settings.unmute_lock.notify = is_checked;
         }
         _ => {}
@@ -109,17 +120,41 @@ fn handle_priority_event(
     persistent_state: &mut PersistentState,
 ) -> bool {
     match action {
-        DeviceAction::AddToPriority(kind) => {
+        DeviceAction::AddToPriorityTop(kind) => {
+            let list = persistent_state.priority_list_of_mut(device_type, *kind);
+            if list.iter().any(|x| *x == **device_id) {
+                false
+            } else {
+                list.insert(0, device_id.clone());
+                log::info!(
+                    "User added '{device_name}' to top of {device_type} {kind} priority list"
+                );
+                if !device_id.is_main_priority() {
+                    persistent_state.ensure_device_settings(
+                        device_id.clone(),
+                        device_name.to_string(),
+                        device_type,
+                    );
+                }
+                true
+            }
+        }
+        DeviceAction::AddToPriorityBottom(kind) => {
             let list = persistent_state.priority_list_of_mut(device_type, *kind);
             if list.iter().any(|x| *x == **device_id) {
                 false
             } else {
                 list.push(device_id.clone());
-                persistent_state.ensure_device_settings(
-                    device_id.clone(),
-                    device_name.to_string(),
-                    device_type,
+                log::info!(
+                    "User added '{device_name}' to bottom of {device_type} {kind} priority list"
                 );
+                if !device_id.is_main_priority() {
+                    persistent_state.ensure_device_settings(
+                        device_id.clone(),
+                        device_name.to_string(),
+                        device_type,
+                    );
+                }
                 true
             }
         }
@@ -127,6 +162,7 @@ fn handle_priority_event(
             let list = persistent_state.priority_list_of_mut(device_type, *kind);
             if let Some(pos) = list.iter().position(|x| x == device_id) {
                 list.remove(pos);
+                log::info!("User removed '{device_name}' from {device_type} {kind} priority list");
                 persistent_state.remove_device_if_unused(device_id);
                 true
             } else {
@@ -137,7 +173,11 @@ fn handle_priority_event(
         | DeviceAction::MovePriorityDown(kind)
         | DeviceAction::MovePriorityToTop(kind)
         | DeviceAction::MovePriorityToBottom(kind) => {
-            move_priority_item(action, device_id, device_type, *kind, persistent_state)
+            let moved = move_priority_item(action, device_id, device_type, *kind, persistent_state);
+            if moved {
+                log::info!("User reordered '{device_name}' in {device_type} {kind} priority list");
+            }
+            moved
         }
         _ => false,
     }
@@ -234,7 +274,8 @@ fn handle_device_event(
                 MenuEventResult::NoChange
             }
         }
-        DeviceAction::AddToPriority(_)
+        DeviceAction::AddToPriorityTop(_)
+        | DeviceAction::AddToPriorityBottom(_)
         | DeviceAction::RemoveFromPriority(_)
         | DeviceAction::MovePriorityUp(_)
         | DeviceAction::MovePriorityDown(_)
@@ -247,15 +288,29 @@ fn handle_device_event(
                 device_name,
                 ctx.persistent_state,
             ) {
+                if let Some(s) = ctx.persistent_state.device_settings_mut(device_id)
+                    && s.fingerprint.is_none()
+                    && let Ok(dev) = ctx.backend.device_by_id(device_id)
+                {
+                    s.fingerprint = dev.fingerprint();
+                }
                 MenuEventResult::SaveConfig
             } else {
                 MenuEventResult::NoChange
             }
         }
-        DeviceAction::SetTemporaryPriority => {
+        DeviceAction::SetTemporaryPriority(kind) => {
             let is_checked = get_check_item_state(ctx.tray_menu, &event.id).unwrap_or(false);
+            if is_checked {
+                log::info!(
+                    "User set temporary {device_type} {kind} priority: '{device_name}' ({device_id})"
+                );
+            } else {
+                log::info!("User cleared temporary {device_type} {kind} priority");
+            }
             ctx.temporary_priorities.set(
                 device_type,
+                *kind,
                 if is_checked {
                     Some(device_id.clone())
                 } else {
@@ -293,16 +348,13 @@ fn handle_preference_event(
     ctx: &mut MenuEventContext<'_, impl AudioBackend>,
 ) -> MenuEventResult {
     match action {
-        PreferenceAction::PriorityRestoreNotify => {
+        PreferenceAction::PriorityRestoreNotify(kind) => {
             with_check_state(ctx.tray_menu, &event.id, |checked| {
+                log::info!(
+                    "User toggled 'Notify on restore' for {device_type} {kind} to {checked}"
+                );
                 ctx.persistent_state
-                    .set_notify_on_priority_restore(device_type, checked);
-            })
-        }
-        PreferenceAction::SwitchCommunicationDevice => {
-            with_check_state(ctx.tray_menu, &event.id, |checked| {
-                ctx.persistent_state
-                    .set_switch_communication_device(device_type, checked);
+                    .set_notify_on_priority_restore_of(device_type, *kind, checked);
             })
         }
         PreferenceAction::OpenDevicesList => {
@@ -348,6 +400,7 @@ fn handle_app_event(
         }
         AppAction::ToggleAutoLaunch => {
             if let Some(checked) = get_check_item_state(ctx.tray_menu, &event.id) {
+                log::info!("User toggled auto-launch to {checked}");
                 MenuEventResult::ToggleAutoLaunch(checked)
             } else {
                 MenuEventResult::NoChange
@@ -355,7 +408,14 @@ fn handle_app_event(
         }
         AppAction::ToggleCheckUpdatesOnLaunch => {
             with_check_state(ctx.tray_menu, &event.id, |checked| {
+                log::info!("User toggled 'Check updates on launch' to {checked}");
                 ctx.persistent_state.check_updates_on_launch = checked;
+            })
+        }
+        AppAction::ToggleNotifyOnDeviceMigration => {
+            with_check_state(ctx.tray_menu, &event.id, |checked| {
+                log::info!("User toggled 'Notify on device migration' to {checked}");
+                ctx.persistent_state.notify_on_device_migration = checked;
             })
         }
         AppAction::OpenAppDirectory => {

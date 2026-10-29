@@ -17,13 +17,14 @@ pub enum DeviceAction {
     VolumeLockNotify,
     UnmuteLock,
     UnmuteLockNotify,
-    AddToPriority(PriorityKind),
+    AddToPriorityTop(PriorityKind),
+    AddToPriorityBottom(PriorityKind),
     RemoveFromPriority(PriorityKind),
     MovePriorityUp(PriorityKind),
     MovePriorityDown(PriorityKind),
     MovePriorityToTop(PriorityKind),
     MovePriorityToBottom(PriorityKind),
-    SetTemporaryPriority,
+    SetTemporaryPriority(PriorityKind),
     SetPresenceSource(PresenceSource),
     OpenProperties,
     OpenSettings,
@@ -31,8 +32,7 @@ pub enum DeviceAction {
 
 #[derive(Debug)]
 pub enum PreferenceAction {
-    PriorityRestoreNotify,
-    SwitchCommunicationDevice,
+    PriorityRestoreNotify(PriorityKind),
     OpenDevicesList,
 }
 
@@ -46,6 +46,7 @@ pub enum AppAction {
     OpenAppDirectory,
     ToggleAutoLaunch,
     ToggleCheckUpdatesOnLaunch,
+    ToggleNotifyOnDeviceMigration,
 }
 
 #[derive(Debug)]
@@ -61,6 +62,18 @@ pub enum MenuAction {
     },
     App(AppAction),
 }
+
+#[cfg(target_os = "windows")]
+pub fn dismiss_tray_menu(hwnd: isize) {
+    const WM_CANCELMODE: u32 = 0x001F;
+    windows_core::link!("user32.dll" "system" fn PostMessageW(hwnd: *mut std::ffi::c_void, msg: u32, wparam: usize, lparam: isize) -> windows_core::BOOL);
+    unsafe {
+        let _ = PostMessageW(hwnd as *mut std::ffi::c_void, WM_CANCELMODE, 0, 0);
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn dismiss_tray_menu(_hwnd: isize) {}
 
 #[derive(Debug)]
 pub struct MenuItemInfo {

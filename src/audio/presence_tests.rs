@@ -2,7 +2,7 @@ use super::tests::{MockAudioBackend, MockDevice};
 use super::{enforce_priorities, migrate_device_ids, presence::HeadsetPresence};
 use crate::config::PersistentState;
 use crate::notification::NotificationThrottler;
-use crate::types::{DeviceType, PresenceSource, TemporaryPriorities};
+use crate::types::{DeviceType, PresenceSource, PriorityKind, TemporaryPriorities};
 
 fn setup(device_type: DeviceType) -> (MockAudioBackend, PersistentState) {
     let mut headset = MockDevice::new("headset", "Wireless headset", true);
@@ -23,7 +23,7 @@ fn input_and_output_fall_back_on_power_off_and_restore_on_power_on() {
     for device_type in [DeviceType::Output, DeviceType::Input] {
         let (backend, state) = setup(device_type);
         let mut temp = TemporaryPriorities::default();
-        temp.set(device_type, Some("headset".into()));
+        temp.set(device_type, PriorityKind::Main, Some("headset".into()));
         for (presence, expected) in [
             (HeadsetPresence::Unknown, "headset"),
             (HeadsetPresence::Unavailable, "fallback"),
@@ -48,7 +48,6 @@ fn independent_communication_priorities_follow_presence_without_a_main_list() {
         *state.communication_priority_list_mut(device_type) =
             vec!["headset".into(), "fallback".into()];
         state.priority_list_mut(device_type).clear();
-        state.set_switch_communication_device(device_type, false);
         backend.set_default("fallback", device_type);
         for (presence, expected) in [
             (HeadsetPresence::Unknown, "headset"),
@@ -121,7 +120,13 @@ fn presence_settings_roundtrip_and_survive_endpoint_migration_and_cleanup() {
         "Wireless headset",
         true,
     )]);
-    assert!(migrate_device_ids(&backend, &mut loaded));
+    let result = migrate_device_ids(
+        &backend,
+        &mut loaded,
+        &mut TemporaryPriorities::default(),
+        &std::collections::HashMap::new(),
+    );
+    assert!(result.persistent_changed);
     assert_eq!(
         loaded.devices["new_headset"].presence_source,
         PresenceSource::AstroA50X
