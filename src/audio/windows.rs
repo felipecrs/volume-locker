@@ -444,18 +444,20 @@ impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
         dev_id: &PCWSTR,
         key: &PROPERTYKEY,
     ) -> windows_core::Result<()> {
-        // Only react when an endpoint's name changes (e.g. user renamed the device in Windows
-        // Sound Settings, which edits PKEY_Device_DeviceDesc; the friendly name is derived from
-        // it). Other property updates (internal routing, formats, volume, Bluetooth
-        // battery/telemetry) fire continuously and must be ignored.
-        if *key == PKEY_Device_DeviceDesc
-            || *key == PKEY_Device_FriendlyName
-            || *key == PKEY_ENDPOINT_ICON_PATH
-        {
-            let id = pcwstr_to_device_id(dev_id);
-            if !id.is_empty() {
-                (self.callback)(DeviceChangeSource::DeviceRenamed(id));
-            }
+        // Only react when an endpoint's name or icon changes (e.g. user edited the device in
+        // Windows Sound Settings; a rename edits PKEY_Device_DeviceDesc, from which the friendly
+        // name is derived). Other property updates (internal routing, formats, volume,
+        // Bluetooth battery/telemetry) fire continuously and must be ignored.
+        let source = if *key == PKEY_Device_DeviceDesc || *key == PKEY_Device_FriendlyName {
+            DeviceChangeSource::DeviceRenamed
+        } else if *key == PKEY_ENDPOINT_ICON_PATH {
+            DeviceChangeSource::DeviceIconChanged
+        } else {
+            return Ok(());
+        };
+        let id = pcwstr_to_device_id(dev_id);
+        if !id.is_empty() {
+            (self.callback)(source(id));
         }
         Ok(())
     }

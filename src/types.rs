@@ -370,6 +370,7 @@ pub enum DeviceChangeSource {
     DeviceStateChanged(DeviceId, u32),
     DefaultDeviceChanged(DeviceId, String, String),
     DeviceRenamed(DeviceId),
+    DeviceIconChanged(DeviceId),
     PowerResume,
     UserAction,
 }
@@ -408,6 +409,10 @@ impl DeviceChangeSource {
             Self::DeviceRenamed(id) => {
                 let name = get_name(id);
                 format!("Device renamed: '{name}' ({id})")
+            }
+            Self::DeviceIconChanged(id) => {
+                let name = get_name(id);
+                format!("Device icon changed: '{name}' ({id})")
             }
             Self::PowerResume => "System resume from sleep".to_string(),
             Self::UserAction => "User menu action".to_string(),
