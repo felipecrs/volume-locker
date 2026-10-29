@@ -274,10 +274,10 @@ impl AudioBackend for WindowsAudioBackend {
     fn restore_device_properties(
         &self,
         id: &DeviceId,
-        friendly_name: Option<&str>,
+        endpoint_name: Option<&str>,
         icon_path: Option<&str>,
     ) -> anyhow::Result<()> {
-        if friendly_name.is_none() && icon_path.is_none() {
+        if endpoint_name.is_none() && icon_path.is_none() {
             return Ok(());
         }
 
@@ -292,11 +292,11 @@ impl AudioBackend for WindowsAudioBackend {
         let wide_id = encode_wide_null(id);
         let mut errors = Vec::new();
 
-        if let Some(name) = friendly_name
+        if let Some(name) = endpoint_name
             && let Err(e) =
-                set_policy_config_string(&policy_config, &wide_id, &PKEY_Device_FriendlyName, name)
+                set_policy_config_string(&policy_config, &wide_id, &PKEY_Device_DeviceDesc, name)
         {
-            errors.push(format!("friendly name: {e:#}"));
+            errors.push(format!("endpoint name: {e:#}"));
         }
         if let Some(path) = icon_path
             && let Err(e) = set_policy_config_string(

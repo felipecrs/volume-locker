@@ -6,7 +6,7 @@ This document describes how Volume Locker carries a user's Windows-assigned audi
 
 Windows associates endpoint properties with an audio endpoint ID. When Windows creates a replacement endpoint for the same physical device, the new endpoint may have a different ID and default properties. Once the device-ID migration matcher has made an unambiguous match, Volume Locker attempts to carry over:
 
-- The custom endpoint name from `PKEY_Device_FriendlyName`.
+- The endpoint name from `PKEY_Device_DeviceDesc`. This is the property Windows edits when the user renames an endpoint in Sound settings; `PKEY_Device_FriendlyName` is computed as `"{DeviceDesc} ({InterfaceName})"` and is not stored.
 - The endpoint logo URI from `PKEY_AudioEndpointLogo_IconPath`.
 
 The logo property is a URI, commonly a resource specifier such as `@driverresource.dll,-200`; Volume Locker migrates that reference, not the image bytes or the driver resource itself.
@@ -23,16 +23,18 @@ flowchart LR
     MATCH -->|Volume, mute, and priority settings| STATE[Persistent state under new ID]
 ```
 
-`DeviceFingerprint` holds the raw custom name and logo URI in addition to the hardware identity used by the matcher. It is saved with each device's settings and also included in the in-memory device cache. Thus the source properties can still be available after Windows has removed the old endpoint, including when a Bluetooth device is unpaired. The existing recovery order remains unchanged: saved fingerprint, in-memory cache, then a property-store lookup for the old endpoint.
+Volume Locker does not decide whether a name or logo is custom. Whenever a tracked device is seen, its current `PKEY_Device_DeviceDesc` (`hardware_desc`) and logo URI are stored in its `DeviceFingerprint`, so the last seen values are always available. On migration they are restored as-is; a value is only written when it differs from the new endpoint's current value.
 
-The custom name is kept in its raw Windows form for writing back to the endpoint; the existing cleaned `DeviceSettings.name` remains the user-facing name used by Volume Locker. For older saved state that has `is_custom_name` but no raw custom name, migration falls back to the saved device name. Older state without a fingerprint remains valid because the new fingerprint fields are optional and default to absent.
+`DeviceFingerprint` holds the raw endpoint name and logo URI in addition to the hardware identity used by the matcher. It is saved with each device's settings and also included in the in-memory device cache. Thus the source properties can still be available after Windows has removed the old endpoint, including when a Bluetooth device is unpaired. The existing recovery order remains unchanged: saved fingerprint, in-memory cache, then a property-store lookup for the old endpoint.
+
+The endpoint name is kept in its raw Windows form for writing back; the existing cleaned `DeviceSettings.name` remains the user-facing name used by Volume Locker. Older state without a fingerprint, or without a logo URI, remains valid because the fields are optional.
 
 ## Migration sequence
 
 1. Device change handling runs the existing fingerprint and six-tier ID matcher.
 2. The matcher rejects ambiguous pairs and excludes devices already claimed by current settings or priority lists.
-3. For an accepted pair, migration asks the Windows audio backend to restore whichever source custom properties are present on the new endpoint.
-4. The backend uses the existing Windows `IPolicyConfig` endpoint configuration interface to set the friendly name and/or logo URI as `VT_LPWSTR` values.
+3. For an accepted pair, migration asks the Windows audio backend to restore the last seen endpoint name and logo URI that differ from the new endpoint's.
+4. The backend uses the existing Windows `IPolicyConfig` endpoint configuration interface to set `PKEY_Device_DeviceDesc` and/or the logo URI as `VT_LPWSTR` values.
 5. The existing app-state migration moves device settings, persistent priorities, and temporary priorities to the new ID.
 
 This property restoration does not participate in matching and cannot cause an ambiguous migration to be accepted.

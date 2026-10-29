@@ -225,7 +225,9 @@ pub struct DeviceFingerprint {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bus_type: Option<DeviceBusType>,
 
-    /// Raw driver description from PKEY_Device_DeviceDesc (e.g. "Speakers", "LU28R55")
+    /// Raw endpoint name from PKEY_Device_DeviceDesc (e.g. "Speakers", "LU28R55"). This is the
+    /// property Windows edits when the user renames an endpoint, and it is re-applied to the new
+    /// endpoint after a device ID migration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hardware_desc: Option<String>,
 
@@ -240,11 +242,6 @@ pub struct DeviceFingerprint {
     /// True if PKEY_Device_FriendlyName differed from default template at registration
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_custom_name: bool,
-
-    /// Raw PKEY_Device_FriendlyName value when the device has a user-assigned custom name.
-    /// Stored so it can be re-applied to a new endpoint after a device ID migration.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub custom_name: Option<String>,
 
     /// PKEY_AudioEndpointLogo_IconPath value, when present.
     #[serde(default, skip_serializing_if = "Option::is_none")]

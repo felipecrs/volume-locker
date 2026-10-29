@@ -160,19 +160,12 @@ pub(crate) fn build_fingerprint(
         _ => None,
     };
 
-    let custom_name = if is_custom_name {
-        friendly_name.clone()
-    } else {
-        None
-    };
-
     DeviceFingerprint {
         bus_type,
         hardware_desc,
         interface_name,
         clean_original_name,
         is_custom_name,
-        custom_name,
         custom_icon_path: None,
         mac_address,
         usb_vid_pid,
@@ -635,22 +628,35 @@ pub fn migrate_device_ids(
                 new_settings.name = candidate.name;
 
                 let old_fingerprint = missing.fingerprint.as_ref();
-                let custom_name = old_fingerprint
-                    .and_then(|fingerprint| fingerprint.custom_name.as_deref())
-                    .or_else(|| {
-                        old_fingerprint
-                            .is_some_and(|fingerprint| fingerprint.is_custom_name)
-                            .then_some(missing.settings.name.as_str())
-                    });
-                let custom_icon_path =
-                    old_fingerprint.and_then(|fingerprint| fingerprint.custom_icon_path.as_deref());
-
+                // The last seen endpoint name and icon are always restored; there is no
+                // attempt to decide whether they were customized by the user.
                 let mut migrated_fingerprint = candidate.fingerprint;
-                let properties_restored = if custom_name.is_some() || custom_icon_path.is_some() {
+                let differs = |old: Option<&str>, new: Option<&str>| old.is_some() && old != new;
+                let endpoint_name = old_fingerprint
+                    .and_then(|fingerprint| fingerprint.hardware_desc.as_deref())
+                    .filter(|old| {
+                        differs(
+                            Some(old),
+                            migrated_fingerprint
+                                .as_ref()
+                                .and_then(|fp| fp.hardware_desc.as_deref()),
+                        )
+                    });
+                let icon_path = old_fingerprint
+                    .and_then(|fingerprint| fingerprint.custom_icon_path.as_deref())
+                    .filter(|old| {
+                        differs(
+                            Some(old),
+                            migrated_fingerprint
+                                .as_ref()
+                                .and_then(|fp| fp.custom_icon_path.as_deref()),
+                        )
+                    });
+                let properties_restored = if endpoint_name.is_some() || icon_path.is_some() {
                     match backend.restore_device_properties(
                         &new_device_id,
-                        custom_name,
-                        custom_icon_path,
+                        endpoint_name,
+                        icon_path,
                     ) {
                         Ok(()) => true,
                         Err(e) => {
@@ -665,16 +671,15 @@ pub fn migrate_device_ids(
                 };
 
                 if properties_restored {
-                    if custom_name.is_some() {
+                    if endpoint_name.is_some() {
                         new_settings.name = missing.settings.name.clone();
                     }
                     if let Some(fingerprint) = migrated_fingerprint.as_mut() {
-                        if let Some(name) = custom_name {
-                            fingerprint.is_custom_name = true;
-                            fingerprint.custom_name = Some(name.to_string());
+                        if let Some(name) = endpoint_name {
+                            fingerprint.hardware_desc = Some(name.to_string());
                         }
-                        if let Some(icon_path) = custom_icon_path {
-                            fingerprint.custom_icon_path = Some(icon_path.to_string());
+                        if let Some(path) = icon_path {
+                            fingerprint.custom_icon_path = Some(path.to_string());
                         }
                     }
                 }
@@ -809,7 +814,6 @@ mod tests {
             Some(r"{1}.HDAUDIO\FUNC_01...".to_string()),
         );
         assert!(fp_custom.is_custom_name);
-        assert_eq!(fp_custom.custom_name.as_deref(), Some("My Custom Monitors"));
         assert_eq!(
             fp_custom.clean_original_name.as_deref(),
             Some("Speakers (Realtek(R) Audio)")
@@ -860,13 +864,12 @@ mod tests {
     }
 
     #[test]
-    fn migrate_restores_custom_endpoint_name_and_icon() {
+    fn migrate_restores_last_endpoint_name_and_icon() {
         let old_fingerprint = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
             usb_serial: Some("serial-123".to_string()),
-            is_custom_name: true,
-            custom_name: Some("Studio Headphones".to_string()),
+            hardware_desc: Some("G544".to_string()),
             custom_icon_path: Some("@C:\\icons\\headphones.dll,-101".to_string()),
             ..Default::default()
         };
@@ -874,14 +877,16 @@ mod tests {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
             usb_serial: Some("serial-123".to_string()),
+            hardware_desc: Some("G5443".to_string()),
             ..Default::default()
         };
         let backend = MockAudioBackend::new(vec![
-            MockDevice::new("new_endpoint", "Headphones (USB Audio)", true)
+            MockDevice::new("new_endpoint", "G5443 (Logitech G533 Gaming Headset)", true)
                 .with_fingerprint(new_fingerprint),
         ]);
         let mut state = PersistentState::default();
-        let mut settings = make_device_settings("Studio Headphones", DeviceType::Output);
+        let mut settings =
+            make_device_settings("G544 (Logitech G533 Gaming Headset)", DeviceType::Output);
         settings.fingerprint = Some(old_fingerprint);
         state.devices.insert("old_endpoint".into(), settings);
 
@@ -890,12 +895,9 @@ mod tests {
         assert!(result.persistent_changed);
         assert!(!state.devices.contains_key("old_endpoint"));
         let migrated = state.devices.get("new_endpoint").unwrap();
-        assert_eq!(migrated.name, "Studio Headphones");
+        assert_eq!(migrated.name, "G544 (Logitech G533 Gaming Headset)");
         let fingerprint = migrated.fingerprint.as_ref().unwrap();
-        assert_eq!(
-            fingerprint.custom_name.as_deref(),
-            Some("Studio Headphones")
-        );
+        assert_eq!(fingerprint.hardware_desc.as_deref(), Some("G544"));
         assert_eq!(
             fingerprint.custom_icon_path.as_deref(),
             Some("@C:\\icons\\headphones.dll,-101")
@@ -904,7 +906,7 @@ mod tests {
             backend.restored_properties.borrow().as_slice(),
             &[(
                 DeviceId::from("new_endpoint"),
-                Some("Studio Headphones".to_string()),
+                Some("G544".to_string()),
                 Some("@C:\\icons\\headphones.dll,-101".to_string()),
             )]
         );
@@ -916,14 +918,14 @@ mod tests {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
             usb_serial: Some("serial-123".to_string()),
-            is_custom_name: true,
-            custom_name: Some("Studio Headphones".to_string()),
+            hardware_desc: Some("Studio Headphones".to_string()),
             ..Default::default()
         };
         let new_fingerprint = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
             usb_serial: Some("serial-123".to_string()),
+            hardware_desc: Some("Headphones".to_string()),
             ..Default::default()
         };
         let mut backend = MockAudioBackend::new(vec![

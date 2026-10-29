@@ -127,7 +127,9 @@ classDiagram
 Windows derives the default friendly name from two driver properties:
 $$\text{Friendly Name} = \text{DeviceDesc} + \text{" ("} + \text{DeviceInterface\_FriendlyName} + \text{")"}$$
 
-When a user customizes a device name in Windows Sound Settings, Windows overrides only `PKEY_Device_FriendlyName`. The underlying descriptors remain untouched:
+> Note: registry inspection shows the name edited in Sound Settings is stored in `PKEY_Device_DeviceDesc` itself, so the comparison below cannot reliably detect a rename. `is_custom_name` is only a matching heuristic; property restoration ([Windows Audio Endpoint Property Migration](./device-property-migration.md)) does not depend on it.
+
+When a user customizes a device name in Windows Sound Settings, the friendly name no longer follows the default template:
 
 ```mermaid
 flowchart TD
