@@ -157,7 +157,7 @@ pub(crate) fn build_fingerprint(
     let clean_desc = hardware_desc.as_deref().map(clean_name_component);
     let clean_iface = interface_name.as_deref().map(clean_name_component);
 
-    let clean_original_name = match (clean_desc, clean_iface) {
+    let clean_name = match (clean_desc, clean_iface) {
         (Some(d), Some(i)) if !d.is_empty() && !i.is_empty() => Some(format!("{d} ({i})")),
         (Some(d), _) if !d.is_empty() => Some(d),
         (_, Some(i)) if !i.is_empty() => Some(i),
@@ -168,7 +168,7 @@ pub(crate) fn build_fingerprint(
         bus_type,
         hardware_desc,
         interface_name,
-        clean_original_name,
+        clean_name,
         custom_icon_path: None,
         mac_address,
         usb_vid_pid,
@@ -290,13 +290,6 @@ fn matches_tier(missing: &MissingDevice, candidate: &ActiveCandidate, tier: Matc
                 return false;
             }
 
-            if let (Some(m_desc), Some(c_desc)) =
-                (m.hardware_desc.as_deref(), c.hardware_desc.as_deref())
-                && m_desc != c_desc
-            {
-                return false;
-            }
-
             true
         }
         MatchTier::InternalHardwareProfile => {
@@ -323,10 +316,7 @@ fn matches_tier(missing: &MissingDevice, candidate: &ActiveCandidate, tier: Matc
             let Some(m) = m_fp else { return false };
             let Some(c) = c_fp else { return false };
 
-            match (
-                m.clean_original_name.as_deref(),
-                c.clean_original_name.as_deref(),
-            ) {
+            match (m.clean_name.as_deref(), c.clean_name.as_deref()) {
                 (Some(m_name), Some(c_name)) if !m_name.is_empty() => m_name == c_name,
                 _ => false,
             }
@@ -451,11 +441,7 @@ pub fn migrate_device_ids(
                         .or_else(|| backend.device_fingerprint(&priority_id));
                     let name = cached
                         .map(|(n, _, _)| n.clone())
-                        .or_else(|| {
-                            recovered_fp
-                                .as_ref()
-                                .and_then(|f| f.clean_original_name.clone())
-                        })
+                        .or_else(|| recovered_fp.as_ref().and_then(|f| f.clean_name.clone()))
                         .or_else(|| recovered_fp.as_ref().and_then(|f| f.hardware_desc.clone()))
                         .unwrap_or_else(|| "Priority Device".to_string());
 
@@ -482,11 +468,7 @@ pub fn migrate_device_ids(
                     .or_else(|| backend.device_fingerprint(temp_id));
                 let name = cached
                     .map(|(n, _, _)| n.clone())
-                    .or_else(|| {
-                        recovered_fp
-                            .as_ref()
-                            .and_then(|f| f.clean_original_name.clone())
-                    })
+                    .or_else(|| recovered_fp.as_ref().and_then(|f| f.clean_name.clone()))
                     .or_else(|| recovered_fp.as_ref().and_then(|f| f.hardware_desc.clone()))
                     .unwrap_or_else(|| "Temporary Device".to_string());
 
@@ -778,7 +760,7 @@ mod tests {
             Some("2- Logitech G533 Gaming Headset")
         );
         assert_eq!(
-            fp.clean_original_name.as_deref(),
+            fp.clean_name.as_deref(),
             Some("Microphone CUSTOM (Logitech G533 Gaming Headset)")
         );
     }
@@ -1069,16 +1051,16 @@ mod tests {
             bus_type: Some(DeviceBusType::Usb),
             hardware_desc: Some("Logitech C930e".to_string()),
             interface_name: Some("Logitech Webcam C930e".to_string()),
-            clean_original_name: Some("Logitech C930e (Logitech Webcam C930e)".to_string()),
+            clean_name: Some("Logitech C930e (Logitech Webcam C930e)".to_string()),
             form_factor: Some(4),
             ..Default::default()
         };
-        // On new port, Windows injected "2- " into interface name, but clean_original_name is normalized
+        // On new port, Windows injected "2- " into interface name, but clean_name is normalized
         let new_fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             hardware_desc: Some("Logitech C930e".to_string()),
             interface_name: Some("2- Logitech Webcam C930e".to_string()),
-            clean_original_name: Some("Logitech C930e (Logitech Webcam C930e)".to_string()),
+            clean_name: Some("Logitech C930e (Logitech Webcam C930e)".to_string()),
             form_factor: Some(4),
             ..Default::default()
         };
@@ -1110,13 +1092,13 @@ mod tests {
     fn bus_type_mismatch_prevents_name_match() {
         let old_fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::HdAudio),
-            clean_original_name: Some("Speakers (Realtek Audio)".to_string()),
+            clean_name: Some("Speakers (Realtek Audio)".to_string()),
             ..Default::default()
         };
         // New USB soundbar with the same default name prefix but a different bus
         let new_soundbar_fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
-            clean_original_name: Some("Speakers (USB Audio Device)".to_string()),
+            clean_name: Some("Speakers (USB Audio Device)".to_string()),
             ..Default::default()
         };
 
@@ -1141,7 +1123,7 @@ mod tests {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x1234, 0x5678)),
             hardware_desc: Some("Generic Mic".to_string()),
-            clean_original_name: Some("Generic Mic".to_string()),
+            clean_name: Some("Generic Mic".to_string()),
             ..Default::default()
         };
 
@@ -1394,7 +1376,7 @@ mod tests {
             mac_address: Some(mac.clone()),
             form_factor: Some(3),
             hardware_desc: Some("Headphones".to_string()),
-            clean_original_name: Some("Headphones (Buds2 Pro de Felipe)".to_string()),
+            clean_name: Some("Headphones (Buds2 Pro de Felipe)".to_string()),
             ..Default::default()
         };
 
@@ -1403,7 +1385,7 @@ mod tests {
             mac_address: Some(mac),
             form_factor: Some(3),
             hardware_desc: Some("Headphones".to_string()),
-            clean_original_name: Some("Headphones (Buds2 Pro de Felipe)".to_string()),
+            clean_name: Some("Headphones (Buds2 Pro de Felipe)".to_string()),
             ..Default::default()
         };
 
@@ -1442,12 +1424,12 @@ mod tests {
     fn tier6_rejects_cross_bus_false_match() {
         let old_hd_fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::HdAudio),
-            clean_original_name: Some("Speakers (Realtek Audio)".to_string()),
+            clean_name: Some("Speakers (Realtek Audio)".to_string()),
             ..Default::default()
         };
         let new_usb_fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
-            clean_original_name: Some("Speakers (USB Audio Device)".to_string()),
+            clean_name: Some("Speakers (USB Audio Device)".to_string()),
             ..Default::default()
         };
 
@@ -1473,13 +1455,13 @@ mod tests {
         let old_usb_fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x1234, 0x5678)),
-            clean_original_name: Some("USB Audio Device".to_string()),
+            clean_name: Some("USB Audio Device".to_string()),
             ..Default::default()
         };
         let new_usb_fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x9999, 0x8888)),
-            clean_original_name: Some("USB Audio Device".to_string()),
+            clean_name: Some("USB Audio Device".to_string()),
             ..Default::default()
         };
 

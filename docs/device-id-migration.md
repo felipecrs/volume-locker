@@ -103,7 +103,7 @@ classDiagram
         +DeviceBusType bus_type
         +String hardware_desc
         +String interface_name
-        +String clean_original_name
+        +String clean_name
         +String mac_address
         +Option~(u16, u16)~ usb_vid_pid
         +String usb_serial
@@ -158,7 +158,7 @@ flowchart TD
     T1 -->|Match| MIGRATE[Migrate Device ID]
     T1 -->|No Match| T2
 
-    T2{"Tier 2: USB Profile<br/>• USB VID/PID + MI_xx + Desc + FormFactor<br/>• Unambiguous 1:1 match"}
+    T2{"Tier 2: USB Profile<br/>• USB VID/PID + MI_xx + FormFactor<br/>• Unambiguous 1:1 match"}
     T2 -->|Match| MIGRATE
     T2 -->|No Match| T3
 
