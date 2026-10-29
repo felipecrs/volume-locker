@@ -26,4 +26,3 @@ depends = ["fmt", "lint", "test"]
 [tasks.build]
 description = "Build release binary"
 run = "cargo build --release --frozen"
-

@@ -50,7 +50,7 @@ fn enforce_priority_for_type(
         priority_list.insert(0, temp_id.clone());
     }
 
-    let main_target = find_highest_priority_active_device(backend, &priority_list);
+    let main_target = find_highest_priority_active_device(backend, &priority_list, state);
     let comm_target = resolve_communication_target(
         backend,
         device_type,
@@ -134,17 +134,16 @@ fn resolve_communication_target(
     {
         return Some(temp_id.clone());
     }
-
     let comm_list = state.communication_priority_list(device_type);
     for entry_id in comm_list {
         if entry_id.is_main_priority() {
             if let Some(main_id) = main_target {
                 return Some(main_id.clone());
             }
-        } else if let Ok(device) = backend.device_by_id(entry_id)
-            && let Ok(true) = device.is_active()
+        } else if let Some(device_id) =
+            find_highest_priority_active_device(backend, std::slice::from_ref(entry_id), state)
         {
-            return Some(entry_id.clone());
+            return Some(device_id);
         }
     }
 
@@ -185,9 +184,16 @@ fn notify_priority_restored(
 fn find_highest_priority_active_device(
     backend: &impl AudioBackend,
     priority_list: &[DeviceId],
+    state: &PersistentState,
 ) -> Option<DeviceId> {
     priority_list
         .iter()
+        .filter(|device_id| {
+            state.device_settings(device_id).is_none_or(|s| {
+                backend.headset_presence(s.presence_source)
+                    != super::presence::HeadsetPresence::Unavailable
+            })
+        })
         .find_map(|device_id| match backend.device_by_id(device_id) {
             Ok(device) => match device.is_active() {
                 Ok(true) => Some(device_id.clone()),
@@ -736,7 +742,7 @@ mod tests {
         ]);
         let list = vec!["dev_a".into(), "dev_b".into(), "dev_c".into()];
         assert_eq!(
-            find_highest_priority_active_device(&backend, &list),
+            find_highest_priority_active_device(&backend, &list, &PersistentState::default()),
             Some(DeviceId::from("dev_b"))
         );
     }
@@ -748,13 +754,19 @@ mod tests {
             MockDevice::new("dev_b", "B", false),
         ]);
         let list = vec!["dev_a".into(), "dev_b".into()];
-        assert_eq!(find_highest_priority_active_device(&backend, &list), None);
+        assert_eq!(
+            find_highest_priority_active_device(&backend, &list, &PersistentState::default()),
+            None
+        );
     }
 
     #[test]
     fn find_highest_returns_none_for_empty_list() {
         let backend = MockAudioBackend::new(vec![]);
         let list: Vec<DeviceId> = vec![];
-        assert_eq!(find_highest_priority_active_device(&backend, &list), None);
+        assert_eq!(
+            find_highest_priority_active_device(&backend, &list, &PersistentState::default()),
+            None
+        );
     }
 }

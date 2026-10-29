@@ -261,10 +261,9 @@ impl PersistentState {
         if device_id.is_main_priority() {
             return;
         }
-        let is_prunable = self
-            .devices
-            .get(device_id)
-            .is_some_and(|s| !s.has_active_locks_or_notifications());
+        let is_prunable = self.devices.get(device_id).is_some_and(|s| {
+            !s.has_active_locks_or_notifications() && s.presence_source.is_windows()
+        });
         if !is_prunable {
             return;
         }
@@ -342,6 +341,7 @@ mod tests {
                     unmute_lock: UnmuteLockPolicy::default(),
                     device_type: DeviceType::Output,
                     name: "Test Device".into(),
+                    presence_source: Default::default(),
                     fingerprint: None,
                 },
             )]),
@@ -537,6 +537,7 @@ mod tests {
                     },
                     device_type: DeviceType::Output,
                     name: "Speakers".into(),
+                    presence_source: Default::default(),
                     fingerprint: None,
                 },
             )]),

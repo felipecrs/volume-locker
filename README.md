@@ -80,6 +80,10 @@ Temporarily route audio to a specific device without altering your saved priorit
 2.  Select the desired role: **Output**, **Communication**, **Input**, or **Communication**. The submenu label displays the selected device when active.
 3.  Select the device to use temporarily. It remains active until unchecked or when the app restarts. Temporary communication overrides take precedence over configured communication priorities.
 
+### Experimental Wireless Headset Availability
+
+Wireless receivers can remain connected while their headset is off. An opt-in passive HID detector can skip an unavailable A50 X in the existing input/output priority lists. Enable it under a device's **Availability** submenu and configure a fallback device. Startup state is unknown until a power event is observed. See [experimental headset availability](docs/experimental-headset-presence.md) for firmware limitations, read-only diagnostics and the protocol adapter interface for adding other devices. Only A50 X power events are currently supported.
+
 ### Seamless Device ID Migration
 
 Windows frequently regenerates audio device endpoint IDs when you plug a device into a different USB port, unpair and re-pair a Bluetooth headset, or update audio drivers.

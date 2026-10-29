@@ -41,6 +41,7 @@ ureq = { version = "3.5.0", default-features = false, features = [
 ] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+hidapi = { version = "2.6.7", default-features = false, features = ["windows-native"] }
 windows-registry = "0.100.0"
 windows-core = "0.100.0"
 

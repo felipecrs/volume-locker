@@ -1,4 +1,5 @@
 use super::migration::{build_fingerprint, clean_device_name};
+use super::presence::{A50X_PROFILE, HeadsetPresence, HidPresenceMonitor};
 use super::{AudioBackend, AudioDevice, windows_com_policy_config};
 use crate::bindings::{
     AUDIO_VOLUME_NOTIFICATION_DATA, CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree,
@@ -11,7 +12,8 @@ use crate::bindings::{
     eMultimedia, eRender,
 };
 use crate::types::{
-    DeviceChangeSource, DeviceFingerprint, DeviceId, DeviceRole, DeviceType, VolumeScalar,
+    DeviceChangeSource, DeviceFingerprint, DeviceId, DeviceRole, DeviceType, PresenceSource,
+    VolumeScalar,
 };
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
@@ -95,6 +97,8 @@ pub struct WindowsAudioBackend {
     /// Prevents the COM callback from dropping — the field is written to in
     /// `register_device_change_callback` and must remain alive for the COM callback.
     device_change_callback: Mutex<Option<IMMNotificationClient>>,
+    presence_callback: Mutex<Option<Arc<dyn Fn(DeviceChangeSource) + Send + Sync>>>,
+    presence_monitor: Mutex<Option<HidPresenceMonitor>>,
     power_notify_guard: Mutex<Option<PowerNotifyGuard>>,
 }
 
@@ -107,6 +111,8 @@ impl WindowsAudioBackend {
         Ok(Self {
             enumerator,
             device_change_callback: Mutex::new(None),
+            presence_callback: Mutex::new(None),
+            presence_monitor: Mutex::new(None),
             power_notify_guard: Mutex::new(None),
         })
     }
@@ -145,6 +151,43 @@ impl WindowsAudioDevice {
 }
 
 impl AudioBackend for WindowsAudioBackend {
+    fn configure_presence_monitoring(&self, enabled: bool) {
+        let mut monitor = self
+            .presence_monitor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !enabled {
+            monitor.take();
+        } else if monitor.is_none() {
+            let callback = self
+                .presence_callback
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone();
+            if let Some(callback) = callback {
+                let on_presence_change = Arc::new(move || {
+                    callback(DeviceChangeSource::HeadsetPresenceChanged);
+                });
+                match HidPresenceMonitor::start(A50X_PROFILE, on_presence_change) {
+                    Ok(started) => *monitor = Some(started),
+                    Err(error) => log::error!("Cannot start headset presence monitor: {error}"),
+                }
+            }
+        }
+    }
+
+    fn headset_presence(&self, source: PresenceSource) -> HeadsetPresence {
+        if source == PresenceSource::AstroA50X {
+            self.presence_monitor
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_ref()
+                .map_or(HeadsetPresence::Unknown, HidPresenceMonitor::presence)
+        } else {
+            HeadsetPresence::Unknown
+        }
+    }
+
     fn devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>> {
         let endpoint_type = match device_type {
             DeviceType::Output => eRender,
@@ -210,10 +253,14 @@ impl AudioBackend for WindowsAudioBackend {
         &self,
         callback: Box<dyn Fn(DeviceChangeSource) + Send + Sync>,
     ) -> anyhow::Result<()> {
-        let callback: Arc<dyn Fn(DeviceChangeSource) + Send + Sync> = Arc::from(callback);
+        let callback: Arc<dyn Fn(DeviceChangeSource) + Send + Sync> = callback.into();
+        *self
+            .presence_callback
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::clone(&callback));
 
         let cb: IMMNotificationClient = AudioDevicesChangedCallback {
-            callback: callback.clone(),
+            callback: Arc::clone(&callback),
         }
         .into();
 

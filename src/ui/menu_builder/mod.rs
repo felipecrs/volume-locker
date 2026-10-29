@@ -1,4 +1,5 @@
 mod device_section;
+mod presence_section;
 mod priority_section;
 
 use super::{AppAction, DeviceAction, MenuAction, MenuItemInfo};
