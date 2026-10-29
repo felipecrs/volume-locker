@@ -156,9 +156,8 @@ mod tests {
         let submenu = build_device_submenu(&device, DeviceType::Output, &state, &mut map)
             .expect("build_device_submenu should succeed");
 
-        // Existing actions plus availability settings: VolumeLock, VolumeLockNotify, UnmuteLock,
-        // UnmuteLockNotify, OpenProperties, OpenSettings
-        assert_eq!(map.len(), 8);
+        // Existing actions plus volume, mute, and headset-availability settings.
+        assert_eq!(map.len(), 9);
         assert_eq!(submenu.text(), "Speakers · 100%");
     }
 

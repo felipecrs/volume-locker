@@ -1,5 +1,5 @@
 use super::migration::{build_fingerprint, clean_device_name};
-use super::presence::{A50X_PROFILE, HeadsetPresence, HidPresenceMonitor};
+use super::presence::{A50X_PROFILE, G533_PROFILE, HeadsetPresence, HidPresenceMonitor};
 use super::{AudioBackend, AudioDevice, windows_com_policy_config};
 use crate::bindings::{
     AUDIO_VOLUME_NOTIFICATION_DATA, CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree,
@@ -98,7 +98,8 @@ pub struct WindowsAudioBackend {
     /// `register_device_change_callback` and must remain alive for the COM callback.
     device_change_callback: Mutex<Option<IMMNotificationClient>>,
     presence_callback: Mutex<Option<Arc<dyn Fn(DeviceChangeSource) + Send + Sync>>>,
-    presence_monitor: Mutex<Option<HidPresenceMonitor>>,
+    a50x_presence_monitor: Mutex<Option<HidPresenceMonitor>>,
+    g533_presence_monitor: Mutex<Option<HidPresenceMonitor>>,
     power_notify_guard: Mutex<Option<PowerNotifyGuard>>,
 }
 
@@ -112,9 +113,44 @@ impl WindowsAudioBackend {
             enumerator,
             device_change_callback: Mutex::new(None),
             presence_callback: Mutex::new(None),
-            presence_monitor: Mutex::new(None),
+            a50x_presence_monitor: Mutex::new(None),
+            g533_presence_monitor: Mutex::new(None),
             power_notify_guard: Mutex::new(None),
         })
+    }
+
+    fn configure_presence_monitor(
+        &self,
+        profile: super::presence::HidPresenceProfile,
+        enabled: bool,
+        monitor: &Mutex<Option<HidPresenceMonitor>>,
+    ) {
+        let mut monitor = monitor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !enabled {
+            monitor.take();
+            return;
+        }
+        if monitor.is_some() {
+            return;
+        }
+        let callback = self
+            .presence_callback
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        if let Some(callback) = callback {
+            let on_presence_change = Arc::new(move || {
+                callback(DeviceChangeSource::HeadsetPresenceChanged);
+            });
+            match HidPresenceMonitor::start(profile, on_presence_change) {
+                Ok(started) => *monitor = Some(started),
+                Err(error) => {
+                    log::error!("Cannot start {} presence monitor: {error}", profile.name)
+                }
+            }
+        }
     }
 }
 
@@ -151,41 +187,30 @@ impl WindowsAudioDevice {
 }
 
 impl AudioBackend for WindowsAudioBackend {
-    fn configure_presence_monitoring(&self, enabled: bool) {
-        let mut monitor = self
-            .presence_monitor
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if !enabled {
-            monitor.take();
-        } else if monitor.is_none() {
-            let callback = self
-                .presence_callback
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .clone();
-            if let Some(callback) = callback {
-                let on_presence_change = Arc::new(move || {
-                    callback(DeviceChangeSource::HeadsetPresenceChanged);
-                });
-                match HidPresenceMonitor::start(A50X_PROFILE, on_presence_change) {
-                    Ok(started) => *monitor = Some(started),
-                    Err(error) => log::error!("Cannot start headset presence monitor: {error}"),
-                }
-            }
-        }
+    fn configure_presence_monitoring(&self, sources: &[PresenceSource]) {
+        self.configure_presence_monitor(
+            A50X_PROFILE,
+            sources.contains(&PresenceSource::AstroA50X),
+            &self.a50x_presence_monitor,
+        );
+        self.configure_presence_monitor(
+            G533_PROFILE,
+            sources.contains(&PresenceSource::LogitechG533),
+            &self.g533_presence_monitor,
+        );
     }
 
     fn headset_presence(&self, source: PresenceSource) -> HeadsetPresence {
-        if source == PresenceSource::AstroA50X {
-            self.presence_monitor
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .as_ref()
-                .map_or(HeadsetPresence::Unknown, HidPresenceMonitor::presence)
-        } else {
-            HeadsetPresence::Unknown
-        }
+        let monitor = match source {
+            PresenceSource::Windows => return HeadsetPresence::Unknown,
+            PresenceSource::AstroA50X => &self.a50x_presence_monitor,
+            PresenceSource::LogitechG533 => &self.g533_presence_monitor,
+        };
+        monitor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .map_or(HeadsetPresence::Unknown, HidPresenceMonitor::presence)
     }
 
     fn devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>> {

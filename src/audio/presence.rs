@@ -42,6 +42,16 @@ pub const A50X_PROFILE: HidPresenceProfile = HidPresenceProfile {
     decode: decode_a50x_report,
 };
 
+pub const G533_PROFILE: HidPresenceProfile = HidPresenceProfile {
+    name: "Logitech G533",
+    vendor_id: 0x046d,
+    product_id: 0x0a66,
+    usage_page: 0xff43,
+    usage: 0x0202,
+    report_length: 20,
+    decode: decode_g533_report,
+};
+
 /// Observed on A50 X 046d:0b0b, firmware 1.3.21, during a real on/off cycle.
 /// Ignore chatmix (command 0x0a): its center value also appears during power-off.
 fn decode_a50x_report(report: &[u8]) -> Option<HeadsetPresence> {
@@ -51,6 +61,20 @@ fn decode_a50x_report(report: &[u8]) -> Option<HeadsetPresence> {
     match report.get(6)? {
         0x00 => Some(HeadsetPresence::Available),
         0x05 => Some(HeadsetPresence::Unavailable),
+        _ => Some(HeadsetPresence::Unknown),
+    }
+}
+
+/// G533's `0x1f20` ADC-measurement event uses flag bit 0 for the wireless link.
+/// Its observed feature index is 7; replies to host requests are not events.
+fn decode_g533_report(report: &[u8]) -> Option<HeadsetPresence> {
+    if report.len() != G533_PROFILE.report_length || report[..4] != [0x11, 0xff, 0x07, 0x00] {
+        return None;
+    }
+
+    match report[6] {
+        flags if flags & 0x01 == 0 => Some(HeadsetPresence::Unavailable),
+        0x01 | 0x03 | 0x07 => Some(HeadsetPresence::Available),
         _ => Some(HeadsetPresence::Unknown),
     }
 }
@@ -371,6 +395,43 @@ mod tests {
             (0x046d, 0x0b0b, 0xff32, 0x0001),
         ] {
             assert!(!A50X_PROFILE.matches(identity.0, identity.1, identity.2, identity.3));
+        }
+    }
+
+    #[test]
+    fn g533_profile_requires_its_vendor_status_collection() {
+        assert!(G533_PROFILE.matches(0x046d, 0x0a66, 0xff43, 0x0202));
+        assert!(!G533_PROFILE.matches(0x046d, 0x0a66, 0xff00, 0x0001));
+        assert!(!G533_PROFILE.matches(0x046d, 0x0a66, 0xff43, 0x0201));
+    }
+
+    #[test]
+    fn g533_link_events_decode_only_observed_adc_status_reports() {
+        let report = |event, flags| {
+            let mut report = [0; 20];
+            report[..7].copy_from_slice(&[0x11, 0xff, 0x07, event, 0x0f, 0x14, flags]);
+            report
+        };
+        assert_eq!(
+            decode_g533_report(&report(0x00, 0x00)),
+            Some(HeadsetPresence::Unavailable)
+        );
+        for flags in [0x01, 0x03, 0x07] {
+            assert_eq!(
+                decode_g533_report(&report(0x00, flags)),
+                Some(HeadsetPresence::Available)
+            );
+        }
+        assert_eq!(
+            decode_g533_report(&report(0x00, 0x0f)),
+            Some(HeadsetPresence::Unknown)
+        );
+        assert_eq!(decode_g533_report(&report(0x01, 0x00)), None);
+        let mut unrelated = report(0x00, 0);
+        unrelated[2] = 0x06;
+        assert_eq!(decode_g533_report(&unrelated), None);
+        for length in 0..20 {
+            assert_eq!(decode_g533_report(&report(0x00, 0x01)[..length]), None);
         }
     }
 

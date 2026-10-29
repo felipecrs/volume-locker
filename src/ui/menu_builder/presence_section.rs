@@ -21,6 +21,10 @@ pub(super) fn append_presence_settings(
             "A50 X power events (experimental)",
             PresenceSource::AstroA50X,
         ),
+        (
+            "Logitech G533 link events (experimental)",
+            PresenceSource::LogitechG533,
+        ),
     ] {
         let item = CheckMenuItem::new(label, true, source == choice, None);
         register_menu_item(
@@ -33,7 +37,7 @@ pub(super) fn append_presence_settings(
         );
         submenu.append(&item)?;
     }
-    if source == PresenceSource::AstroA50X {
+    if source != PresenceSource::Windows {
         submenu.append(&PredefinedMenuItem::separator())?;
         submenu.append(&MenuItem::new(
             "After enabling, toggle headset power once",

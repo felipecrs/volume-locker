@@ -9,7 +9,7 @@ use presence::HeadsetPresence;
 mod windows_com_policy_config;
 
 pub trait AudioBackend {
-    fn configure_presence_monitoring(&self, _enabled: bool) {}
+    fn configure_presence_monitoring(&self, _sources: &[PresenceSource]) {}
     fn headset_presence(&self, _source: PresenceSource) -> HeadsetPresence {
         HeadsetPresence::Unknown
     }
@@ -291,7 +291,10 @@ pub(crate) mod tests {
 
     impl AudioBackend for MockAudioBackend {
         fn headset_presence(&self, source: PresenceSource) -> HeadsetPresence {
-            if source == PresenceSource::AstroA50X {
+            if matches!(
+                source,
+                PresenceSource::AstroA50X | PresenceSource::LogitechG533
+            ) {
                 *self.presence.borrow()
             } else {
                 HeadsetPresence::Unknown

@@ -286,6 +286,7 @@ pub enum PresenceSource {
     #[default]
     Windows,
     AstroA50X,
+    LogitechG533,
 }
 
 impl PresenceSource {

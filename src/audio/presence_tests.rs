@@ -42,6 +42,47 @@ fn input_and_output_fall_back_on_power_off_and_restore_on_power_on() {
 }
 
 #[test]
+fn g533_link_events_fall_back_when_wireless_link_is_lost() {
+    for device_type in [DeviceType::Output, DeviceType::Input] {
+        let (backend, mut state) = setup(device_type);
+        state.devices.get_mut("headset").unwrap().presence_source = PresenceSource::LogitechG533;
+        let temporary = TemporaryPriorities::default();
+
+        for (presence, expected) in [
+            (HeadsetPresence::Unavailable, "fallback"),
+            (HeadsetPresence::Available, "headset"),
+        ] {
+            *backend.presence.borrow_mut() = presence;
+            enforce_priorities(
+                &backend,
+                &state,
+                &mut NotificationThrottler::new(),
+                &temporary,
+            );
+            assert_eq!(backend.default_console.borrow()[&device_type], expected);
+            assert_eq!(backend.default_multimedia.borrow()[&device_type], expected);
+            assert_eq!(
+                backend.default_communications.borrow()[&device_type],
+                expected
+            );
+        }
+    }
+}
+
+#[test]
+fn g533_presence_source_survives_state_serialization() {
+    let (_, mut state) = setup(DeviceType::Output);
+    state.devices.get_mut("headset").unwrap().presence_source = PresenceSource::LogitechG533;
+
+    let json = serde_json::to_string(&state).unwrap();
+    let loaded: PersistentState = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        loaded.devices["headset"].presence_source,
+        PresenceSource::LogitechG533
+    );
+}
+
+#[test]
 fn independent_communication_priorities_follow_presence_without_a_main_list() {
     for device_type in [DeviceType::Output, DeviceType::Input] {
         let (backend, mut state) = setup(device_type);
