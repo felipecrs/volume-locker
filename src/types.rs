@@ -225,21 +225,29 @@ pub struct DeviceFingerprint {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bus_type: Option<DeviceBusType>,
 
-    /// Raw driver description from PKEY_Device_DeviceDesc (e.g. "Speakers", "LU28R55")
+    /// Raw endpoint name from PKEY_Device_DeviceDesc (e.g. "Speakers", "LU28R55"). This is the
+    /// property Windows edits when the user renames an endpoint, and it is re-applied to the new
+    /// endpoint after a device ID migration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hardware_desc: Option<String>,
 
-    /// Audio adapter product name from PKEY_DeviceInterface_FriendlyName
+    /// Raw audio adapter name from PKEY_DeviceInterface_FriendlyName. Windows may prefix it with a
+    /// port number (e.g. "2- Logitech G533"), so use `clean_name` for comparisons.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interface_name: Option<String>,
 
-    /// Canonical cleaned original name: "{clean(desc)} ({clean(interface)})"
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub clean_original_name: Option<String>,
+    /// Normalized "{clean(desc)} ({clean(interface)})" used for name matching. It follows
+    /// renames made in Sound settings, so it is the last seen name, not an original one.
+    #[serde(
+        default,
+        alias = "clean_original_name",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub clean_name: Option<String>,
 
-    /// True if PKEY_Device_FriendlyName differed from default template at registration
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub is_custom_name: bool,
+    /// Endpoint icon path from PKEY_DeviceClass_IconPath (a `.ico` file or `module.dll,index`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_icon_path: Option<String>,
 
     /// Bluetooth 48-bit MAC address (12 hex digits)
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -364,6 +372,7 @@ pub enum DeviceChangeSource {
     DeviceStateChanged(DeviceId, u32),
     DefaultDeviceChanged(DeviceId, String, String),
     DeviceRenamed(DeviceId),
+    DeviceIconChanged(DeviceId),
     PowerResume,
     UserAction,
 }
@@ -402,6 +411,10 @@ impl DeviceChangeSource {
             Self::DeviceRenamed(id) => {
                 let name = get_name(id);
                 format!("Device renamed: '{name}' ({id})")
+            }
+            Self::DeviceIconChanged(id) => {
+                let name = get_name(id);
+                format!("Device icon changed: '{name}' ({id})")
             }
             Self::PowerResume => "System resume from sleep".to_string(),
             Self::UserAction => "User menu action".to_string(),
@@ -489,7 +502,6 @@ mod tests {
             bus_type: Some(DeviceBusType::Usb),
             hardware_desc: Some("G533".into()),
             usb_vid_pid: Some((0x046d, 0x0a66)),
-            is_custom_name: true,
             ..Default::default()
         };
         let settings = DeviceSettings::new("Headset".into(), DeviceType::Output)

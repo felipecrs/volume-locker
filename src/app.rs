@@ -265,17 +265,39 @@ impl AppState {
         log::info!("Audio event ({description}): updating devices and enforcing settings...");
 
         self.migrate_device_ids_if_needed();
+        let mut settings_changed = false;
         for (device_id, new_name, device_type, fingerprint) in collect_device_info(&self.backend) {
             self.device_cache.insert(
                 device_id.clone(),
                 (new_name.clone(), device_type, fingerprint.clone()),
             );
             if let Some(settings) = self.persistent_state.device_settings_mut(&device_id) {
+                let before = (
+                    settings.name.clone(),
+                    settings.device_type,
+                    settings.fingerprint.clone(),
+                );
                 settings.name = new_name;
                 settings.device_type = device_type;
                 if fingerprint.is_some() {
                     settings.fingerprint = fingerprint;
                 }
+                if before
+                    != (
+                        settings.name.clone(),
+                        settings.device_type,
+                        settings.fingerprint.clone(),
+                    )
+                {
+                    settings_changed = true;
+                }
+            }
+        }
+        if settings_changed {
+            if let Err(e) = save_state(&self.persistent_state) {
+                log::error!("Failed to save state after device info update: {e:#}");
+            } else {
+                log::info!("Saved state after device info update");
             }
         }
 

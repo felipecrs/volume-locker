@@ -2,6 +2,8 @@
 
 This document describes how **Volume Locker** reliably tracks audio devices and migrates user configurations (volume locks, unmute locks, and priority lists) when Windows changes their endpoint IDs.
 
+For the related migration of Windows-assigned custom endpoint names and icons, see [Windows Audio Endpoint Property Migration](./device-property-migration.md).
+
 ---
 
 ## The Problem
@@ -18,7 +20,7 @@ flowchart LR
     A[Physical Audio Device] -->|Move to another USB port| B[New Endpoint GUID]
     A -->|Unpair & re-pair Bluetooth| B
     A -->|Driver or Windows Update| B
-    A -->|Windows resets friendly name| B
+    A -->|Windows re-creates the endpoint| B
     B -->|Without Migration| C[❌ Lost volume locks & priority order]
     B -->|With Volume Locker| D[✅ Settings seamlessly transferred]
 ```
@@ -41,13 +43,12 @@ graph TB
         CACHE[Saved DeviceFingerprint<br/>Config fallback]
     end
 
-    subgraph Matching["3. 6-Tier Migration Cascade"]
+    subgraph Matching["3. 5-Tier Migration Cascade"]
         T1[Tier 1: Hardware ID - MAC / Serial]
         T2[Tier 2: USB Profile - VID/PID + Interface]
         T3[Tier 3: Internal Audio Profile]
-        T4[Tier 4: Custom Name Match]
-        T5[Tier 5: Normalized Original Name]
-        T6[Tier 6: Fallback VID/PID]
+        T4[Tier 4: Normalized Name]
+        T5[Tier 5: Fallback VID/PID]
     end
 
     Detection --> Recovery
@@ -102,8 +103,7 @@ classDiagram
         +DeviceBusType bus_type
         +String hardware_desc
         +String interface_name
-        +String clean_original_name
-        +bool is_custom_name
+        +String clean_name
         +String mac_address
         +Option~(u16, u16)~ usb_vid_pid
         +String usb_serial
@@ -122,29 +122,16 @@ classDiagram
 
 ## 3. Name Normalization & Anti-Cross-Matching
 
-Windows derives the default friendly name from two driver properties:
-$$\text{Friendly Name} = \text{DeviceDesc} + \text{" ("} + \text{DeviceInterface\_FriendlyName} + \text{")"}$$
+Volume Locker never reads `PKEY_Device_FriendlyName`: Windows computes it as `"{DeviceDesc} ({DeviceInterface_FriendlyName})"`, it is not stored, and it is never notified on change. Instead the name is composed (`compose_device_name`) from two stored properties:
 
-When a user customizes a device name in Windows Sound Settings, Windows overrides only `PKEY_Device_FriendlyName`. The underlying descriptors remain untouched:
+- `PKEY_Device_DeviceDesc`: the endpoint name. Sound Settings edits this property on rename.
+- `PKEY_DeviceInterface_FriendlyName`: the adapter name, cleaned before use.
 
-```mermaid
-flowchart TD
-    subgraph Inspection[Custom Name Detection]
-        FN[PKEY_Device_FriendlyName]
-        DD[PKEY_Device_DeviceDesc]
-        IF[PKEY_DeviceInterface_FriendlyName]
-        COMP{FriendlyName == DeviceDesc + ' (' + InterfaceName + ')'?}
-        FN & DD & IF --> COMP
-        COMP -->|No| CUSTOM[is_custom_name = true]
-        COMP -->|Yes| DEFAULT[is_custom_name = false]
-    end
-```
+The composed name is `"{DeviceDesc} ({cleaned interface})"`. It is the user-facing name and the input for name matching, and it is not classified as custom or default; property restoration ([Windows Audio Endpoint Property Migration](./device-property-migration.md)) does not depend on it.
 
 ### Safety Rules
 
-1. **Anti-Cross-Matching**: Never match a custom friendly name against a driver's default name.
-   - _Prevents:_ A custom-named `"Speakers"` endpoint incorrectly matching a newly plugged `"Speakers (USB Audio Device)"`.
-2. **Normalized Original Matching**: Windows PnP injects port prefixes (e.g. `"2- "`) and clone counters (e.g. `" (1)"`) into `DeviceInterface_FriendlyName` when devices are moved across USB ports. Normalization strips these before matching:
+1. **Normalized Name Matching**: Windows PnP injects port prefixes (e.g. `"2- "`) and clone counters (e.g. `" (1)"`) into `DeviceInterface_FriendlyName` when devices are moved across USB ports. Normalization strips these before composing and matching:
 
 ```mermaid
 flowchart LR
@@ -152,16 +139,16 @@ flowchart LR
     S1 -->|Strip '\s*\(\d+\)$'| CLEAN["Logitech USB Headset"]
 ```
 
-3. **Bus-Type & VID/PID Isolation**: Endpoints with differing hardware buses (e.g. motherboard `HDAUDIO` vs. `USB` or `Bluetooth`) or conflicting USB VID/PIDs are strictly prevented from matching across all tiers.
+2. **Bus-Type & VID/PID Isolation**: Endpoints with differing hardware buses (e.g. motherboard `HDAUDIO` vs. `USB` or `Bluetooth`) or conflicting USB VID/PIDs are strictly prevented from matching across all tiers.
    - _Prevents:_ Motherboard speakers named `"Speakers"` from cross-migrating onto a newly attached USB or Bluetooth speaker.
-4. **Active In-Use Protection**: Active endpoints that are already participating in priority lists or active temporary priority overrides are excluded from the candidate pool.
+3. **Active In-Use Protection**: Active endpoints that are already participating in priority lists or active temporary priority overrides are excluded from the candidate pool.
    - _Prevents:_ Currently assigned or active priority devices from being claimed or overwritten as migration targets.
 
 ---
 
-## 4. The 6-Tier Migration Cascade
+## 4. The 5-Tier Migration Cascade
 
-Volume Locker compares **missing registered devices** against **unclaimed active devices** through six prioritized confidence tiers:
+Volume Locker compares **missing registered devices** against **unclaimed active devices** through five prioritized confidence tiers:
 
 ```mermaid
 flowchart TD
@@ -171,7 +158,7 @@ flowchart TD
     T1 -->|Match| MIGRATE[Migrate Device ID]
     T1 -->|No Match| T2
 
-    T2{"Tier 2: USB Profile<br/>• USB VID/PID + MI_xx + Desc + FormFactor<br/>• Unambiguous 1:1 match"}
+    T2{"Tier 2: USB Profile<br/>• USB VID/PID + MI_xx + FormFactor<br/>• Unambiguous 1:1 match"}
     T2 -->|Match| MIGRATE
     T2 -->|No Match| T3
 
@@ -179,22 +166,18 @@ flowchart TD
     T3 -->|Match| MIGRATE
     T3 -->|No Match| T4
 
-    T4{"Tier 4: Custom Name Match<br/>• Both devices have is_custom_name = true<br/>• friendly_name == friendly_name<br/>• DeviceType match"}
+    T4{"Tier 4: Normalized Name<br/>• clean name == clean name<br/>• BusType + FormFactor + DeviceType<br/>• Unambiguous 1:1 match"}
     T4 -->|Match| MIGRATE
     T4 -->|No Match| T5
 
-    T5{"Tier 5: Normalized Original Name<br/>• clean_original == clean_original<br/>• BusType + FormFactor + DeviceType<br/>• Unambiguous 1:1 match"}
+    T5{"Tier 5: Heuristic Fallback<br/>• Unclaimed VID/PID or clean name<br/>• BusType + FormFactor compatibility<br/>• Strictly 1 missing to 1 active pair"}
     T5 -->|Match| MIGRATE
-    T5 -->|No Match| T6
-
-    T6{"Tier 6: Heuristic Fallback<br/>• Unclaimed VID/PID or clean name<br/>• BusType + FormFactor compatibility<br/>• Strictly 1 missing to 1 active pair"}
-    T6 -->|Match| MIGRATE
-    T6 -->|No Match| NONE([No Migration / Safe Abort])
+    T5 -->|No Match| NONE([No Migration / Safe Abort])
 ```
 
 ### Collision Rejection
 
-For non-serial USB devices or shared original names (e.g. two identical microphones or generic audio dongles), Volume Locker **never guesses**. If multiple missing or active candidates qualify for Tiers 2, 5, or 6, migration is rejected to prevent swapping settings between identical peripherals. Furthermore, active devices currently assigned to priority lists or active temporary priorities are protected from being treated as unclaimed candidates.
+For non-serial USB devices or shared original names (e.g. two identical microphones or generic audio dongles), Volume Locker **never guesses**. If multiple missing or active candidates qualify for Tiers 2, 4, or 5, migration is rejected to prevent swapping settings between identical peripherals. Furthermore, active devices currently assigned to priority lists or active temporary priorities are protected from being treated as unclaimed candidates.
 
 ---
 
@@ -221,7 +204,7 @@ flowchart LR
     MIG --> LOCK
 ```
 
-- **`OnPropertyValueChanged`**: Filtered strictly to `PKEY_Device_FriendlyName` so it only fires when a user renames an endpoint in Windows Sound Settings, ignoring continuous driver telemetry (volume, battery, routing, peak meters).
+- **`OnPropertyValueChanged`**: Filtered strictly to `PKEY_Device_DeviceDesc` (what Sound Settings edits on rename) and `PKEY_DeviceClass_IconPath`, so it only fires when a user renames an endpoint or changes its icon. Device info refreshes persist state when a tracked device's name or fingerprint changed, ignoring continuous driver telemetry (volume, battery, routing, peak meters).
 - **Atomic Event Coalescing**: Rapid bursts of hardware events (e.g. `OnDeviceAdded`, `OnDeviceStateChanged`, `OnDefaultDeviceChanged`) during peripheral connection are coalesced into a single event loop dispatch.
 - **Rich Event Attribution**: Windows callbacks capture the affected `DeviceId` and state transition for the event loop, providing clear and contextual diagnostic logging without blocking COM threads.
 - **Power Resume**: Handles modern standby and system sleep wakeups, synchronously clamping volume levels in case Windows audio drivers reset endpoint volumes on wake.
