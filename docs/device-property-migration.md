@@ -6,7 +6,7 @@ This document describes how Volume Locker carries a user's Windows-assigned audi
 
 Windows associates endpoint properties with an audio endpoint ID. When Windows creates a replacement endpoint for the same physical device, the new endpoint may have a different ID and default properties. Once the device-ID migration matcher has made an unambiguous match, Volume Locker attempts to carry over:
 
-- The endpoint name from `PKEY_Device_DeviceDesc`. This is the property Windows edits when the user renames an endpoint in Sound settings; `PKEY_Device_FriendlyName` is computed as `"{DeviceDesc} ({InterfaceName})"` and is not stored.
+- The endpoint name from `PKEY_Device_DeviceDesc`. This is the property Windows edits when the user renames an endpoint in Sound settings. Volume Locker does not use `PKEY_Device_FriendlyName`; where a full name is needed it composes `"{DeviceDesc} ({cleaned interface name})"` itself.
 - The endpoint icon path from `PKEY_DeviceClass_IconPath` (`{259abffc-50a7-47ce-af08-68c9a7d73366},12`), which is what Sound settings edits. `PKEY_AudioEndpointLogo_IconPath` is never populated on endpoints inspected.
 
 The icon path is either a `.ico` file path or a resource reference such as `%windir%\system32\mmres.dll,-3014`; Volume Locker migrates that reference, not the image bytes or the driver resource itself.
@@ -31,7 +31,7 @@ The endpoint name is kept in its raw Windows form for writing back; the existing
 
 ## Migration sequence
 
-1. Device change handling runs the existing fingerprint and six-tier ID matcher.
+1. Device change handling runs the existing fingerprint and five-tier ID matcher.
 2. The matcher rejects ambiguous pairs and excludes devices already claimed by current settings or priority lists.
 3. For an accepted pair, migration asks the Windows audio backend to restore the last seen endpoint name and icon path that differ from the new endpoint's.
 4. The backend uses the existing Windows `IPolicyConfig` endpoint configuration interface to set `PKEY_Device_DeviceDesc` and/or `PKEY_DeviceClass_IconPath` as `VT_LPWSTR` values.
@@ -48,5 +48,4 @@ The backend operation is deliberately limited to the two properties above. Drive
 ## References
 
 - [Audio Endpoint Properties (Microsoft Learn)](https://learn.microsoft.com/en-us/windows/win32/coreaudio/audio-endpoint-properties) — endpoint properties are system-managed and clients should read, not set, them.
-- [PKEY_Device_FriendlyName (Microsoft Learn)](https://learn.microsoft.com/en-us/windows/win32/coreaudio/pkey-device-friendlyname) — friendly-name property and `VT_LPWSTR` representation.
 - Registry inspection of `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio` — shows `PKEY_DeviceClass_IconPath` holding built-in (`mmres.dll,N`) and custom (`.ico`) endpoint icons.

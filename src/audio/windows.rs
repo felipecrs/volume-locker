@@ -1,4 +1,4 @@
-use super::migration::{build_fingerprint, clean_device_name};
+use super::migration::{build_fingerprint, compose_device_name};
 use super::{AudioBackend, AudioDevice, windows_com_policy_config};
 use crate::bindings::{
     AUDIO_VOLUME_NOTIFICATION_DATA, CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree,
@@ -6,10 +6,10 @@ use crate::bindings::{
     IAudioEndpointVolumeCallback_Impl, IMMDevice, IMMDeviceEnumerator, IMMNotificationClient,
     IMMNotificationClient_Impl, MMDeviceEnumerator, PKEY_AudioEndpoint_FormFactor,
     PKEY_Device_ContainerId, PKEY_Device_DeviceDesc, PKEY_Device_EnumeratorName,
-    PKEY_Device_FriendlyName, PKEY_DeviceInterface_FriendlyName, PROPERTYKEY, PROPVAR_PAD1,
-    PROPVAR_PAD2, PROPVAR_PAD3, PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0,
-    PropVariantClear, PropVariantToStringAlloc, PropVariantToUInt32, STGM_READ, VARTYPE, VT_LPWSTR,
-    eCapture, eCommunications, eConsole, eMultimedia, eRender,
+    PKEY_DeviceInterface_FriendlyName, PROPERTYKEY, PROPVAR_PAD1, PROPVAR_PAD2, PROPVAR_PAD3,
+    PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0, PropVariantClear,
+    PropVariantToStringAlloc, PropVariantToUInt32, STGM_READ, VARTYPE, VT_LPWSTR, eCapture,
+    eCommunications, eConsole, eMultimedia, eRender,
 };
 use crate::types::{
     DeviceChangeSource, DeviceFingerprint, DeviceId, DeviceRole, DeviceType, VolumeScalar,
@@ -445,8 +445,7 @@ impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
         key: &PROPERTYKEY,
     ) -> windows_core::Result<()> {
         // Only react when an endpoint's name or icon changes (e.g. user edited the device in
-        // Windows Sound Settings; a rename edits PKEY_Device_DeviceDesc, from which the friendly
-        // name is derived). Other property updates (internal routing, formats, volume,
+        // Windows Sound Settings; a rename edits PKEY_Device_DeviceDesc). Other property updates (internal routing, formats, volume,
         // Bluetooth battery/telemetry) fire continuously and must be ignored.
         let source = if *key == PKEY_Device_DeviceDesc {
             DeviceChangeSource::DeviceRenamed
@@ -513,18 +512,20 @@ unsafe fn read_prop_u32(
 
 fn get_device_name(device: &IMMDevice) -> windows_core::Result<String> {
     // SAFETY: device from IMMDeviceEnumerator; property store operations are standard COM calls.
-    let friendly_name = unsafe {
+    let (desc, interface) = unsafe {
         let prop_store = device.OpenPropertyStore(STGM_READ as u32)?;
-        read_prop_string(&prop_store, &PKEY_Device_FriendlyName)
-            .ok_or_else(|| windows_core::Error::from_hresult(windows_core::HRESULT(-1)))?
+        (
+            read_prop_string(&prop_store, &PKEY_Device_DeviceDesc),
+            read_prop_string(&prop_store, &PKEY_DeviceInterface_FriendlyName),
+        )
     };
-    Ok(clean_device_name(&friendly_name))
+    compose_device_name(desc.as_deref(), interface.as_deref())
+        .ok_or_else(|| windows_core::Error::from_hresult(windows_core::HRESULT(-1)))
 }
 
 fn get_device_fingerprint(device: &IMMDevice) -> Option<DeviceFingerprint> {
     unsafe {
         let prop_store = device.OpenPropertyStore(STGM_READ as u32).ok()?;
-        let friendly_name = read_prop_string(&prop_store, &PKEY_Device_FriendlyName);
         let hardware_desc = read_prop_string(&prop_store, &PKEY_Device_DeviceDesc);
         let interface_name = read_prop_string(&prop_store, &PKEY_DeviceInterface_FriendlyName);
         let enumerator_name = read_prop_string(&prop_store, &PKEY_Device_EnumeratorName);
@@ -534,7 +535,6 @@ fn get_device_fingerprint(device: &IMMDevice) -> Option<DeviceFingerprint> {
         let icon_path = read_prop_string(&prop_store, &PKEY_ENDPOINT_ICON_PATH);
 
         let mut fingerprint = build_fingerprint(
-            friendly_name,
             hardware_desc,
             interface_name,
             enumerator_name,
@@ -581,7 +581,7 @@ fn set_policy_config_string(
 
 #[cfg(test)]
 mod tests {
-    use super::clean_device_name;
+    use crate::audio::migration::clean_device_name;
 
     #[test]
     fn clean_device_name_standard_format() {

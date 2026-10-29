@@ -1349,10 +1349,6 @@ pub const PKEY_Device_EnumeratorName: PROPERTYKEY = PROPERTYKEY {
     fmtid: windows_core::GUID::from_u128(0xa45c254e_df1c_4efd_8020_67d146a850e0),
     pid: 24,
 };
-pub const PKEY_Device_FriendlyName: PROPERTYKEY = PROPERTYKEY {
-    fmtid: windows_core::GUID::from_u128(0xa45c254e_df1c_4efd_8020_67d146a850e0),
-    pid: 14,
-};
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct PROPERTYKEY {

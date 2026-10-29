@@ -231,17 +231,15 @@ pub struct DeviceFingerprint {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hardware_desc: Option<String>,
 
-    /// Audio adapter product name from PKEY_DeviceInterface_FriendlyName
+    /// Raw audio adapter name from PKEY_DeviceInterface_FriendlyName. Windows may prefix it with a
+    /// port number (e.g. "2- Logitech G533"), so use `clean_original_name` for comparisons.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interface_name: Option<String>,
 
-    /// Canonical cleaned original name: "{clean(desc)} ({clean(interface)})"
+    /// Normalized "{clean(desc)} ({clean(interface)})" used for name matching. It follows
+    /// renames made in Sound settings, so it is the last seen name, not an original one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clean_original_name: Option<String>,
-
-    /// True if PKEY_Device_FriendlyName differed from default template at registration
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub is_custom_name: bool,
 
     /// Endpoint icon path from PKEY_DeviceClass_IconPath (a `.ico` file or `module.dll,index`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -500,7 +498,6 @@ mod tests {
             bus_type: Some(DeviceBusType::Usb),
             hardware_desc: Some("G533".into()),
             usb_vid_pid: Some((0x046d, 0x0a66)),
-            is_custom_name: true,
             ..Default::default()
         };
         let settings = DeviceSettings::new("Headset".into(), DeviceType::Output)

@@ -26,7 +26,7 @@ pub trait AudioBackend {
     fn restore_device_properties(
         &self,
         id: &DeviceId,
-        friendly_name: Option<&str>,
+        endpoint_name: Option<&str>,
         icon_path: Option<&str>,
     ) -> anyhow::Result<()>;
 }
@@ -334,12 +334,12 @@ pub(crate) mod tests {
         fn restore_device_properties(
             &self,
             id: &DeviceId,
-            friendly_name: Option<&str>,
+            endpoint_name: Option<&str>,
             icon_path: Option<&str>,
         ) -> anyhow::Result<()> {
             self.restored_properties.borrow_mut().push((
                 id.clone(),
-                friendly_name.map(str::to_string),
+                endpoint_name.map(str::to_string),
                 icon_path.map(str::to_string),
             ));
             if self.restore_properties_fails {

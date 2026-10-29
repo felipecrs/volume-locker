@@ -126,8 +126,21 @@ pub(crate) fn parse_usb_serial(bus_type: Option<DeviceBusType>, pnp_iface: &str)
     })
 }
 
+/// Builds the endpoint display name as Windows does ("{DeviceDesc} ({InterfaceName})"), without
+/// reading PKEY_Device_FriendlyName, and strips port prefixes/clone counters from it.
+pub(crate) fn compose_device_name(desc: Option<&str>, interface: Option<&str>) -> Option<String> {
+    let desc = desc.map(str::trim).filter(|d| !d.is_empty());
+    let interface = interface.map(str::trim).filter(|i| !i.is_empty());
+    let composed = match (desc, interface) {
+        (Some(d), Some(i)) => format!("{d} ({i})"),
+        (Some(d), None) => d.to_string(),
+        (None, Some(i)) => i.to_string(),
+        (None, None) => return None,
+    };
+    Some(clean_device_name(&composed))
+}
+
 pub(crate) fn build_fingerprint(
-    friendly_name: Option<String>,
     hardware_desc: Option<String>,
     interface_name: Option<String>,
     enumerator_name: Option<String>,
@@ -140,15 +153,6 @@ pub(crate) fn build_fingerprint(
     let usb_vid_pid = pnp_interface.as_deref().and_then(parse_usb_vid_pid);
     let interface_index = pnp_interface.as_deref().and_then(parse_interface_index);
     let usb_serial = parse_usb_serial(bus_type, pnp_interface.as_deref().unwrap_or(""));
-
-    let is_custom_name = match (&friendly_name, &hardware_desc, &interface_name) {
-        (Some(friendly), Some(desc), Some(iface)) => {
-            let default_template = format!("{desc} ({iface})");
-            friendly != &default_template
-        }
-        (Some(friendly), Some(desc), None) => friendly != desc,
-        _ => false,
-    };
 
     let clean_desc = hardware_desc.as_deref().map(clean_name_component);
     let clean_iface = interface_name.as_deref().map(clean_name_component);
@@ -165,7 +169,6 @@ pub(crate) fn build_fingerprint(
         hardware_desc,
         interface_name,
         clean_original_name,
-        is_custom_name,
         custom_icon_path: None,
         mac_address,
         usb_vid_pid,
@@ -181,9 +184,8 @@ pub enum MatchTier {
     ExactHardwareId = 1,
     HardwareProfileAndInterface = 2,
     InternalHardwareProfile = 3,
-    CustomToCustomName = 4,
-    NormalizedOriginalName = 5,
-    HeuristicFallback = 6,
+    NormalizedName = 4,
+    HeuristicFallback = 5,
 }
 
 impl std::fmt::Display for MatchTier {
@@ -192,9 +194,8 @@ impl std::fmt::Display for MatchTier {
             Self::ExactHardwareId => write!(f, "Tier 1 (Exact Hardware ID)"),
             Self::HardwareProfileAndInterface => write!(f, "Tier 2 (Hardware Profile & Interface)"),
             Self::InternalHardwareProfile => write!(f, "Tier 3 (Internal Hardware Profile)"),
-            Self::CustomToCustomName => write!(f, "Tier 4 (Custom-to-Custom Name)"),
-            Self::NormalizedOriginalName => write!(f, "Tier 5 (Normalized Original Name)"),
-            Self::HeuristicFallback => write!(f, "Tier 6 (Heuristic Fallback)"),
+            Self::NormalizedName => write!(f, "Tier 4 (Normalized Name)"),
+            Self::HeuristicFallback => write!(f, "Tier 5 (Heuristic Fallback)"),
         }
     }
 }
@@ -318,44 +319,19 @@ fn matches_tier(missing: &MissingDevice, candidate: &ActiveCandidate, tier: Matc
                 _ => false,
             }
         }
-        MatchTier::CustomToCustomName => {
-            let m_custom = m_fp.is_some_and(|f| f.is_custom_name);
-            let c_custom = c_fp.is_some_and(|f| f.is_custom_name);
-
-            if m_custom && c_custom {
-                missing.settings.name == candidate.name
-            } else {
-                false
-            }
-        }
-        MatchTier::NormalizedOriginalName => {
-            // Anti-cross-matching: Do not match a custom name with an original name!
-            let m_custom = m_fp.is_some_and(|f| f.is_custom_name);
-            let c_custom = c_fp.is_some_and(|f| f.is_custom_name);
-            if m_custom != c_custom {
-                return false;
-            }
-
+        MatchTier::NormalizedName => {
             let Some(m) = m_fp else { return false };
             let Some(c) = c_fp else { return false };
 
-            let orig_matches = match (
+            match (
                 m.clean_original_name.as_deref(),
                 c.clean_original_name.as_deref(),
             ) {
-                (Some(m_orig), Some(c_orig)) if !m_orig.is_empty() => m_orig == c_orig,
+                (Some(m_name), Some(c_name)) if !m_name.is_empty() => m_name == c_name,
                 _ => false,
-            };
-            orig_matches
+            }
         }
         MatchTier::HeuristicFallback => {
-            // Anti-cross-matching: Do not match if either has a custom name
-            let m_custom = m_fp.is_some_and(|f| f.is_custom_name);
-            let c_custom = c_fp.is_some_and(|f| f.is_custom_name);
-            if m_custom || c_custom {
-                return false;
-            }
-
             if clean_device_name(&missing.settings.name) == clean_device_name(&candidate.name) {
                 return true;
             }
@@ -576,8 +552,7 @@ pub fn migrate_device_ids(
             MatchTier::ExactHardwareId,
             MatchTier::HardwareProfileAndInterface,
             MatchTier::InternalHardwareProfile,
-            MatchTier::CustomToCustomName,
-            MatchTier::NormalizedOriginalName,
+            MatchTier::NormalizedName,
             MatchTier::HeuristicFallback,
         ] {
             if missing_devices.is_empty() || candidates.is_empty() {
@@ -788,36 +763,50 @@ mod tests {
     }
 
     #[test]
-    fn build_fingerprint_detects_custom_names_and_cleans_original() {
-        let fp_default = build_fingerprint(
-            Some("Speakers (Realtek(R) Audio)".to_string()),
-            Some("Speakers".to_string()),
-            Some("Realtek(R) Audio".to_string()),
-            Some("HDAUDIO".to_string()),
+    fn build_fingerprint_normalizes_name_from_desc_and_interface() {
+        let fp = build_fingerprint(
+            Some("Microphone CUSTOM".to_string()),
+            Some("2- Logitech G533 Gaming Headset".to_string()),
+            Some("USB".to_string()),
             Some("{GUID}".to_string()),
-            Some(1),
-            Some(r"{1}.HDAUDIO\FUNC_01...".to_string()),
+            Some(4),
+            Some(r"{1}.USB\VID_046D&PID_0A66&MI_00\9&11C46CCD&0&0000".to_string()),
         );
-        assert!(!fp_default.is_custom_name);
+        assert_eq!(fp.hardware_desc.as_deref(), Some("Microphone CUSTOM"));
         assert_eq!(
-            fp_default.clean_original_name.as_deref(),
-            Some("Speakers (Realtek(R) Audio)")
+            fp.interface_name.as_deref(),
+            Some("2- Logitech G533 Gaming Headset")
         );
+        assert_eq!(
+            fp.clean_original_name.as_deref(),
+            Some("Microphone CUSTOM (Logitech G533 Gaming Headset)")
+        );
+    }
 
-        let fp_custom = build_fingerprint(
-            Some("My Custom Monitors".to_string()),
-            Some("Speakers".to_string()),
-            Some("Realtek(R) Audio".to_string()),
-            Some("HDAUDIO".to_string()),
-            Some("{GUID}".to_string()),
-            Some(1),
-            Some(r"{1}.HDAUDIO\FUNC_01...".to_string()),
-        );
-        assert!(fp_custom.is_custom_name);
+    #[test]
+    fn compose_device_name_matches_windows_template_and_cleans_interface() {
         assert_eq!(
-            fp_custom.clean_original_name.as_deref(),
+            compose_device_name(Some("Speakers"), Some("Realtek(R) Audio")).as_deref(),
             Some("Speakers (Realtek(R) Audio)")
         );
+        assert_eq!(
+            compose_device_name(
+                Some("Microphone CUS TOM2232"),
+                Some("6- Logitech G533 Gaming Headset")
+            )
+            .as_deref(),
+            Some("Microphone CUS TOM2232 (Logitech G533 Gaming Headset)")
+        );
+        assert_eq!(
+            compose_device_name(Some("G5443"), None).as_deref(),
+            Some("G5443")
+        );
+        assert_eq!(
+            compose_device_name(None, Some("Buds2 Pro")).as_deref(),
+            Some("Buds2 Pro")
+        );
+        assert_eq!(compose_device_name(None, None), None);
+        assert_eq!(compose_device_name(Some(" "), Some("")), None);
     }
 
     #[test]
@@ -1075,7 +1064,7 @@ mod tests {
     }
 
     #[test]
-    fn migrate_tier5_normalized_original_name_with_port_prefix() {
+    fn migrate_tier4_normalized_name_with_port_prefix() {
         let old_fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             hardware_desc: Some("Logitech C930e".to_string()),
@@ -1118,18 +1107,15 @@ mod tests {
     }
 
     #[test]
-    fn anti_cross_matching_prevents_custom_matching_original_name() {
-        // User custom-renamed internal jack to "Speakers"
-        let old_custom_fp = DeviceFingerprint {
+    fn bus_type_mismatch_prevents_name_match() {
+        let old_fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::HdAudio),
-            is_custom_name: true,
-            clean_original_name: Some("Headphones (Realtek Audio)".to_string()),
+            clean_original_name: Some("Speakers (Realtek Audio)".to_string()),
             ..Default::default()
         };
-        // New USB Soundbar with default original name "Speakers"
+        // New USB soundbar with the same default name prefix but a different bus
         let new_soundbar_fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
-            is_custom_name: false,
             clean_original_name: Some("Speakers (USB Audio Device)".to_string()),
             ..Default::default()
         };
@@ -1140,7 +1126,7 @@ mod tests {
 
         let mut state = PersistentState::default();
         let mut settings = make_device_settings("Speakers", DeviceType::Output);
-        settings.fingerprint = Some(old_custom_fp);
+        settings.fingerprint = Some(old_fp);
         state.devices.insert("internal_jack".into(), settings);
 
         let result = migrate_device_ids(&backend, &mut state);
@@ -1349,7 +1335,6 @@ mod tests {
     #[test]
     fn test_live_g533_exact_strings() {
         let old_fp = build_fingerprint(
-            Some("Speakers (5- Logitech G533 Gaming Headset)".to_string()),
             Some("Speakers".to_string()),
             Some("5- Logitech G533 Gaming Headset".to_string()),
             Some("USB".to_string()),
@@ -1358,7 +1343,6 @@ mod tests {
             Some(r"{1}.USB\VID_046D&PID_0A66&MI_00\9&247E1D72&0&0000".to_string()),
         );
         let new_fp = build_fingerprint(
-            Some("Speakers (2- Logitech G533 Gaming Headset)".to_string()),
             Some("Speakers".to_string()),
             Some("2- Logitech G533 Gaming Headset".to_string()),
             Some("USB".to_string()),

@@ -36,7 +36,6 @@ fn gen_bindings() {
             "Windows.Win32.IMMNotificationClient",
             "Windows.Win32.IPropertyStore",
             "Windows.Win32.MMDeviceEnumerator",
-            "Windows.Win32.PKEY_Device_FriendlyName",
             "Windows.Win32.PKEY_Device_DeviceDesc",
             "Windows.Win32.PKEY_DeviceInterface_FriendlyName",
             "Windows.Win32.PKEY_Device_EnumeratorName",
