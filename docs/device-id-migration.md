@@ -2,7 +2,7 @@
 
 This document describes how **Volume Locker** reliably tracks audio devices and migrates user configurations (volume locks, unmute locks, and priority lists) when Windows changes their endpoint IDs.
 
-For the related migration of Windows-assigned custom endpoint names and logo URIs, see [Windows Audio Endpoint Property Migration](./device-property-migration.md).
+For the related migration of Windows-assigned custom endpoint names and icons, see [Windows Audio Endpoint Property Migration](./device-property-migration.md).
 
 ---
 
@@ -225,7 +225,7 @@ flowchart LR
     MIG --> LOCK
 ```
 
-- **`OnPropertyValueChanged`**: Filtered strictly to `PKEY_Device_DeviceDesc` (what Sound Settings edits on rename), `PKEY_Device_FriendlyName` and `PKEY_AudioEndpointLogo_IconPath`, so it only fires when a user renames an endpoint or changes its icon. Device info refreshes persist state when a tracked device's name or fingerprint changed, ignoring continuous driver telemetry (volume, battery, routing, peak meters).
+- **`OnPropertyValueChanged`**: Filtered strictly to `PKEY_Device_DeviceDesc` (what Sound Settings edits on rename), `PKEY_Device_FriendlyName` and `PKEY_DeviceClass_IconPath`, so it only fires when a user renames an endpoint or changes its icon. Device info refreshes persist state when a tracked device's name or fingerprint changed, ignoring continuous driver telemetry (volume, battery, routing, peak meters).
 - **Atomic Event Coalescing**: Rapid bursts of hardware events (e.g. `OnDeviceAdded`, `OnDeviceStateChanged`, `OnDefaultDeviceChanged`) during peripheral connection are coalesced into a single event loop dispatch.
 - **Rich Event Attribution**: Windows callbacks capture the affected `DeviceId` and state transition for the event loop, providing clear and contextual diagnostic logging without blocking COM threads.
 - **Power Resume**: Handles modern standby and system sleep wakeups, synchronously clamping volume levels in case Windows audio drivers reset endpoint volumes on wake.

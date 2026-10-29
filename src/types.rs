@@ -243,7 +243,7 @@ pub struct DeviceFingerprint {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_custom_name: bool,
 
-    /// PKEY_AudioEndpointLogo_IconPath value, when present.
+    /// Endpoint icon path from PKEY_DeviceClass_IconPath (a `.ico` file or `module.dll,index`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_icon_path: Option<String>,
 

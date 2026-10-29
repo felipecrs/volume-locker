@@ -5,12 +5,11 @@ use crate::bindings::{
     DEVICE_STATE_ACTIVE, EDataFlow, ERole, IAudioEndpointVolume, IAudioEndpointVolumeCallback,
     IAudioEndpointVolumeCallback_Impl, IMMDevice, IMMDeviceEnumerator, IMMNotificationClient,
     IMMNotificationClient_Impl, MMDeviceEnumerator, PKEY_AudioEndpoint_FormFactor,
-    PKEY_AudioEndpointLogo_IconPath, PKEY_Device_ContainerId, PKEY_Device_DeviceDesc,
-    PKEY_Device_EnumeratorName, PKEY_Device_FriendlyName, PKEY_DeviceInterface_FriendlyName,
-    PROPERTYKEY, PROPVAR_PAD1, PROPVAR_PAD2, PROPVAR_PAD3, PROPVARIANT, PROPVARIANT_0,
-    PROPVARIANT_0_0, PROPVARIANT_0_0_0, PropVariantClear, PropVariantToStringAlloc,
-    PropVariantToUInt32, STGM_READ, VARTYPE, VT_LPWSTR, eCapture, eCommunications, eConsole,
-    eMultimedia, eRender,
+    PKEY_Device_ContainerId, PKEY_Device_DeviceDesc, PKEY_Device_EnumeratorName,
+    PKEY_Device_FriendlyName, PKEY_DeviceInterface_FriendlyName, PROPERTYKEY, PROPVAR_PAD1,
+    PROPVAR_PAD2, PROPVAR_PAD3, PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0,
+    PropVariantClear, PropVariantToStringAlloc, PropVariantToUInt32, STGM_READ, VARTYPE, VT_LPWSTR,
+    eCapture, eCommunications, eConsole, eMultimedia, eRender,
 };
 use crate::types::{
     DeviceChangeSource, DeviceFingerprint, DeviceId, DeviceRole, DeviceType, VolumeScalar,
@@ -24,6 +23,13 @@ use windows_core::{PCWSTR, implement};
 const PKEY_DEVICE_INTERFACE_PATH: PROPERTYKEY = PROPERTYKEY {
     fmtid: windows_core::GUID::from_u128(0xb3f8fa53_0004_438e_9003_51a46e139bfc),
     pid: 2,
+};
+
+/// PKEY_DeviceClass_IconPath: the endpoint icon chosen in Sound settings (a `.ico` path or a
+/// `module.dll,index` resource reference). Endpoints store it here, not in the logo property.
+const PKEY_ENDPOINT_ICON_PATH: PROPERTYKEY = PROPERTYKEY {
+    fmtid: windows_core::GUID::from_u128(0x259abffc_50a7_47ce_af08_68c9a7d73366),
+    pid: 12,
 };
 
 /// Encodes a string slice as a null-terminated UTF-16 wide string for Win32 APIs.
@@ -299,12 +305,8 @@ impl AudioBackend for WindowsAudioBackend {
             errors.push(format!("endpoint name: {e:#}"));
         }
         if let Some(path) = icon_path
-            && let Err(e) = set_policy_config_string(
-                &policy_config,
-                &wide_id,
-                &PKEY_AudioEndpointLogo_IconPath,
-                path,
-            )
+            && let Err(e) =
+                set_policy_config_string(&policy_config, &wide_id, &PKEY_ENDPOINT_ICON_PATH, path)
         {
             errors.push(format!("logo path: {e:#}"));
         }
@@ -448,7 +450,7 @@ impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
         // battery/telemetry) fire continuously and must be ignored.
         if *key == PKEY_Device_DeviceDesc
             || *key == PKEY_Device_FriendlyName
-            || *key == PKEY_AudioEndpointLogo_IconPath
+            || *key == PKEY_ENDPOINT_ICON_PATH
         {
             let id = pcwstr_to_device_id(dev_id);
             if !id.is_empty() {
@@ -527,7 +529,7 @@ fn get_device_fingerprint(device: &IMMDevice) -> Option<DeviceFingerprint> {
         let container_id = read_prop_string(&prop_store, &PKEY_Device_ContainerId);
         let form_factor = read_prop_u32(&prop_store, &PKEY_AudioEndpoint_FormFactor);
         let pnp_interface = read_prop_string(&prop_store, &PKEY_DEVICE_INTERFACE_PATH);
-        let icon_path = read_prop_string(&prop_store, &PKEY_AudioEndpointLogo_IconPath);
+        let icon_path = read_prop_string(&prop_store, &PKEY_ENDPOINT_ICON_PATH);
 
         let mut fingerprint = build_fingerprint(
             friendly_name,

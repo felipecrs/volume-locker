@@ -1329,10 +1329,6 @@ pub type LPSAFEARRAY = *mut SAFEARRAY;
 pub type LPVERSIONEDSTREAM = *mut VERSIONEDSTREAM;
 pub const MMDeviceEnumerator: windows_core::GUID =
     windows_core::GUID::from_u128(0xbcde0395_e52f_467c_8e3d_c4579291692e);
-pub const PKEY_AudioEndpointLogo_IconPath: PROPERTYKEY = PROPERTYKEY {
-    fmtid: windows_core::GUID::from_u128(0xf1ab780d_2010_4ed3_a3a6_8b87f0f0c476),
-    pid: 1,
-};
 pub const PKEY_AudioEndpoint_FormFactor: PROPERTYKEY = PROPERTYKEY {
     fmtid: windows_core::GUID::from_u128(0x1da5d803_d492_4edd_8c23_e0c0ffee7f0e),
     pid: 0,
