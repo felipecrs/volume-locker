@@ -448,7 +448,7 @@ impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
         // Windows Sound Settings; a rename edits PKEY_Device_DeviceDesc, from which the friendly
         // name is derived). Other property updates (internal routing, formats, volume,
         // Bluetooth battery/telemetry) fire continuously and must be ignored.
-        let source = if *key == PKEY_Device_DeviceDesc || *key == PKEY_Device_FriendlyName {
+        let source = if *key == PKEY_Device_DeviceDesc {
             DeviceChangeSource::DeviceRenamed
         } else if *key == PKEY_ENDPOINT_ICON_PATH {
             DeviceChangeSource::DeviceIconChanged
