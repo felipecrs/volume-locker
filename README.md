@@ -82,7 +82,7 @@ Temporarily route audio to a specific device without altering your saved priorit
 
 ### Experimental Wireless Headset Availability
 
-Wireless receivers can remain connected while their headset is off or out of range. An opt-in passive HID detector can skip an unavailable A50 X or Logitech G533 in the existing input/output priority lists. Enable it under a device's **Availability** submenu and configure a fallback device. Startup state is unknown until a status event is observed. See [experimental headset availability](docs/experimental-headset-presence.md) for supported sources, diagnostics and steps for adding devices.
+Wireless receivers can remain connected while their headset is off or out of range. Enable **Wireless headset detection (experimental)** in Preferences to skip unavailable supported headsets in the existing input/output priority lists. Detection is selected automatically by device VID/PID; configure a fallback device as usual. Startup state is unknown until a status event is observed. See [experimental headset availability](docs/experimental-headset-presence.md) for supported devices, diagnostics and steps for adding devices.
 
 ### Seamless Device ID Migration
 

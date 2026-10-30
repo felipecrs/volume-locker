@@ -24,9 +24,12 @@ pub struct HidPresenceProfile {
 }
 
 impl HidPresenceProfile {
+    pub fn matches_usb_device(&self, vendor_id: u16, product_id: u16) -> bool {
+        self.vendor_id == vendor_id && self.product_id == product_id
+    }
+
     pub fn matches(&self, vendor_id: u16, product_id: u16, usage_page: u16, usage: u16) -> bool {
-        self.vendor_id == vendor_id
-            && self.product_id == product_id
+        self.matches_usb_device(vendor_id, product_id)
             && self.usage_page == usage_page
             && self.usage == usage
     }
@@ -190,7 +193,7 @@ mod windows {
         );
         let device = candidate.open_device(&api)?;
         log::info!(
-            "Listening for {} power events; initial state is unknown",
+            "Listening for {} status events; initial state is unknown",
             profile.name
         );
         // Passive input reports only: no HID output/feature writes or G HUB dependency.
@@ -403,6 +406,14 @@ mod tests {
         assert!(G533_PROFILE.matches(0x046d, 0x0a66, 0xff43, 0x0202));
         assert!(!G533_PROFILE.matches(0x046d, 0x0a66, 0xff00, 0x0001));
         assert!(!G533_PROFILE.matches(0x046d, 0x0a66, 0xff43, 0x0201));
+    }
+
+    #[test]
+    fn audio_endpoint_selection_uses_vendor_and_product_ids() {
+        assert!(A50X_PROFILE.matches_usb_device(0x046d, 0x0b0b));
+        assert!(G533_PROFILE.matches_usb_device(0x046d, 0x0a66));
+        assert!(!A50X_PROFILE.matches_usb_device(0x046d, 0x0a66));
+        assert!(!G533_PROFILE.matches_usb_device(0x1234, 0x0a66));
     }
 
     #[test]

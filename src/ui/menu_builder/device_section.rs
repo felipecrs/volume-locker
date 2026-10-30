@@ -89,15 +89,6 @@ pub fn build_device_submenu(
     register(settings_item.id().clone(), DeviceAction::OpenSettings);
     submenu.append(&settings_item)?;
 
-    submenu.append(&PredefinedMenuItem::separator())?;
-    super::presence_section::append_presence_settings(
-        &submenu,
-        device_id,
-        &name,
-        device_type,
-        persistent_state,
-        map,
-    )?;
     Ok(submenu)
 }
 
@@ -156,8 +147,8 @@ mod tests {
         let submenu = build_device_submenu(&device, DeviceType::Output, &state, &mut map)
             .expect("build_device_submenu should succeed");
 
-        // Existing actions plus volume, mute, and headset-availability settings.
-        assert_eq!(map.len(), 9);
+        // Volume, mute, properties, and device-settings actions.
+        assert_eq!(map.len(), 6);
         assert_eq!(submenu.text(), "Speakers · 100%");
     }
 

@@ -264,14 +264,9 @@ impl AppState {
         let description = source.description(|id| self.get_device_display_name(id));
         log::info!("Audio event ({description}): updating devices and enforcing settings...");
 
-        let presence_sources: Vec<_> = self
-            .persistent_state
-            .devices_iter()
-            .map(|(_, settings)| settings.presence_source)
-            .filter(|source| !source.is_windows())
-            .collect();
-        self.backend
-            .configure_presence_monitoring(&presence_sources);
+        self.backend.configure_presence_monitoring(
+            self.persistent_state.wireless_headset_detection_enabled,
+        );
 
         self.migrate_device_ids_if_needed();
         for (device_id, new_name, device_type, fingerprint) in collect_device_info(&self.backend) {

@@ -12,8 +12,7 @@ use crate::bindings::{
     eMultimedia, eRender,
 };
 use crate::types::{
-    DeviceChangeSource, DeviceFingerprint, DeviceId, DeviceRole, DeviceType, PresenceSource,
-    VolumeScalar,
+    DeviceChangeSource, DeviceFingerprint, DeviceId, DeviceRole, DeviceType, VolumeScalar,
 };
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
@@ -187,24 +186,21 @@ impl WindowsAudioDevice {
 }
 
 impl AudioBackend for WindowsAudioBackend {
-    fn configure_presence_monitoring(&self, sources: &[PresenceSource]) {
-        self.configure_presence_monitor(
-            A50X_PROFILE,
-            sources.contains(&PresenceSource::AstroA50X),
-            &self.a50x_presence_monitor,
-        );
-        self.configure_presence_monitor(
-            G533_PROFILE,
-            sources.contains(&PresenceSource::LogitechG533),
-            &self.g533_presence_monitor,
-        );
+    fn configure_presence_monitoring(&self, enabled: bool) {
+        self.configure_presence_monitor(A50X_PROFILE, enabled, &self.a50x_presence_monitor);
+        self.configure_presence_monitor(G533_PROFILE, enabled, &self.g533_presence_monitor);
     }
 
-    fn headset_presence(&self, source: PresenceSource) -> HeadsetPresence {
-        let monitor = match source {
-            PresenceSource::Windows => return HeadsetPresence::Unknown,
-            PresenceSource::AstroA50X => &self.a50x_presence_monitor,
-            PresenceSource::LogitechG533 => &self.g533_presence_monitor,
+    fn headset_presence(&self, usb_vid_pid: Option<(u16, u16)>) -> HeadsetPresence {
+        let Some((vendor_id, product_id)) = usb_vid_pid else {
+            return HeadsetPresence::Unknown;
+        };
+        let monitor = if A50X_PROFILE.matches_usb_device(vendor_id, product_id) {
+            &self.a50x_presence_monitor
+        } else if G533_PROFILE.matches_usb_device(vendor_id, product_id) {
+            &self.g533_presence_monitor
+        } else {
+            return HeadsetPresence::Unknown;
         };
         monitor
             .lock()

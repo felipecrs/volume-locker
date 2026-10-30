@@ -274,25 +274,8 @@ pub struct DeviceSettings {
     pub unmute_lock: UnmuteLockPolicy,
     pub device_type: DeviceType,
     pub name: String,
-    #[serde(default, skip_serializing_if = "PresenceSource::is_windows")]
-    pub presence_source: PresenceSource,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fingerprint: Option<DeviceFingerprint>,
-}
-
-#[derive(Debug, Default, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum PresenceSource {
-    #[default]
-    Windows,
-    AstroA50X,
-    LogitechG533,
-}
-
-impl PresenceSource {
-    pub fn is_windows(&self) -> bool {
-        matches!(self, Self::Windows)
-    }
 }
 
 impl DeviceSettings {
@@ -302,7 +285,6 @@ impl DeviceSettings {
             unmute_lock: UnmuteLockPolicy::default(),
             device_type,
             name,
-            presence_source: Default::default(),
             fingerprint: None,
         }
     }
@@ -489,7 +471,6 @@ mod tests {
             },
             device_type: DeviceType::Input,
             name: "Microphone".into(),
-            presence_source: Default::default(),
             fingerprint: None,
         };
         let json = serde_json::to_string(&settings).unwrap();
