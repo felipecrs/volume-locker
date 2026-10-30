@@ -12,6 +12,14 @@ pub enum HeadsetPresence {
 
 pub type HidReportCallback = dyn Fn(&[u8]) + Send + Sync;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InitialQuery {
+    HidppAdcMeasurement {
+        feature_id: u16,
+        unavailable_error: Option<u8>,
+    },
+}
+
 /// One verified HID interface and its device-specific status interpretation.
 #[derive(Clone, Copy)]
 pub struct HidPresenceProfile {
@@ -24,7 +32,7 @@ pub struct HidPresenceProfile {
     pub usage: u16,
     pub report_length: usize,
     pub decode: fn(&[u8]) -> Option<HeadsetPresence>,
-    pub initial_presence: HeadsetPresence,
+    pub initial_query: Option<InitialQuery>,
 }
 
 impl HidPresenceProfile {
@@ -61,13 +69,172 @@ fn decode_adc_flags(flags: u8) -> HeadsetPresence {
 
 #[cfg(target_os = "windows")]
 mod windows {
-    use super::{HeadsetPresence, HidPresenceProfile, HidReportCallback};
+    use super::{HeadsetPresence, HidPresenceProfile, HidReportCallback, InitialQuery};
     use std::sync::{
         Arc,
         atomic::{AtomicBool, AtomicU8, Ordering},
     };
     use std::thread::{self, JoinHandle};
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
+
+    const HIDPP_LONG_REPORT_ID: u8 = 0x11;
+    const HIDPP_LONG_REPORT_LENGTH: usize = 20;
+    const HIDPP_DIRECT_DEVICE_INDEX: u8 = 0xff;
+    const HIDPP_SOFTWARE_ID: u8 = 0x01;
+
+    enum HidppReply {
+        Response([u8; HIDPP_LONG_REPORT_LENGTH]),
+        Error(u8),
+    }
+
+    struct HidppReader<'a> {
+        device: &'a hidapi::HidDevice,
+        profile: HidPresenceProfile,
+        state: &'a AtomicU8,
+        on_change: &'a Arc<dyn Fn() + Send + Sync>,
+        on_report: &'a Arc<HidReportCallback>,
+    }
+
+    fn make_hidpp_request(
+        device_index: u8,
+        feature_index: u8,
+        function_sw_id: u8,
+        parameters: [u8; 3],
+    ) -> [u8; HIDPP_LONG_REPORT_LENGTH] {
+        let mut report = [0; HIDPP_LONG_REPORT_LENGTH];
+        report[..7].copy_from_slice(&[
+            HIDPP_LONG_REPORT_ID,
+            device_index,
+            feature_index,
+            function_sw_id,
+            parameters[0],
+            parameters[1],
+            parameters[2],
+        ]);
+        report
+    }
+
+    fn parse_hidpp_reply(
+        bytes: &[u8],
+        device_index: u8,
+        feature_index: u8,
+        function_sw_id: u8,
+    ) -> Option<HidppReply> {
+        if bytes.len() != HIDPP_LONG_REPORT_LENGTH
+            || bytes[0] != HIDPP_LONG_REPORT_ID
+            || bytes[1] != device_index
+        {
+            return None;
+        }
+        if bytes[2] == feature_index && bytes[3] == function_sw_id {
+            let mut response = [0; HIDPP_LONG_REPORT_LENGTH];
+            response.copy_from_slice(bytes);
+            return Some(HidppReply::Response(response));
+        }
+        if bytes[2] == 0xff && bytes[3] == feature_index && bytes[4] == function_sw_id {
+            return Some(HidppReply::Error(bytes[5]));
+        }
+        None
+    }
+
+    impl HidppReader<'_> {
+        fn exchange(
+            &self,
+            device_index: u8,
+            feature_index: u8,
+            function_sw_id: u8,
+            parameters: [u8; 3],
+        ) -> anyhow::Result<HidppReply> {
+            let request =
+                make_hidpp_request(device_index, feature_index, function_sw_id, parameters);
+            let written = self.device.write(&request)?;
+            anyhow::ensure!(
+                written == request.len(),
+                "HID++ request was only partially written ({written}/{} bytes)",
+                request.len()
+            );
+
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut report = [0; 64];
+            while Instant::now() < deadline {
+                let count = self.device.read_timeout(&mut report, 500)?;
+                if count == 0 {
+                    continue;
+                }
+                let Some(bytes) = report.get(..count) else {
+                    anyhow::bail!("HID++ response exceeds the read buffer");
+                };
+                (self.on_report)(bytes);
+                if let Some(next) = (self.profile.decode)(bytes) {
+                    publish(self.state, next, self.on_change);
+                }
+                if let Some(reply) =
+                    parse_hidpp_reply(bytes, device_index, feature_index, function_sw_id)
+                {
+                    return Ok(reply);
+                }
+            }
+            anyhow::bail!(
+                "Timed out waiting for HID++ reply to feature {feature_index:#04x}, function {function_sw_id:#04x}"
+            )
+        }
+    }
+
+    fn query_initial_state(
+        profile: HidPresenceProfile,
+        query: InitialQuery,
+        reader: &HidppReader<'_>,
+    ) -> anyhow::Result<HeadsetPresence> {
+        let InitialQuery::HidppAdcMeasurement {
+            feature_id,
+            unavailable_error,
+        } = query;
+        let feature_lookup = match reader.exchange(
+            HIDPP_DIRECT_DEVICE_INDEX,
+            0,
+            HIDPP_SOFTWARE_ID,
+            [(feature_id >> 8) as u8, feature_id as u8, 0],
+        )? {
+            HidppReply::Response(report) => report,
+            HidppReply::Error(code) => {
+                anyhow::bail!(
+                    "{} HID++ feature lookup failed with error {code:#04x}",
+                    profile.name
+                )
+            }
+        };
+        let feature_index = feature_lookup[4];
+        anyhow::ensure!(
+            feature_index != 0,
+            "{} does not expose ADC feature {feature_id:#06x}",
+            profile.name
+        );
+
+        let adc_reply = reader.exchange(
+            HIDPP_DIRECT_DEVICE_INDEX,
+            feature_index,
+            HIDPP_SOFTWARE_ID,
+            [0; 3],
+        )?;
+        decode_adc_reply(profile, unavailable_error, adc_reply)
+    }
+
+    fn decode_adc_reply(
+        profile: HidPresenceProfile,
+        unavailable_error: Option<u8>,
+        reply: HidppReply,
+    ) -> anyhow::Result<HeadsetPresence> {
+        match reply {
+            HidppReply::Response(report) => Ok(super::decode_adc_flags(report[6])),
+            HidppReply::Error(code) if unavailable_error == Some(code) => {
+                Ok(HeadsetPresence::Unavailable)
+            }
+            HidppReply::Error(code) => anyhow::bail!(
+                "{} HID++ ADC measurement failed with error {code:#04x}",
+                profile.name
+            ),
+        }
+    }
 
     pub struct HidPresenceMonitor {
         stop: Arc<AtomicBool>,
@@ -89,7 +256,6 @@ mod windows {
             }
             let stop = Arc::new(AtomicBool::new(false));
             let state = Arc::new(AtomicU8::new(HeadsetPresence::Unknown as u8));
-            publish(&state, profile.initial_presence, &on_change);
             let worker_stop = Arc::clone(&stop);
             let worker_state = Arc::clone(&state);
             let worker = thread::Builder::new()
@@ -173,8 +339,23 @@ mod windows {
             profile.name
         );
         let device = candidate.open_device(&api)?;
+        if let Some(query) = profile.initial_query {
+            let reader = HidppReader {
+                device: &device,
+                profile,
+                state,
+                on_change,
+                on_report,
+            };
+            match query_initial_state(profile, query, &reader) {
+                Ok(initial_state) => publish(state, initial_state, on_change),
+                Err(error) => {
+                    log::warn!("Cannot query initial {} state: {error:#}", profile.name);
+                }
+            }
+        }
         log::info!("Listening for {} status events", profile.name,);
-        // Presence monitoring is passive: it only reads device input reports.
+        // After the one-time startup query, monitoring only reads input reports.
         observe_reports(
             profile,
             |report| device.read_timeout(report, 500).map_err(Into::into),
@@ -339,7 +520,7 @@ mod windows {
                 usage: 4,
                 report_length: 8,
                 decode: synthetic_decode,
-                initial_presence: HeadsetPresence::Unknown,
+                initial_query: None,
             };
             let stop = Arc::new(AtomicBool::new(false));
             let worker_stop = Arc::clone(&stop);
@@ -371,10 +552,59 @@ mod windows {
         }
 
         #[test]
-        fn only_g533_starts_assumed_unavailable() {
-            assert_eq!(G533_PROFILE.initial_presence, HeadsetPresence::Unavailable);
-            assert_eq!(G733_PROFILE.initial_presence, HeadsetPresence::Unknown);
-            assert_eq!(A50X_PROFILE.initial_presence, HeadsetPresence::Unknown);
+        fn initial_adc_queries_are_configured_per_device_profile() {
+            assert!(matches!(
+                G533_PROFILE.initial_query,
+                Some(InitialQuery::HidppAdcMeasurement {
+                    feature_id: 0x1f20,
+                    unavailable_error: Some(0x05)
+                })
+            ));
+            assert!(matches!(
+                G733_PROFILE.initial_query,
+                Some(InitialQuery::HidppAdcMeasurement {
+                    feature_id: 0x1f20,
+                    unavailable_error: Some(0x05)
+                })
+            ));
+            assert_eq!(A50X_PROFILE.initial_query, None);
+        }
+
+        #[test]
+        fn hidpp_requests_and_replies_use_the_long_report_format() {
+            let request = make_hidpp_request(0xff, 0, 1, [0x1f, 0x20, 0]);
+            assert_eq!(&request[..7], &[0x11, 0xff, 0, 1, 0x1f, 0x20, 0]);
+
+            let mut response = [0; HIDPP_LONG_REPORT_LENGTH];
+            response[..7].copy_from_slice(&[0x11, 0xff, 7, 1, 0x01, 0, 0x01]);
+            assert!(matches!(
+                parse_hidpp_reply(&response, 0xff, 7, 1),
+                Some(HidppReply::Response(_))
+            ));
+
+            let mut error = [0; HIDPP_LONG_REPORT_LENGTH];
+            error[..6].copy_from_slice(&[0x11, 0xff, 0xff, 7, 1, 0x05]);
+            assert!(matches!(
+                parse_hidpp_reply(&error, 0xff, 7, 1),
+                Some(HidppReply::Error(0x05))
+            ));
+            assert!(parse_hidpp_reply(&error[..19], 0xff, 7, 1).is_none());
+            assert!(parse_hidpp_reply(&response, 0xff, 8, 1).is_none());
+        }
+
+        #[test]
+        fn initial_adc_response_and_unavailable_error_set_presence() {
+            let mut response = [0; HIDPP_LONG_REPORT_LENGTH];
+            response[6] = 0x01;
+            assert_eq!(
+                decode_adc_reply(G533_PROFILE, Some(0x05), HidppReply::Response(response)).unwrap(),
+                HeadsetPresence::Available
+            );
+            assert_eq!(
+                decode_adc_reply(G533_PROFILE, Some(0x05), HidppReply::Error(0x05)).unwrap(),
+                HeadsetPresence::Unavailable
+            );
+            assert!(decode_adc_reply(G533_PROFILE, Some(0x05), HidppReply::Error(0x06)).is_err());
         }
     }
 }

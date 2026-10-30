@@ -1,4 +1,4 @@
-use super::{HeadsetPresence, HidPresenceProfile};
+use super::{HeadsetPresence, HidPresenceProfile, InitialQuery};
 
 pub const A50X_PROFILE: HidPresenceProfile = HidPresenceProfile {
     model: "a50x",
@@ -9,7 +9,7 @@ pub const A50X_PROFILE: HidPresenceProfile = HidPresenceProfile {
     usage: 0x0074,
     report_length: 64,
     decode: decode_a50x_report,
-    initial_presence: HeadsetPresence::Unknown,
+    initial_query: None,
 };
 
 pub const G533_PROFILE: HidPresenceProfile = HidPresenceProfile {
@@ -21,7 +21,10 @@ pub const G533_PROFILE: HidPresenceProfile = HidPresenceProfile {
     usage: 0x0202,
     report_length: 20,
     decode: decode_g533_report,
-    initial_presence: HeadsetPresence::Unavailable,
+    initial_query: Some(InitialQuery::HidppAdcMeasurement {
+        feature_id: 0x1f20,
+        unavailable_error: Some(0x05),
+    }),
 };
 
 pub const G733_PROFILE: HidPresenceProfile = HidPresenceProfile {
@@ -33,7 +36,10 @@ pub const G733_PROFILE: HidPresenceProfile = HidPresenceProfile {
     usage: 0x0202,
     report_length: 20,
     decode: decode_g733_report,
-    initial_presence: HeadsetPresence::Unknown,
+    initial_query: Some(InitialQuery::HidppAdcMeasurement {
+        feature_id: 0x1f20,
+        unavailable_error: Some(0x05),
+    }),
 };
 
 pub const PROFILES: &[HidPresenceProfile] = &[A50X_PROFILE, G533_PROFILE, G733_PROFILE];
