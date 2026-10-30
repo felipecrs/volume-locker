@@ -13,6 +13,7 @@ Configure a fallback device in the same priority list.
 | --- | --- | --- |
 | Astro A50 X | `046d:0b0b` | Power-state HID reports |
 | Logitech G533 | `046d:0a66` | ADC-measurement wireless-link flag |
+| Logitech G733 | `046d:0ab5` | ADC-measurement wireless-link flag |
 
 Unknown state defers to Windows. Available still requires an active Windows
 endpoint; Unavailable excludes the matching endpoint. Startup stays Unknown
@@ -42,6 +43,8 @@ headset availability.
 - A50 X: `cargo run --locked --example headset_presence -- 30`
 - G533: `cargo run --locked --example headset_presence -- --watch-g533 30`
 - List G533 collections: `cargo run --locked --example headset_presence -- --list-g533`
+- G733: `cargo run --locked --example headset_presence -- --watch-g733 30`
+- List G733 collections: `cargo run --locked --example headset_presence -- --list-g733`
 
 These commands only observe HID input. Keep any captures local; they may contain
 device identifiers.

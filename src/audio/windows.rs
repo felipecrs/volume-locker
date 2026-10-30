@@ -1,5 +1,7 @@
 use super::migration::{build_fingerprint, clean_device_name};
-use super::presence::{A50X_PROFILE, G533_PROFILE, HeadsetPresence, HidPresenceMonitor};
+use super::presence::{
+    A50X_PROFILE, G533_PROFILE, G733_PROFILE, HeadsetPresence, HidPresenceMonitor,
+};
 use super::{AudioBackend, AudioDevice, windows_com_policy_config};
 use crate::bindings::{
     AUDIO_VOLUME_NOTIFICATION_DATA, CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree,
@@ -99,6 +101,7 @@ pub struct WindowsAudioBackend {
     presence_callback: Mutex<Option<Arc<dyn Fn(DeviceChangeSource) + Send + Sync>>>,
     a50x_presence_monitor: Mutex<Option<HidPresenceMonitor>>,
     g533_presence_monitor: Mutex<Option<HidPresenceMonitor>>,
+    g733_presence_monitor: Mutex<Option<HidPresenceMonitor>>,
     power_notify_guard: Mutex<Option<PowerNotifyGuard>>,
 }
 
@@ -114,6 +117,7 @@ impl WindowsAudioBackend {
             presence_callback: Mutex::new(None),
             a50x_presence_monitor: Mutex::new(None),
             g533_presence_monitor: Mutex::new(None),
+            g733_presence_monitor: Mutex::new(None),
             power_notify_guard: Mutex::new(None),
         })
     }
@@ -186,9 +190,28 @@ impl WindowsAudioDevice {
 }
 
 impl AudioBackend for WindowsAudioBackend {
-    fn configure_presence_monitoring(&self, enabled: bool) {
-        self.configure_presence_monitor(A50X_PROFILE, enabled, &self.a50x_presence_monitor);
-        self.configure_presence_monitor(G533_PROFILE, enabled, &self.g533_presence_monitor);
+    fn configure_presence_monitoring(&self, usb_devices: &[(u16, u16)]) {
+        self.configure_presence_monitor(
+            A50X_PROFILE,
+            usb_devices.iter().any(|&(vendor_id, product_id)| {
+                A50X_PROFILE.matches_usb_device(vendor_id, product_id)
+            }),
+            &self.a50x_presence_monitor,
+        );
+        self.configure_presence_monitor(
+            G533_PROFILE,
+            usb_devices.iter().any(|&(vendor_id, product_id)| {
+                G533_PROFILE.matches_usb_device(vendor_id, product_id)
+            }),
+            &self.g533_presence_monitor,
+        );
+        self.configure_presence_monitor(
+            G733_PROFILE,
+            usb_devices.iter().any(|&(vendor_id, product_id)| {
+                G733_PROFILE.matches_usb_device(vendor_id, product_id)
+            }),
+            &self.g733_presence_monitor,
+        );
     }
 
     fn headset_presence(&self, usb_vid_pid: Option<(u16, u16)>) -> HeadsetPresence {
@@ -199,6 +222,8 @@ impl AudioBackend for WindowsAudioBackend {
             &self.a50x_presence_monitor
         } else if G533_PROFILE.matches_usb_device(vendor_id, product_id) {
             &self.g533_presence_monitor
+        } else if G733_PROFILE.matches_usb_device(vendor_id, product_id) {
+            &self.g733_presence_monitor
         } else {
             return HeadsetPresence::Unknown;
         };

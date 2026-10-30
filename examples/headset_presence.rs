@@ -2,6 +2,8 @@
 //! cargo run --example headset_presence -- 45
 //! cargo run --example headset_presence -- --watch-g533 45
 //! cargo run --example headset_presence -- --list-g533
+//! cargo run --example headset_presence -- --watch-g733 45
+//! cargo run --example headset_presence -- --list-g733
 #[allow(dead_code)]
 #[path = "../src/audio/presence.rs"]
 mod presence;
@@ -12,13 +14,17 @@ fn main() -> anyhow::Result<()> {
     simplelog::SimpleLogger::init(log::LevelFilter::Info, simplelog::Config::default())?;
     let mut args = std::env::args().skip(1);
     let first = args.next();
-    if first.as_deref() == Some("--list-g533") {
+    let list_profile = match first.as_deref() {
+        Some("--list-g533") => Some(presence::G533_PROFILE),
+        Some("--list-g733") => Some(presence::G733_PROFILE),
+        _ => None,
+    };
+    if let Some(profile) = list_profile {
         let api = hidapi::HidApi::new()?;
         let mut found = false;
-        for device in api
-            .device_list()
-            .filter(|device| device.vendor_id() == 0x046d && device.product_id() == 0x0a66)
-        {
+        for device in api.device_list().filter(|device| {
+            device.vendor_id() == profile.vendor_id && device.product_id() == profile.product_id
+        }) {
             found = true;
             println!(
                 "usage={:04x}:{:04x} interface={} path={}",
@@ -29,23 +35,27 @@ fn main() -> anyhow::Result<()> {
             );
         }
         if !found {
-            println!("No present G533 HID collections found.");
+            println!("No present {} HID collections found.", profile.name);
         }
         return Ok(());
     }
-    let watch_g533 = first.as_deref() == Some("--watch-g533");
-    let profile = if watch_g533 {
-        presence::G533_PROFILE
-    } else {
-        presence::A50X_PROFILE
+    let watch_profile = match first.as_deref() {
+        Some("--watch-g533") => Some(presence::G533_PROFILE),
+        Some("--watch-g733") => Some(presence::G733_PROFILE),
+        _ => None,
     };
-    let seconds = (if watch_g533 { args.next() } else { first })
-        .unwrap_or_else(|| "30".into())
-        .parse::<u64>()?;
+    let profile = watch_profile.unwrap_or(presence::A50X_PROFILE);
+    let seconds = (if watch_profile.is_some() {
+        args.next()
+    } else {
+        first
+    })
+    .unwrap_or_else(|| "30".into())
+    .parse::<u64>()?;
     anyhow::ensure!((1..=300).contains(&seconds), "Choose 1–300 seconds");
     let monitor = presence::HidPresenceMonitor::start(profile, Arc::new(|| {}))?;
     println!(
-        "Read-only {} observer running for {seconds}s. Toggle headset power to observe transitions.",
+        "Read-only {} observer running for {seconds}s. Toggle headset power to observe status transitions.",
         profile.name
     );
     let started = Instant::now();

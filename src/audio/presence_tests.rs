@@ -51,8 +51,6 @@ fn g533_link_events_fall_back_when_wireless_link_is_lost() {
             usb_vid_pid: Some((0x046d, 0x0a66)),
             ..DeviceFingerprint::default()
         });
-        let temporary = TemporaryPriorities::default();
-
         for (presence, expected) in [
             (HeadsetPresence::Unavailable, "fallback"),
             (HeadsetPresence::Available, "headset"),
@@ -62,7 +60,36 @@ fn g533_link_events_fall_back_when_wireless_link_is_lost() {
                 &backend,
                 &state,
                 &mut NotificationThrottler::new(),
-                &temporary,
+                &TemporaryPriorities::default(),
+            );
+            assert_eq!(backend.default_console.borrow()[&device_type], expected);
+            assert_eq!(backend.default_multimedia.borrow()[&device_type], expected);
+            assert_eq!(
+                backend.default_communications.borrow()[&device_type],
+                expected
+            );
+        }
+    }
+}
+
+#[test]
+fn g733_link_events_fall_back_for_both_audio_endpoint_types() {
+    for device_type in [DeviceType::Output, DeviceType::Input] {
+        let (mut backend, state) = setup(device_type);
+        backend.devices[0].fingerprint = Some(DeviceFingerprint {
+            usb_vid_pid: Some((0x046d, 0x0ab5)),
+            ..DeviceFingerprint::default()
+        });
+        for (presence, expected) in [
+            (HeadsetPresence::Unavailable, "fallback"),
+            (HeadsetPresence::Available, "headset"),
+        ] {
+            *backend.presence.borrow_mut() = presence;
+            enforce_priorities(
+                &backend,
+                &state,
+                &mut NotificationThrottler::new(),
+                &TemporaryPriorities::default(),
             );
             assert_eq!(backend.default_console.borrow()[&device_type], expected);
             assert_eq!(backend.default_multimedia.borrow()[&device_type], expected);

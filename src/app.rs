@@ -264,12 +264,20 @@ impl AppState {
         let description = source.description(|id| self.get_device_display_name(id));
         log::info!("Audio event ({description}): updating devices and enforcing settings...");
 
-        self.backend.configure_presence_monitoring(
-            self.persistent_state.wireless_headset_detection_enabled,
-        );
-
         self.migrate_device_ids_if_needed();
-        for (device_id, new_name, device_type, fingerprint) in collect_device_info(&self.backend) {
+        let device_info = collect_device_info(&self.backend);
+        let presence_devices: Vec<_> = if self.persistent_state.wireless_headset_detection_enabled {
+            device_info
+                .iter()
+                .filter_map(|(_, _, _, fingerprint)| fingerprint.as_ref()?.usb_vid_pid)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        self.backend
+            .configure_presence_monitoring(&presence_devices);
+
+        for (device_id, new_name, device_type, fingerprint) in device_info {
             self.device_cache.insert(
                 device_id.clone(),
                 (new_name.clone(), device_type, fingerprint.clone()),

@@ -52,7 +52,17 @@ pub const G533_PROFILE: HidPresenceProfile = HidPresenceProfile {
     usage_page: 0xff43,
     usage: 0x0202,
     report_length: 20,
-    decode: decode_g533_report,
+    decode: decode_adc_measurement_report_g533,
+};
+
+pub const G733_PROFILE: HidPresenceProfile = HidPresenceProfile {
+    name: "Logitech G733",
+    vendor_id: 0x046d,
+    product_id: 0x0ab5,
+    usage_page: 0xff43,
+    usage: 0x0202,
+    report_length: 20,
+    decode: decode_adc_measurement_report_g733,
 };
 
 /// Observed on A50 X 046d:0b0b, firmware 1.3.21, during a real on/off cycle.
@@ -68,18 +78,25 @@ fn decode_a50x_report(report: &[u8]) -> Option<HeadsetPresence> {
     }
 }
 
-/// G533's `0x1f20` ADC-measurement event uses flag bit 0 for the wireless link.
-/// Its observed feature index is 7; replies to host requests are not events.
-fn decode_g533_report(report: &[u8]) -> Option<HeadsetPresence> {
-    if report.len() != G533_PROFILE.report_length || report[..4] != [0x11, 0xff, 0x07, 0x00] {
+/// G533 and G733 broadcast `0x1f20` at different feature indexes.
+fn decode_adc_measurement_report(report: &[u8], feature_index: u8) -> Option<HeadsetPresence> {
+    if report.len() != 20 || report.get(..4)? != [0x11, 0xff, feature_index, 0x00] {
         return None;
     }
 
-    match report[6] {
+    match *report.get(6)? {
         flags if flags & 0x01 == 0 => Some(HeadsetPresence::Unavailable),
         0x01 | 0x03 | 0x07 => Some(HeadsetPresence::Available),
         _ => Some(HeadsetPresence::Unknown),
     }
+}
+
+fn decode_adc_measurement_report_g533(report: &[u8]) -> Option<HeadsetPresence> {
+    decode_adc_measurement_report(report, 7)
+}
+
+fn decode_adc_measurement_report_g733(report: &[u8]) -> Option<HeadsetPresence> {
+    decode_adc_measurement_report(report, 8)
 }
 
 #[cfg(target_os = "windows")]
@@ -424,26 +441,66 @@ mod tests {
             report
         };
         assert_eq!(
-            decode_g533_report(&report(0x00, 0x00)),
+            decode_adc_measurement_report_g533(&report(0x00, 0x00)),
             Some(HeadsetPresence::Unavailable)
         );
         for flags in [0x01, 0x03, 0x07] {
             assert_eq!(
-                decode_g533_report(&report(0x00, flags)),
+                decode_adc_measurement_report_g533(&report(0x00, flags)),
                 Some(HeadsetPresence::Available)
             );
         }
         assert_eq!(
-            decode_g533_report(&report(0x00, 0x0f)),
+            decode_adc_measurement_report_g533(&report(0x00, 0x0f)),
             Some(HeadsetPresence::Unknown)
         );
-        assert_eq!(decode_g533_report(&report(0x01, 0x00)), None);
+        assert_eq!(
+            decode_adc_measurement_report_g533(&report(0x01, 0x00)),
+            None
+        );
         let mut unrelated = report(0x00, 0);
         unrelated[2] = 0x06;
-        assert_eq!(decode_g533_report(&unrelated), None);
+        assert_eq!(decode_adc_measurement_report_g533(&unrelated), None);
         for length in 0..20 {
-            assert_eq!(decode_g533_report(&report(0x00, 0x01)[..length]), None);
+            assert_eq!(
+                decode_adc_measurement_report_g533(&report(0x00, 0x01)[..length]),
+                None
+            );
         }
+    }
+
+    #[test]
+    fn g733_profile_matches_openlogi_identity_and_event_index() {
+        assert!(G733_PROFILE.matches(0x046d, 0x0ab5, 0xff43, 0x0202));
+        let report = |flags| {
+            let mut report = [0; 20];
+            report[..7].copy_from_slice(&[0x11, 0xff, 0x08, 0x00, 0x0f, 0x41, flags]);
+            report
+        };
+        assert_eq!(
+            (G733_PROFILE.decode)(&report(0x00)),
+            Some(HeadsetPresence::Unavailable)
+        );
+        assert_eq!(
+            (G733_PROFILE.decode)(&report(0x01)),
+            Some(HeadsetPresence::Available)
+        );
+        assert_eq!(
+            (G733_PROFILE.decode)(&report(0x03)),
+            Some(HeadsetPresence::Available)
+        );
+        assert_eq!(
+            (G733_PROFILE.decode)(&report(0x0f)),
+            Some(HeadsetPresence::Unknown)
+        );
+        assert_eq!(
+            decode_adc_measurement_report_g733(&report(0x01)[..19]),
+            None
+        );
+        assert_eq!(
+            decode_adc_measurement_report_g733(&[0x11, 0xff, 0x07, 0x00, 0x0f, 0x41, 0x00]),
+            None
+        );
     }
 
     #[test]

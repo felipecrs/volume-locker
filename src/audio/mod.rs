@@ -7,7 +7,7 @@ use presence::HeadsetPresence;
 mod windows_com_policy_config;
 
 pub trait AudioBackend {
-    fn configure_presence_monitoring(&self, _enabled: bool) {}
+    fn configure_presence_monitoring(&self, _usb_devices: &[(u16, u16)]) {}
     fn headset_presence(&self, _usb_vid_pid: Option<(u16, u16)>) -> HeadsetPresence {
         HeadsetPresence::Unknown
     }
@@ -289,7 +289,7 @@ pub(crate) mod tests {
 
     impl AudioBackend for MockAudioBackend {
         fn headset_presence(&self, usb_vid_pid: Option<(u16, u16)>) -> HeadsetPresence {
-            if matches!(usb_vid_pid, Some((0x046d, 0x0b0b | 0x0a66))) {
+            if matches!(usb_vid_pid, Some((0x046d, 0x0b0b | 0x0a66 | 0x0ab5))) {
                 *self.presence.borrow()
             } else {
                 HeadsetPresence::Unknown
