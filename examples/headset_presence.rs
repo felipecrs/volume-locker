@@ -13,12 +13,9 @@ fn main() -> anyhow::Result<()> {
     simplelog::SimpleLogger::init(log::LevelFilter::Info, simplelog::Config::default())?;
     let mut args = std::env::args().skip(1);
     let model = args.next().ok_or_else(|| anyhow::anyhow!("{}", usage()))?;
-    let profile = match model.as_str() {
-        "a50x" => presence::A50X_PROFILE,
-        "g533" => presence::G533_PROFILE,
-        "g733" => presence::G733_PROFILE,
-        _ => anyhow::bail!("Unknown model '{model}'.\n{}", usage()),
-    };
+    let profile = presence::devices::profile_by_model(&model)
+        .copied()
+        .ok_or_else(|| anyhow::anyhow!("Unknown model '{model}'.\n{}", usage()))?;
     let action = args.next().ok_or_else(|| anyhow::anyhow!("{}", usage()))?;
 
     if action == "list" {
@@ -89,5 +86,10 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn usage() -> String {
-    "Usage: headset_presence <a50x|g533|g733> <list|watch|capture> [seconds]".into()
+    let models = presence::devices::PROFILES
+        .iter()
+        .map(|profile| profile.model)
+        .collect::<Vec<_>>()
+        .join("|");
+    format!("Usage: headset_presence <{models}> <list|watch|capture> [seconds]")
 }

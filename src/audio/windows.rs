@@ -1,6 +1,7 @@
 use super::migration::{build_fingerprint, clean_device_name};
 use super::presence::{
-    A50X_PROFILE, G533_PROFILE, G733_PROFILE, HeadsetPresence, HidPresenceMonitor,
+    HeadsetPresence, HidPresenceMonitor,
+    devices::{PROFILES, profile_by_usb_device},
 };
 use super::{AudioBackend, AudioDevice, windows_com_policy_config};
 use crate::bindings::{
@@ -16,6 +17,7 @@ use crate::bindings::{
 use crate::types::{
     DeviceChangeSource, DeviceFingerprint, DeviceId, DeviceRole, DeviceType, VolumeScalar,
 };
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::sync::{Arc, Mutex};
@@ -99,9 +101,7 @@ pub struct WindowsAudioBackend {
     /// `register_device_change_callback` and must remain alive for the COM callback.
     device_change_callback: Mutex<Option<IMMNotificationClient>>,
     presence_callback: Mutex<Option<Arc<dyn Fn(DeviceChangeSource) + Send + Sync>>>,
-    a50x_presence_monitor: Mutex<Option<HidPresenceMonitor>>,
-    g533_presence_monitor: Mutex<Option<HidPresenceMonitor>>,
-    g733_presence_monitor: Mutex<Option<HidPresenceMonitor>>,
+    presence_monitors: Mutex<HashMap<(u16, u16), HidPresenceMonitor>>,
     power_notify_guard: Mutex<Option<PowerNotifyGuard>>,
 }
 
@@ -115,43 +115,28 @@ impl WindowsAudioBackend {
             enumerator,
             device_change_callback: Mutex::new(None),
             presence_callback: Mutex::new(None),
-            a50x_presence_monitor: Mutex::new(None),
-            g533_presence_monitor: Mutex::new(None),
-            g733_presence_monitor: Mutex::new(None),
+            presence_monitors: Mutex::new(HashMap::new()),
             power_notify_guard: Mutex::new(None),
         })
     }
 
-    fn configure_presence_monitor(
+    fn start_presence_monitor(
         &self,
         profile: super::presence::HidPresenceProfile,
-        enabled: bool,
-        monitor: &Mutex<Option<HidPresenceMonitor>>,
-    ) {
-        let mut monitor = monitor
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if !enabled {
-            monitor.take();
-            return;
-        }
-        if monitor.is_some() {
-            return;
-        }
+    ) -> Option<HidPresenceMonitor> {
         let callback = self
             .presence_callback
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
-        if let Some(callback) = callback {
-            let on_presence_change = Arc::new(move || {
-                callback(DeviceChangeSource::HeadsetPresenceChanged);
-            });
-            match HidPresenceMonitor::start(profile, on_presence_change, Arc::new(|_| {})) {
-                Ok(started) => *monitor = Some(started),
-                Err(error) => {
-                    log::error!("Cannot start {} presence monitor: {error}", profile.name)
-                }
+            .clone()?;
+        let on_presence_change = Arc::new(move || {
+            callback(DeviceChangeSource::HeadsetPresenceChanged);
+        });
+        match HidPresenceMonitor::start(profile, on_presence_change, Arc::new(|_| {})) {
+            Ok(started) => Some(started),
+            Err(error) => {
+                log::error!("Cannot start {} presence monitor: {error}", profile.name);
+                None
             }
         }
     }
@@ -191,46 +176,45 @@ impl WindowsAudioDevice {
 
 impl AudioBackend for WindowsAudioBackend {
     fn configure_presence_monitoring(&self, usb_devices: &[(u16, u16)]) {
-        self.configure_presence_monitor(
-            A50X_PROFILE,
-            usb_devices.iter().any(|&(vendor_id, product_id)| {
-                A50X_PROFILE.matches_usb_device(vendor_id, product_id)
-            }),
-            &self.a50x_presence_monitor,
-        );
-        self.configure_presence_monitor(
-            G533_PROFILE,
-            usb_devices.iter().any(|&(vendor_id, product_id)| {
-                G533_PROFILE.matches_usb_device(vendor_id, product_id)
-            }),
-            &self.g533_presence_monitor,
-        );
-        self.configure_presence_monitor(
-            G733_PROFILE,
-            usb_devices.iter().any(|&(vendor_id, product_id)| {
-                G733_PROFILE.matches_usb_device(vendor_id, product_id)
-            }),
-            &self.g733_presence_monitor,
-        );
+        let connected = usb_devices.iter().copied().collect::<HashSet<_>>();
+        let profiles_to_start = {
+            let mut monitors = self
+                .presence_monitors
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            monitors.retain(|identity, _| connected.contains(identity));
+            PROFILES
+                .iter()
+                .filter(|profile| {
+                    let identity = (profile.vendor_id, profile.product_id);
+                    connected.contains(&identity) && !monitors.contains_key(&identity)
+                })
+                .copied()
+                .collect::<Vec<_>>()
+        };
+        for profile in profiles_to_start {
+            let identity = (profile.vendor_id, profile.product_id);
+            if let Some(monitor) = self.start_presence_monitor(profile) {
+                self.presence_monitors
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .entry(identity)
+                    .or_insert(monitor);
+            }
+        }
     }
 
     fn headset_presence(&self, usb_vid_pid: Option<(u16, u16)>) -> HeadsetPresence {
         let Some((vendor_id, product_id)) = usb_vid_pid else {
             return HeadsetPresence::Unknown;
         };
-        let monitor = if A50X_PROFILE.matches_usb_device(vendor_id, product_id) {
-            &self.a50x_presence_monitor
-        } else if G533_PROFILE.matches_usb_device(vendor_id, product_id) {
-            &self.g533_presence_monitor
-        } else if G733_PROFILE.matches_usb_device(vendor_id, product_id) {
-            &self.g733_presence_monitor
-        } else {
+        let Some(profile) = profile_by_usb_device(vendor_id, product_id) else {
             return HeadsetPresence::Unknown;
         };
-        monitor
+        self.presence_monitors
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_ref()
+            .get(&(profile.vendor_id, profile.product_id))
             .map_or(HeadsetPresence::Unknown, HidPresenceMonitor::presence)
     }
 
