@@ -188,15 +188,23 @@ fn find_highest_priority_active_device(
 ) -> Option<DeviceId> {
     priority_list
         .iter()
-        .filter(|device_id| {
-            state.device_settings(device_id).is_none_or(|s| {
-                backend.headset_presence(s.presence_source)
-                    != super::presence::HeadsetPresence::Unavailable
-            })
-        })
         .find_map(|device_id| match backend.device_by_id(device_id) {
             Ok(device) => match device.is_active() {
-                Ok(true) => Some(device_id.clone()),
+                Ok(true) => {
+                    if state.wireless_headset_detection_enabled
+                        && backend.headset_presence(
+                            device.fingerprint().and_then(|fingerprint| fingerprint.usb_vid_pid),
+                        ) == super::presence::HeadsetPresence::Unavailable
+                    {
+                        log::debug!(
+                            "Device '{}' ({device_id}) has no wireless headset link, skipping in priority order",
+                            device.name()
+                        );
+                        None
+                    } else {
+                        Some(device_id.clone())
+                    }
+                }
                 Ok(false) => {
                     log::debug!(
                         "Device '{}' ({device_id}) is inactive, skipping in priority order",

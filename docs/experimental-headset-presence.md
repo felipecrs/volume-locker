@@ -1,60 +1,60 @@
 # Experimental headset availability
 
-Some wireless base stations keep their Windows audio endpoints active while the
-headset is off. This opt-in detector reads device-specific HID input events and
-lets the existing input/output priority lists skip unavailable headsets. It does
-not require paired-output routing or independent communication lists.
+Some wireless receivers keep their Windows audio endpoint active when the
+headset is unavailable. This opt-in detector uses a one-time read-only startup
+query when supported, then listens for device status events so the existing
+input/output priority lists can skip that endpoint.
+Enable **Wireless headset detection (experimental)** in Preferences; supported
+devices are identified automatically by USB VID/PID. It is disabled by
+default. Configure a fallback device in the same priority list.
 
-Select **Output/Input devices > device > Availability > A50 X power events
-(experimental)** for each affected endpoint. Configure a second device in its
-normal priority list for fallback. **Windows connection** remains the default.
+## Supported devices
 
-The provider has three states: Unknown defers to Windows; Available still requires
-an active Windows endpoint; Unavailable excludes opted-in endpoints, including
-temporary priority choices. Startup, an unrecognized power value, and provider
-failure are Unknown. A read timeout preserves the last observation.
+| Device        | USB VID:PID | Observed signal                    | Startup status query              |
+| ------------- | ----------- | ---------------------------------- | --------------------------------- |
+| Astro A50 X   | `046d:0b0b` | Power-state HID reports            | None                              |
+| Logitech G533 | `046d:0a66` | ADC-measurement wireless-link flag | ADC; error `0x05` means Unavailable |
+| Logitech G733 | `046d:0ab5` | ADC-measurement wireless-link flag | ADC; error `0x05` means Unavailable |
 
-## A50 X evidence and limits
+Unknown state defers to Windows. Available still requires an active Windows
+endpoint; Unavailable excludes the matching endpoint. State starts Unknown and
+changes when a configured startup query succeeds or a valid status report
+arrives. Query failures do not imply Unavailable; if no status is known, the
+state remains Unknown. Monitor failures reset the state to Unknown. A link-loss
+report may not distinguish power-off from out-of-range or interference.
+Detection is experimental and may vary by firmware.
 
-The earlier fork investigation observed a Logitech/Astro A50 X base with firmware
-1.3.21 and USB identity `046d:0b0b`, usage page `ff32`, usage `0074`. Passive reports
-began with `02 0c 04 00 13 00 00` on power-on and `02 0c 04 00 13 00 05` on power-off,
-padded to 64 bytes. Chatmix, battery, volume and unrelated reports are ignored.
-Automated tests replay these observations; they do not establish
-compatibility with other firmware or headset models.
+## Adding a device
 
-- Passive startup cannot identify an already-off headset. Toggle its power once
-  after enabling or restarting the observer. A current-state query remains research.
-- Docking, sleep, out-of-range behavior and running with G HUB exited need physical
-  captures and a routing soak before stable release.
-- Multiple matching interfaces are refused because endpoint association would be
-  ambiguous. Only one matching headset is supported.
-- The worker sends no HID output or feature reports and makes no G HUB requests.
-  Reads and reconnects run off the event loop; dropping it joins the worker.
+Device profiles and the model registry live in
+[`src/audio/presence/devices.rs`](../src/audio/presence/devices.rs). Adding a
+device should not require changes to the monitor worker, Windows backend, or
+diagnostic example:
 
-## Adding another device
+1. Capture and verify real available/unavailable HID events for the exact model.
+2. Define its profile and register it in `PROFILES` in `devices.rs`, reusing an
+   existing decoder or adding a device-specific decoder that ignores
+   unrelated reports and maps ambiguous values to Unknown.
+3. Configure an optional read-only startup query in the profile. Without a
+   query, state remains Unknown until the first valid report; ongoing monitoring
+   listens for input reports.
+4. Add captured-report fixtures in `presence.rs` and one supported-device row
+   in this table. Validate routing with the hardware connected.
 
-`HidPresenceProfile` separates the interface identity and report decoder from
-`HidPresenceMonitor`, the shared passive transport, reconnect loop and shutdown.
-Profiles specify an input report length and must match vendor ID, product ID,
-usage page and usage. A decoder returns
-Available/Unavailable only for verified observations, Unknown for recognized but
-uninterpretable status values, and None for unrelated or incomplete reports.
+Profiles share the HID monitoring worker, not device assumptions or state.
+Each audio endpoint is matched to its profile by USB VID/PID.
+Battery, mute, silence, or a successful receiver request alone do not prove
+headset availability.
 
-To support another model, capture its actual on/off behavior, implement a profile
-and decoder, add a `PresenceSource` option and menu entry, and map that source to
-its monitor in the Windows backend. Add fixtures for real transitions and false
-positives, then physically validate the endpoint association and firmware. The
-synthetic second-protocol test demonstrates transport reuse, not hardware support.
-Additional sources need separate monitors/states rather than sharing A50 X state.
+## Diagnostics
 
-No universal USB-receiver power flag is assumed. Battery level, mute, silence and
-successful base-station requests do not establish radio availability.
+The read-only example takes a registered model and an action (`list`, `watch`,
+or `capture`). Watch and capture accept an optional duration in seconds
+(default 30, maximum 300):
 
-## Read-only diagnostics
+- `cargo run --locked --example headset_presence -- <model> <list|watch|capture> [seconds]`
 
-Run `cargo run --locked --example headset_presence -- 30` to observe power events
-without changing Windows defaults. `scripts/Capture-HidReports.py --help` describes
-passive capture for a selected interface. `Inspect-HeadsetPresence.ps1` and
-`GHub.ReadOnly.psm1` compare Windows and read-only G HUB observations. Captures can
-contain identifiers; keep local data under ignored `target/presence-research/`.
+Capture prints raw HID input reports to the terminal. Models with a configured
+startup query issue read-only requests to retrieve an initial status; no
+settings are changed. Keep captured reports local; they may contain device
+identifiers.

@@ -1,5 +1,4 @@
 mod device_section;
-mod presence_section;
 mod priority_section;
 
 use super::{AppAction, DeviceAction, MenuAction, MenuItemInfo};
@@ -218,6 +217,21 @@ fn append_preferences_section(
         },
     );
     tray_menu.append(items.notify_on_device_migration)?;
+
+    let wireless_headset_detection = CheckMenuItem::new(
+        "Wireless headset detection (experimental)",
+        true,
+        persistent_state.wireless_headset_detection_enabled,
+        None,
+    );
+    map.insert(
+        wireless_headset_detection.id().clone(),
+        MenuItemInfo {
+            name: "Wireless headset detection".to_string(),
+            action: MenuAction::App(AppAction::ToggleWirelessHeadsetDetection),
+        },
+    );
+    tray_menu.append(&wireless_headset_detection)?;
     tray_menu.append(&PredefinedMenuItem::separator())?;
 
     Ok(())

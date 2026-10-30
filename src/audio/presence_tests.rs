@@ -1,20 +1,22 @@
 use super::tests::{MockAudioBackend, MockDevice};
-use super::{enforce_priorities, migrate_device_ids, presence::HeadsetPresence};
+use super::{enforce_priorities, presence::HeadsetPresence};
 use crate::config::PersistentState;
 use crate::notification::NotificationThrottler;
-use crate::types::{DeviceType, PresenceSource, PriorityKind, TemporaryPriorities};
+use crate::types::{DeviceFingerprint, DeviceType, PriorityKind, TemporaryPriorities};
 
 fn setup(device_type: DeviceType) -> (MockAudioBackend, PersistentState) {
     let mut headset = MockDevice::new("headset", "Wireless headset", true);
     headset.device_type = device_type;
+    headset.fingerprint = Some(DeviceFingerprint {
+        usb_vid_pid: Some((0x046d, 0x0b0b)),
+        ..DeviceFingerprint::default()
+    });
     let mut fallback = MockDevice::new("fallback", "Wired device", true);
     fallback.device_type = device_type;
     let backend = MockAudioBackend::new(vec![headset, fallback]);
     let mut state = PersistentState::default();
     *state.priority_list_mut(device_type) = vec!["headset".into(), "fallback".into()];
-    state
-        .ensure_device_settings("headset".into(), "Wireless headset".into(), device_type)
-        .presence_source = PresenceSource::AstroA50X;
+    state.wireless_headset_detection_enabled = true;
     (backend, state)
 }
 
@@ -39,6 +41,108 @@ fn input_and_output_fall_back_on_power_off_and_restore_on_power_on() {
             );
         }
     }
+}
+
+#[test]
+fn g533_link_events_fall_back_when_wireless_link_is_lost() {
+    for device_type in [DeviceType::Output, DeviceType::Input] {
+        let (mut backend, state) = setup(device_type);
+        backend.devices[0].fingerprint = Some(DeviceFingerprint {
+            usb_vid_pid: Some((0x046d, 0x0a66)),
+            ..DeviceFingerprint::default()
+        });
+        for (presence, expected) in [
+            (HeadsetPresence::Unavailable, "fallback"),
+            (HeadsetPresence::Available, "headset"),
+        ] {
+            *backend.presence.borrow_mut() = presence;
+            enforce_priorities(
+                &backend,
+                &state,
+                &mut NotificationThrottler::new(),
+                &TemporaryPriorities::default(),
+            );
+            assert_eq!(backend.default_console.borrow()[&device_type], expected);
+            assert_eq!(backend.default_multimedia.borrow()[&device_type], expected);
+            assert_eq!(
+                backend.default_communications.borrow()[&device_type],
+                expected
+            );
+        }
+    }
+}
+
+#[test]
+fn g733_link_events_fall_back_for_both_audio_endpoint_types() {
+    for device_type in [DeviceType::Output, DeviceType::Input] {
+        let (mut backend, state) = setup(device_type);
+        backend.devices[0].fingerprint = Some(DeviceFingerprint {
+            usb_vid_pid: Some((0x046d, 0x0ab5)),
+            ..DeviceFingerprint::default()
+        });
+        for (presence, expected) in [
+            (HeadsetPresence::Unavailable, "fallback"),
+            (HeadsetPresence::Available, "headset"),
+        ] {
+            *backend.presence.borrow_mut() = presence;
+            enforce_priorities(
+                &backend,
+                &state,
+                &mut NotificationThrottler::new(),
+                &TemporaryPriorities::default(),
+            );
+            assert_eq!(backend.default_console.borrow()[&device_type], expected);
+            assert_eq!(backend.default_multimedia.borrow()[&device_type], expected);
+            assert_eq!(
+                backend.default_communications.borrow()[&device_type],
+                expected
+            );
+        }
+    }
+}
+
+#[test]
+fn global_detection_setting_survives_state_serialization() {
+    let (_, state) = setup(DeviceType::Output);
+
+    let json = serde_json::to_string(&state).unwrap();
+    let loaded: PersistentState = serde_json::from_str(&json).unwrap();
+    assert!(loaded.wireless_headset_detection_enabled);
+}
+
+#[test]
+fn presence_is_applied_only_to_an_endpoint_with_a_supported_vid_pid() {
+    let (mut backend, state) = setup(DeviceType::Output);
+    *backend.presence.borrow_mut() = HeadsetPresence::Unavailable;
+    backend.devices[0].fingerprint = Some(DeviceFingerprint {
+        usb_vid_pid: Some((0x1234, 0x5678)),
+        ..DeviceFingerprint::default()
+    });
+    enforce_priorities(
+        &backend,
+        &state,
+        &mut NotificationThrottler::new(),
+        &TemporaryPriorities::default(),
+    );
+    assert_eq!(
+        backend.default_console.borrow()[&DeviceType::Output],
+        "headset"
+    );
+
+    backend.devices[0].fingerprint = Some(DeviceFingerprint {
+        usb_vid_pid: Some((0x046d, 0x0a66)),
+        ..DeviceFingerprint::default()
+    });
+    enforce_priorities(
+        &backend,
+        &state,
+        &mut NotificationThrottler::new(),
+        &TemporaryPriorities::default(),
+    );
+    assert_eq!(
+        backend.default_console.borrow()[&DeviceType::Output],
+        "fallback"
+    );
 }
 
 #[test]
@@ -77,7 +181,7 @@ fn independent_communication_priorities_follow_presence_without_a_main_list() {
 #[test]
 fn radio_state_requires_opt_in_and_cannot_revive_disabled_windows_devices() {
     let (mut backend, mut state) = setup(DeviceType::Output);
-    state.devices.get_mut("headset").unwrap().presence_source = PresenceSource::Windows;
+    state.wireless_headset_detection_enabled = false;
     *backend.presence.borrow_mut() = HeadsetPresence::Unavailable;
     enforce_priorities(
         &backend,
@@ -89,7 +193,7 @@ fn radio_state_requires_opt_in_and_cannot_revive_disabled_windows_devices() {
         backend.default_console.borrow()[&DeviceType::Output],
         "headset"
     );
-    state.devices.get_mut("headset").unwrap().presence_source = PresenceSource::AstroA50X;
+    state.wireless_headset_detection_enabled = true;
     backend.devices[0].active = false;
     *backend.presence.borrow_mut() = HeadsetPresence::Available;
     enforce_priorities(
@@ -105,45 +209,10 @@ fn radio_state_requires_opt_in_and_cannot_revive_disabled_windows_devices() {
 }
 
 #[test]
-fn presence_settings_roundtrip_and_survive_endpoint_migration_and_cleanup() {
+fn global_detection_setting_does_not_create_per_device_settings() {
     let (_, state) = setup(DeviceType::Output);
     let json = serde_json::to_string(&state).unwrap();
-    let mut loaded: PersistentState = serde_json::from_str(&json).unwrap();
-    loaded.output.priority_list.clear();
-    loaded.remove_device_if_unused(&"headset".into());
-    assert_eq!(
-        loaded.devices["headset"].presence_source,
-        PresenceSource::AstroA50X
-    );
-    let backend = MockAudioBackend::new(vec![MockDevice::new(
-        "new_headset",
-        "Wireless headset",
-        true,
-    )]);
-    let result = migrate_device_ids(
-        &backend,
-        &mut loaded,
-        &mut TemporaryPriorities::default(),
-        &std::collections::HashMap::new(),
-    );
-    assert!(result.persistent_changed);
-    assert_eq!(
-        loaded.devices["new_headset"].presence_source,
-        PresenceSource::AstroA50X
-    );
-    loaded
-        .devices
-        .get_mut("new_headset")
-        .unwrap()
-        .presence_source = PresenceSource::Windows;
-    loaded.remove_device_if_unused(&"new_headset".into());
+    let loaded: PersistentState = serde_json::from_str(&json).unwrap();
+    assert!(loaded.wireless_headset_detection_enabled);
     assert_eq!(loaded.device_count(), 0);
-    let legacy: crate::types::DeviceSettings =
-        serde_json::from_str(r#"{"device_type":"Output","name":"Speakers"}"#).unwrap();
-    assert!(legacy.presence_source.is_windows());
-    assert!(
-        !serde_json::to_string(&legacy)
-            .unwrap()
-            .contains("presence_source")
-    );
 }

@@ -37,6 +37,7 @@ struct PersistentStateFlat {
     switch_communication_device_input: bool,
     check_updates_on_launch: bool,
     notify_on_device_migration: bool,
+    wireless_headset_detection_enabled: bool,
 }
 
 impl Default for PersistentStateFlat {
@@ -82,6 +83,7 @@ impl From<PersistentStateFlat> for PersistentState {
             },
             check_updates_on_launch: flat.check_updates_on_launch,
             notify_on_device_migration: flat.notify_on_device_migration,
+            wireless_headset_detection_enabled: flat.wireless_headset_detection_enabled,
         }
     }
 }
@@ -117,6 +119,7 @@ impl From<PersistentState> for PersistentStateFlat {
             switch_communication_device_input: switch_comm_in,
             check_updates_on_launch: state.check_updates_on_launch,
             notify_on_device_migration: state.notify_on_device_migration,
+            wireless_headset_detection_enabled: state.wireless_headset_detection_enabled,
         }
     }
 }
@@ -129,6 +132,7 @@ pub struct PersistentState {
     pub(crate) input: PerTypeSettings,
     pub check_updates_on_launch: bool,
     pub notify_on_device_migration: bool,
+    pub wireless_headset_detection_enabled: bool,
 }
 
 impl PersistentState {
@@ -261,9 +265,10 @@ impl PersistentState {
         if device_id.is_main_priority() {
             return;
         }
-        let is_prunable = self.devices.get(device_id).is_some_and(|s| {
-            !s.has_active_locks_or_notifications() && s.presence_source.is_windows()
-        });
+        let is_prunable = self
+            .devices
+            .get(device_id)
+            .is_some_and(|s| !s.has_active_locks_or_notifications());
         if !is_prunable {
             return;
         }
@@ -290,6 +295,7 @@ impl Default for PersistentState {
             },
             check_updates_on_launch: true,
             notify_on_device_migration: false,
+            wireless_headset_detection_enabled: false,
         }
     }
 }
@@ -320,6 +326,7 @@ mod tests {
             vec![DeviceId::main_priority()]
         );
         assert!(state.check_updates_on_launch);
+        assert!(!state.wireless_headset_detection_enabled);
     }
 
     #[test]
@@ -341,7 +348,6 @@ mod tests {
                     unmute_lock: UnmuteLockPolicy::default(),
                     device_type: DeviceType::Output,
                     name: "Test Device".into(),
-                    presence_source: Default::default(),
                     fingerprint: None,
                 },
             )]),
@@ -366,6 +372,7 @@ mod tests {
         assert!(state.output.priority_list.is_empty());
         assert!(state.check_updates_on_launch);
         assert!(!state.notify_on_device_migration);
+        assert!(!state.wireless_headset_detection_enabled);
     }
 
     #[test]
@@ -523,6 +530,7 @@ mod tests {
             },
             check_updates_on_launch: false,
             notify_on_device_migration: true,
+            wireless_headset_detection_enabled: false,
             devices: HashMap::from([(
                 "dev_a".into(),
                 DeviceSettings {
@@ -537,7 +545,6 @@ mod tests {
                     },
                     device_type: DeviceType::Output,
                     name: "Speakers".into(),
-                    presence_source: Default::default(),
                     fingerprint: None,
                 },
             )]),

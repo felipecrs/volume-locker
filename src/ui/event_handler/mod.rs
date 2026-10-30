@@ -319,13 +319,6 @@ fn handle_device_event(
             );
             MenuEventResult::DevicesChanged
         }
-        DeviceAction::SetPresenceSource(source) => {
-            ctx.persistent_state
-                .ensure_device_settings(device_id.clone(), device_name.to_string(), device_type)
-                .presence_source = *source;
-            ctx.persistent_state.remove_device_if_unused(device_id);
-            MenuEventResult::SaveConfig
-        }
         DeviceAction::OpenProperties => {
             if let Err(e) = open_sound_control_panel(sound_panel_tab(device_type)) {
                 log::error!("Failed to open sound control panel: {e:#}");
@@ -416,6 +409,12 @@ fn handle_app_event(
             with_check_state(ctx.tray_menu, &event.id, |checked| {
                 log::info!("User toggled 'Notify on device migration' to {checked}");
                 ctx.persistent_state.notify_on_device_migration = checked;
+            })
+        }
+        AppAction::ToggleWirelessHeadsetDetection => {
+            with_check_state(ctx.tray_menu, &event.id, |checked| {
+                log::info!("User toggled wireless headset detection to {checked}");
+                ctx.persistent_state.wireless_headset_detection_enabled = checked;
             })
         }
         AppAction::OpenAppDirectory => {
