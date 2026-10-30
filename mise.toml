@@ -1,6 +1,6 @@
 [tools]
 rust = { version = "1.99.1", components = ["rustfmt", "clippy"], profile = "minimal", mr_boxington = true }
-mr-boxington = "1.28.0"
+mr-boxington = { version = "1.29.0", workflow = "release.yml@refs/heads/main" }
 
 [tasks.fmt]
 description = "Check code formatting"
