@@ -40,11 +40,14 @@ headset availability.
 
 ## Diagnostics
 
-- A50 X: `cargo run --locked --example headset_presence -- 30`
-- G533: `cargo run --locked --example headset_presence -- --watch-g533 30`
-- List G533 collections: `cargo run --locked --example headset_presence -- --list-g533`
-- G733: `cargo run --locked --example headset_presence -- --watch-g733 30`
-- List G733 collections: `cargo run --locked --example headset_presence -- --list-g733`
+The read-only example requires both a model (`a50x`, `g533`, or `g733`) and an
+action (`list`, `watch`, or `capture`). Watch and capture accept an optional
+duration in seconds (default 30, maximum 300):
 
-These commands only observe HID input. Keep any captures local; they may contain
-device identifiers.
+- `cargo run --locked --example headset_presence -- a50x list`
+- `cargo run --locked --example headset_presence -- g533 watch 30`
+- `cargo run --locked --example headset_presence -- g733 capture 30`
+
+Capture prints raw HID input reports to the terminal. It sends no HID output or
+feature reports. Keep captured reports local; they may contain device
+identifiers.

@@ -147,7 +147,7 @@ impl WindowsAudioBackend {
             let on_presence_change = Arc::new(move || {
                 callback(DeviceChangeSource::HeadsetPresenceChanged);
             });
-            match HidPresenceMonitor::start(profile, on_presence_change) {
+            match HidPresenceMonitor::start(profile, on_presence_change, Arc::new(|_| {})) {
                 Ok(started) => *monitor = Some(started),
                 Err(error) => {
                     log::error!("Cannot start {} presence monitor: {error}", profile.name)

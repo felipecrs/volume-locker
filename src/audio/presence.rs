@@ -10,6 +10,8 @@ pub enum HeadsetPresence {
     Unavailable = 2,
 }
 
+pub type HidReportCallback = dyn Fn(&[u8]) + Send + Sync;
+
 /// A device-specific, passive-input protocol adapter. New hardware needs its
 /// own verified interface identity and decoder; no generic power byte is assumed.
 #[derive(Clone, Copy)]
@@ -101,7 +103,7 @@ fn decode_adc_measurement_report_g733(report: &[u8]) -> Option<HeadsetPresence> 
 
 #[cfg(target_os = "windows")]
 mod windows {
-    use super::{HeadsetPresence, HidPresenceProfile};
+    use super::{HeadsetPresence, HidPresenceProfile, HidReportCallback};
     use std::sync::{
         Arc,
         atomic::{AtomicBool, AtomicU8, Ordering},
@@ -119,6 +121,7 @@ mod windows {
         pub fn start(
             profile: HidPresenceProfile,
             on_change: Arc<dyn Fn() + Send + Sync>,
+            on_report: Arc<HidReportCallback>,
         ) -> std::io::Result<Self> {
             if !(1..=4096).contains(&profile.report_length) {
                 return Err(std::io::Error::new(
@@ -135,7 +138,8 @@ mod windows {
                 .spawn(move || {
                     let mut last_error = None;
                     while !worker_stop.load(Ordering::Relaxed) {
-                        let result = listen(profile, &worker_stop, &worker_state, &on_change);
+                        let result =
+                            listen(profile, &worker_stop, &worker_state, &on_change, &on_report);
                         // Losing the provider is not proof that the headset turned off.
                         publish(&worker_state, HeadsetPresence::Unknown, &on_change);
                         if let Err(error) = result {
@@ -190,6 +194,7 @@ mod windows {
         stop: &AtomicBool,
         state: &AtomicU8,
         on_change: &Arc<dyn Fn() + Send + Sync>,
+        on_report: &Arc<HidReportCallback>,
     ) -> anyhow::Result<()> {
         let api = hidapi::HidApi::new()?;
         let mut candidates = api.device_list().filter(|device| {
@@ -220,6 +225,7 @@ mod windows {
             stop,
             state,
             on_change,
+            on_report.as_ref(),
         )
     }
 
@@ -231,6 +237,7 @@ mod windows {
         stop: &AtomicBool,
         state: &AtomicU8,
         on_change: &Arc<dyn Fn() + Send + Sync>,
+        mut on_report: impl FnMut(&[u8]),
     ) -> anyhow::Result<()> {
         anyhow::ensure!(
             (1..=4096).contains(&profile.report_length),
@@ -252,6 +259,7 @@ mod windows {
                 publish(state, HeadsetPresence::Unknown, on_change);
                 anyhow::bail!("HID input report exceeds read buffer");
             };
+            on_report(bytes);
             if let Some(next) = (profile.decode)(bytes) {
                 publish(state, next, on_change);
             }
@@ -284,6 +292,7 @@ mod windows {
                 &stop,
                 &state,
                 &callback,
+                |_| {},
             )
             .unwrap();
             assert_eq!(
@@ -299,7 +308,9 @@ mod windows {
                     report_length,
                     ..A50X_PROFILE
                 };
-                assert!(HidPresenceMonitor::start(profile, Arc::new(|| {})).is_err());
+                assert!(
+                    HidPresenceMonitor::start(profile, Arc::new(|| {}), Arc::new(|_| {})).is_err()
+                );
             }
         }
 
@@ -341,6 +352,7 @@ mod windows {
                 &stop,
                 &state,
                 &callback,
+                |_| {},
             );
             assert!(result.is_err());
             assert_eq!(
@@ -376,6 +388,8 @@ mod windows {
             let callback: Arc<dyn Fn() + Send + Sync> =
                 Arc::new(move || worker_stop.store(true, Ordering::Relaxed));
             let state = AtomicU8::new(HeadsetPresence::Unknown as u8);
+            let reports = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let captured_reports = Arc::clone(&reports);
             observe_reports(
                 profile,
                 |buffer| {
@@ -385,12 +399,14 @@ mod windows {
                 &stop,
                 &state,
                 &callback,
+                move |report| captured_reports.lock().unwrap().push(report.to_vec()),
             )
             .unwrap();
             assert_eq!(
                 state.load(Ordering::Acquire),
                 HeadsetPresence::Available as u8
             );
+            assert_eq!(*reports.lock().unwrap(), vec![vec![0x42, 1]]);
             assert_eq!((A50X_PROFILE.decode)(&[0x42, 1]), None);
             assert!(profile.matches(1, 2, 3, 4));
             assert!(!profile.matches(1, 2, 3, 5));

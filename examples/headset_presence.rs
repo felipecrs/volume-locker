@@ -1,9 +1,7 @@
-//! Observe the experimental detector without changing any Windows audio settings.
-//! cargo run --example headset_presence -- 45
-//! cargo run --example headset_presence -- --watch-g533 45
-//! cargo run --example headset_presence -- --list-g533
-//! cargo run --example headset_presence -- --watch-g733 45
-//! cargo run --example headset_presence -- --list-g733
+//! Read-only headset HID diagnostics. Choose a model and action explicitly.
+//! cargo run --example headset_presence -- g533 watch 30
+//! cargo run --example headset_presence -- g733 capture 30
+//! cargo run --example headset_presence -- a50x list
 #[allow(dead_code)]
 #[path = "../src/audio/presence.rs"]
 mod presence;
@@ -11,19 +9,29 @@ mod presence;
 fn main() -> anyhow::Result<()> {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
+
     simplelog::SimpleLogger::init(log::LevelFilter::Info, simplelog::Config::default())?;
     let mut args = std::env::args().skip(1);
-    let first = args.next();
-    let list_profile = match first.as_deref() {
-        Some("--list-g533") => Some(presence::G533_PROFILE),
-        Some("--list-g733") => Some(presence::G733_PROFILE),
-        _ => None,
+    let model = args.next().ok_or_else(|| anyhow::anyhow!("{}", usage()))?;
+    let profile = match model.as_str() {
+        "a50x" => presence::A50X_PROFILE,
+        "g533" => presence::G533_PROFILE,
+        "g733" => presence::G733_PROFILE,
+        _ => anyhow::bail!("Unknown model '{model}'.\n{}", usage()),
     };
-    if let Some(profile) = list_profile {
+    let action = args.next().ok_or_else(|| anyhow::anyhow!("{}", usage()))?;
+
+    if action == "list" {
+        anyhow::ensure!(args.next().is_none(), "Usage: {}", usage());
         let api = hidapi::HidApi::new()?;
         let mut found = false;
         for device in api.device_list().filter(|device| {
-            device.vendor_id() == profile.vendor_id && device.product_id() == profile.product_id
+            profile.matches(
+                device.vendor_id(),
+                device.product_id(),
+                device.usage_page(),
+                device.usage(),
+            )
         }) {
             found = true;
             println!(
@@ -39,23 +47,32 @@ fn main() -> anyhow::Result<()> {
         }
         return Ok(());
     }
-    let watch_profile = match first.as_deref() {
-        Some("--watch-g533") => Some(presence::G533_PROFILE),
-        Some("--watch-g733") => Some(presence::G733_PROFILE),
-        _ => None,
-    };
-    let profile = watch_profile.unwrap_or(presence::A50X_PROFILE);
-    let seconds = (if watch_profile.is_some() {
-        args.next()
-    } else {
-        first
-    })
-    .unwrap_or_else(|| "30".into())
-    .parse::<u64>()?;
+
+    anyhow::ensure!(
+        matches!(action.as_str(), "watch" | "capture"),
+        "Unknown action '{action}'.\n{}",
+        usage()
+    );
+    let seconds = args.next().map_or(Ok(30), |value| value.parse::<u64>())?;
+    anyhow::ensure!(args.next().is_none(), "Usage: {}", usage());
     anyhow::ensure!((1..=300).contains(&seconds), "Choose 1–300 seconds");
-    let monitor = presence::HidPresenceMonitor::start(profile, Arc::new(|| {}))?;
+
+    let started = Instant::now();
+    let on_report: Arc<presence::HidReportCallback> = if action == "capture" {
+        Arc::new(move |report| {
+            let hex = report
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            println!("{:.2}s: {hex}", started.elapsed().as_secs_f32());
+        })
+    } else {
+        Arc::new(|_| {})
+    };
+    let monitor = presence::HidPresenceMonitor::start(profile, Arc::new(|| {}), on_report)?;
     println!(
-        "Read-only {} observer running for {seconds}s. Toggle headset power to observe status transitions.",
+        "Read-only {} {action} for {seconds}s. Toggle headset power to observe status transitions.",
         profile.name
     );
     let started = Instant::now();
@@ -69,4 +86,8 @@ fn main() -> anyhow::Result<()> {
         std::thread::sleep(Duration::from_millis(100));
     }
     Ok(())
+}
+
+fn usage() -> String {
+    "Usage: headset_presence <a50x|g533|g733> <list|watch|capture> [seconds]".into()
 }
