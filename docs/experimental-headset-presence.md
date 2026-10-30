@@ -16,11 +16,10 @@ default. Configure a fallback device in the same priority list.
 | Logitech G733 | `046d:0ab5` | ADC-measurement wireless-link flag |
 
 Unknown state defers to Windows. Available still requires an active Windows
-endpoint; Unavailable excludes the matching endpoint. G533 starts as
-Unavailable until its first valid status arrives; A50 X and G733 start Unknown.
-Later monitor failures become Unknown. Link loss does not distinguish
-power-off from out-of-range or interference. Detection is experimental and
-may vary by firmware.
+endpoint; Unavailable excludes the matching endpoint. Each profile defines its
+initial state until a valid report arrives. Monitor failures reset the state to
+Unknown. A link-loss report may not distinguish power-off from out-of-range or
+interference. Detection is experimental and may vary by firmware.
 
 ## Adding a device
 
