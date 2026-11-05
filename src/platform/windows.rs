@@ -125,6 +125,17 @@ pub fn open_sound_control_panel(tab_selector: &str) -> anyhow::Result<()> {
     )
 }
 
+/// Opens the Properties dialog of one endpoint. This argument format is undocumented; it is the
+/// one Windows' own SndVol.exe uses.
+pub fn open_device_properties(device_id: &DeviceId) -> anyhow::Result<()> {
+    spawn_rundll32(
+        "shell32.dll",
+        "Control_RunDLL",
+        &format!("mmsys.cpl,,{device_id},general"),
+        "open device properties",
+    )
+}
+
 pub fn open_sound_settings() -> anyhow::Result<()> {
     spawn_rundll32(
         "url.dll",
