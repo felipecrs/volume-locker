@@ -1,9 +1,41 @@
 #![allow(clippy::expect_used)]
 
 use super::{
-    CheckMenuItem, DeviceDisplayInfo, HashMap, Menu, MenuItem, PersistentState, TrayMenuItems,
-    VolumePercent, append_preferences_section, format_device_menu_label,
+    CheckMenuItem, DeviceAction, DeviceDisplayInfo, DeviceId, DeviceType, HashMap, Menu, MenuId,
+    MenuIdMap, MenuItem, PersistentState, TrayMenuItems, VolumePercent, append_preferences_section,
+    format_device_menu_label, register_menu_item,
 };
+use crate::types::PriorityKind;
+
+#[test]
+fn registered_names_stay_english_for_follow_entry_only() {
+    let mut map = MenuIdMap::new();
+    let mut name_for = |id: &str, device_id: DeviceId, device_type| {
+        let menu_id = MenuId::new(id);
+        register_menu_item(
+            &mut map,
+            menu_id.clone(),
+            DeviceAction::RemoveFromPriority(PriorityKind::Communication),
+            &device_id,
+            "Seguir",
+            device_type,
+        );
+        map[&menu_id].name.clone()
+    };
+
+    assert_eq!(
+        name_for("output", DeviceId::main_priority(), DeviceType::Output),
+        "Follow output device priority"
+    );
+    assert_eq!(
+        name_for("input", DeviceId::main_priority(), DeviceType::Input),
+        "Follow input device priority"
+    );
+    assert_eq!(
+        name_for("device", "dev1".into(), DeviceType::Output),
+        "Seguir"
+    );
+}
 
 #[test]
 fn to_label_basic() {

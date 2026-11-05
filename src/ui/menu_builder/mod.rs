@@ -59,6 +59,16 @@ fn register_menu_item(
     name: &str,
     device_type: DeviceType,
 ) {
+    // This name goes to the logs. The Follow entry's label is translated app text, so it needs an
+    // English name, unlike real devices, whose names come from Windows.
+    let name = if device_id.is_main_priority() {
+        match device_type {
+            DeviceType::Output => "Follow output device priority",
+            DeviceType::Input => "Follow input device priority",
+        }
+    } else {
+        name
+    };
     map.insert(
         menu_id,
         MenuItemInfo {
