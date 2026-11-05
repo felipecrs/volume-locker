@@ -1,10 +1,10 @@
 # Transferring names and icons
 
-To transfer a device's Windows name and icon along with its settings, check **Also transfer device name and icon** in **Preferences**. It is off by default, and it needs **Automatically transfer device settings** to be on.
+Volume Locker transfers a device's Windows name and icon along with its settings. To turn this off, uncheck **Also transfer device name and icon** in **Preferences**. It needs **Automatically transfer device settings** to be on.
 
-When Windows creates a new endpoint for a device, the endpoint gets a default name and icon. With this preference on, Volume Locker writes the device's last seen name and icon to the new endpoint.
+When Windows creates a new endpoint for a device, the endpoint gets a default name and icon. Volume Locker writes the device's last seen name and icon to the new endpoint.
 
-## Before you turn it on
+## Why you might turn it off
 
 1. It relies on an undocumented Windows interface. Microsoft's [Core Audio documentation](https://learn.microsoft.com/en-us/windows/win32/coreaudio/audio-endpoint-properties) says clients should read endpoint properties and not set them.
 2. It can replace older names. Windows may reuse an earlier endpoint when a device returns to a port it used before, and the last seen name and icon replace whatever that endpoint had.

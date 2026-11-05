@@ -305,7 +305,7 @@ impl Default for PersistentState {
             check_updates_on_launch: true,
             transfer_device_settings: true,
             notify_on_settings_transfer: false,
-            transfer_device_name_and_icon: false,
+            transfer_device_name_and_icon: true,
             skip_disconnected_wireless_headsets: true,
         }
     }
@@ -384,7 +384,7 @@ mod tests {
         assert!(state.check_updates_on_launch);
         assert!(state.transfer_device_settings);
         assert!(!state.notify_on_settings_transfer);
-        assert!(!state.transfer_device_name_and_icon);
+        assert!(state.transfer_device_name_and_icon);
         assert!(state.skip_disconnected_wireless_headsets);
     }
 
@@ -544,7 +544,7 @@ mod tests {
             check_updates_on_launch: false,
             transfer_device_settings: false,
             notify_on_settings_transfer: true,
-            transfer_device_name_and_icon: true,
+            transfer_device_name_and_icon: false,
             skip_disconnected_wireless_headsets: false,
             devices: HashMap::from([(
                 "dev_a".into(),
@@ -580,7 +580,7 @@ mod tests {
         assert!(!loaded.check_updates_on_launch);
         assert!(!loaded.transfer_device_settings);
         assert!(loaded.notify_on_settings_transfer);
-        assert!(loaded.transfer_device_name_and_icon);
+        assert!(!loaded.transfer_device_name_and_icon);
 
         let dev = loaded.devices.get("dev_a").unwrap();
         assert!(dev.volume_lock.is_locked);

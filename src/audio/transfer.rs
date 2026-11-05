@@ -877,10 +877,7 @@ mod tests {
             MockDevice::new("new_endpoint", "G5443 (Logitech G533 Gaming Headset)", true)
                 .with_fingerprint(new_fingerprint),
         ]);
-        let mut state = PersistentState {
-            transfer_device_name_and_icon: true,
-            ..Default::default()
-        };
+        let mut state = PersistentState::default();
         let mut settings =
             make_device_settings("G544 (Logitech G533 Gaming Headset)", DeviceType::Output);
         settings.fingerprint = Some(old_fingerprint);
@@ -926,10 +923,7 @@ mod tests {
             MockDevice::new("new_port", "Speakers (USB Audio)", true)
                 .with_fingerprint(usb_fingerprint("Speakers")),
         ]);
-        let mut state = PersistentState {
-            transfer_device_name_and_icon: true,
-            ..Default::default()
-        };
+        let mut state = PersistentState::default();
         let mut settings = make_device_settings("Desk Audio (USB Audio)", DeviceType::Output);
         settings.fingerprint = Some(usb_fingerprint("Desk Audio"));
         state.devices.insert("old_port".into(), settings);
@@ -1003,7 +997,7 @@ mod tests {
     }
 
     #[test]
-    fn transfer_leaves_name_and_icon_alone_by_default() {
+    fn transfer_leaves_name_and_icon_alone_when_off() {
         let fingerprint = |desc: &str| DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
@@ -1015,7 +1009,10 @@ mod tests {
             MockDevice::new("new", "Speakers (USB Audio)", true)
                 .with_fingerprint(fingerprint("Speakers")),
         ]);
-        let mut state = PersistentState::default();
+        let mut state = PersistentState {
+            transfer_device_name_and_icon: false,
+            ..Default::default()
+        };
         let mut settings = make_device_settings("Desk (USB Audio)", DeviceType::Output);
         settings.fingerprint = Some(fingerprint("Desk"));
         state.devices.insert("old".into(), settings);
@@ -1047,10 +1044,7 @@ mod tests {
                 .with_fingerprint(new_fingerprint),
         ]);
         backend.restore_properties_fails = true;
-        let mut state = PersistentState {
-            transfer_device_name_and_icon: true,
-            ..Default::default()
-        };
+        let mut state = PersistentState::default();
         let mut settings = make_device_settings("Studio Headphones", DeviceType::Output);
         settings.fingerprint = Some(old_fingerprint);
         state.devices.insert("old_endpoint".into(), settings);

@@ -206,6 +206,21 @@ fn append_preferences_section(
     );
     tray_menu.append(items.check_updates_on_launch)?;
 
+    let skip_disconnected_wireless_headsets = CheckMenuItem::new(
+        "Skip disconnected wireless headsets",
+        true,
+        persistent_state.skip_disconnected_wireless_headsets,
+        None,
+    );
+    map.insert(
+        skip_disconnected_wireless_headsets.id().clone(),
+        MenuItemInfo {
+            name: "Skip disconnected wireless headsets".to_string(),
+            action: MenuAction::App(AppAction::ToggleSkipDisconnectedWirelessHeadsets),
+        },
+    );
+    tray_menu.append(&skip_disconnected_wireless_headsets)?;
+
     let transfer_device_settings = CheckMenuItem::new(
         "Automatically transfer device settings",
         true,
@@ -220,18 +235,6 @@ fn append_preferences_section(
         },
     );
     tray_menu.append(&transfer_device_settings)?;
-
-    items
-        .notify_on_settings_transfer
-        .set_checked(persistent_state.notify_on_settings_transfer);
-    map.insert(
-        items.notify_on_settings_transfer.id().clone(),
-        MenuItemInfo {
-            name: "Notify on settings transfer".to_string(),
-            action: MenuAction::App(AppAction::ToggleNotifyOnSettingsTransfer),
-        },
-    );
-    tray_menu.append(items.notify_on_settings_transfer)?;
 
     let transfer_device_name_and_icon = CheckMenuItem::new(
         "Also transfer device name and icon",
@@ -248,20 +251,17 @@ fn append_preferences_section(
     );
     tray_menu.append(&transfer_device_name_and_icon)?;
 
-    let skip_disconnected_wireless_headsets = CheckMenuItem::new(
-        "Skip disconnected wireless headsets",
-        true,
-        persistent_state.skip_disconnected_wireless_headsets,
-        None,
-    );
+    items
+        .notify_on_settings_transfer
+        .set_checked(persistent_state.notify_on_settings_transfer);
     map.insert(
-        skip_disconnected_wireless_headsets.id().clone(),
+        items.notify_on_settings_transfer.id().clone(),
         MenuItemInfo {
-            name: "Skip disconnected wireless headsets".to_string(),
-            action: MenuAction::App(AppAction::ToggleSkipDisconnectedWirelessHeadsets),
+            name: "Notify on settings transfer".to_string(),
+            action: MenuAction::App(AppAction::ToggleNotifyOnSettingsTransfer),
         },
     );
-    tray_menu.append(&skip_disconnected_wireless_headsets)?;
+    tray_menu.append(items.notify_on_settings_transfer)?;
     tray_menu.append(&PredefinedMenuItem::separator())?;
 
     Ok(())
