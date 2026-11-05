@@ -1,10 +1,10 @@
-# Experimental headset availability
+# Headset availability
 
 Some wireless receivers keep their Windows audio endpoint active when the
 headset is unavailable. This opt-in detector uses a one-time read-only startup
 query when supported, then listens for device status events so the existing
 input/output priority lists can skip that endpoint.
-Enable **Wireless headset detection (experimental)** in Preferences; supported
+Enable **Wireless headset detection** in Preferences; supported
 devices are identified automatically by USB VID/PID. It is disabled by
 default. Configure a fallback device in the same priority list.
 
@@ -22,7 +22,7 @@ changes when a configured startup query succeeds or a valid status report
 arrives. Query failures do not imply Unavailable; if no status is known, the
 state remains Unknown. Monitor failures reset the state to Unknown. A link-loss
 report may not distinguish power-off from out-of-range or interference.
-Detection is experimental and may vary by firmware.
+Detection may vary by firmware.
 
 ## Adding a device
 

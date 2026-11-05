@@ -219,7 +219,7 @@ fn append_preferences_section(
     tray_menu.append(items.notify_on_device_migration)?;
 
     let wireless_headset_detection = CheckMenuItem::new(
-        "Wireless headset detection (experimental)",
+        "Wireless headset detection",
         true,
         persistent_state.wireless_headset_detection_enabled,
         None,
