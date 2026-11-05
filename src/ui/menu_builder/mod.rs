@@ -1,5 +1,4 @@
 mod device_section;
-mod presence_section;
 mod priority_section;
 
 use super::{AppAction, DeviceAction, MenuAction, MenuItemInfo};
@@ -218,6 +217,21 @@ fn append_preferences_section(
         },
     );
     tray_menu.append(items.notify_on_device_migration)?;
+
+    let skip_disconnected_wireless_headsets = CheckMenuItem::new(
+        "Skip disconnected wireless headsets",
+        true,
+        persistent_state.skip_disconnected_wireless_headsets,
+        None,
+    );
+    map.insert(
+        skip_disconnected_wireless_headsets.id().clone(),
+        MenuItemInfo {
+            name: "Skip disconnected wireless headsets".to_string(),
+            action: MenuAction::App(AppAction::ToggleSkipDisconnectedWirelessHeadsets),
+        },
+    );
+    tray_menu.append(&skip_disconnected_wireless_headsets)?;
     tray_menu.append(&PredefinedMenuItem::separator())?;
 
     Ok(())

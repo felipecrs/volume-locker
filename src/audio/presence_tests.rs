@@ -1,20 +1,21 @@
 use super::tests::{MockAudioBackend, MockDevice};
-use super::{enforce_priorities, migrate_device_ids, presence::HeadsetPresence};
+use super::{enforce_priorities, presence::HeadsetPresence};
 use crate::config::PersistentState;
 use crate::notification::NotificationThrottler;
-use crate::types::{DeviceType, PresenceSource, PriorityKind, TemporaryPriorities};
+use crate::types::{DeviceFingerprint, DeviceType, PriorityKind, TemporaryPriorities};
 
 fn setup(device_type: DeviceType) -> (MockAudioBackend, PersistentState) {
-    let mut headset = MockDevice::new("headset", "Wireless headset", true);
+    let mut headset =
+        MockDevice::new("headset", "Wireless headset", true).with_fingerprint(DeviceFingerprint {
+            usb_vid_pid: Some((0x046d, 0x0b0b)),
+            ..DeviceFingerprint::default()
+        });
     headset.device_type = device_type;
     let mut fallback = MockDevice::new("fallback", "Wired device", true);
     fallback.device_type = device_type;
     let backend = MockAudioBackend::new(vec![headset, fallback]);
     let mut state = PersistentState::default();
     *state.priority_list_mut(device_type) = vec!["headset".into(), "fallback".into()];
-    state
-        .ensure_device_settings("headset".into(), "Wireless headset".into(), device_type)
-        .presence_source = PresenceSource::AstroA50X;
     (backend, state)
 }
 
@@ -39,6 +40,46 @@ fn input_and_output_fall_back_on_power_off_and_restore_on_power_on() {
             );
         }
     }
+}
+
+#[test]
+fn temporary_communication_priority_skips_an_unavailable_headset() {
+    let (backend, mut state) = setup(DeviceType::Output);
+    state.output.communication_priority_list = vec!["fallback".into()];
+    *backend.presence.borrow_mut() = HeadsetPresence::Unavailable;
+    let mut temporary = TemporaryPriorities::default();
+    temporary.set(
+        DeviceType::Output,
+        PriorityKind::Communication,
+        Some("headset".into()),
+    );
+    enforce_priorities(
+        &backend,
+        &state,
+        &mut NotificationThrottler::new(),
+        &temporary,
+    );
+    assert_eq!(
+        backend.default_communications.borrow()[&DeviceType::Output],
+        "fallback"
+    );
+}
+
+#[test]
+fn presence_is_ignored_for_an_endpoint_without_a_usb_identity() {
+    let (mut backend, state) = setup(DeviceType::Output);
+    *backend.presence.borrow_mut() = HeadsetPresence::Unavailable;
+    backend.devices[0].fingerprint = None;
+    enforce_priorities(
+        &backend,
+        &state,
+        &mut NotificationThrottler::new(),
+        &TemporaryPriorities::default(),
+    );
+    assert_eq!(
+        backend.default_console.borrow()[&DeviceType::Output],
+        "headset"
+    );
 }
 
 #[test]
@@ -75,9 +116,9 @@ fn independent_communication_priorities_follow_presence_without_a_main_list() {
 }
 
 #[test]
-fn radio_state_requires_opt_in_and_cannot_revive_disabled_windows_devices() {
+fn radio_state_requires_the_setting_and_cannot_revive_disabled_windows_devices() {
     let (mut backend, mut state) = setup(DeviceType::Output);
-    state.devices.get_mut("headset").unwrap().presence_source = PresenceSource::Windows;
+    state.skip_disconnected_wireless_headsets = false;
     *backend.presence.borrow_mut() = HeadsetPresence::Unavailable;
     enforce_priorities(
         &backend,
@@ -89,7 +130,7 @@ fn radio_state_requires_opt_in_and_cannot_revive_disabled_windows_devices() {
         backend.default_console.borrow()[&DeviceType::Output],
         "headset"
     );
-    state.devices.get_mut("headset").unwrap().presence_source = PresenceSource::AstroA50X;
+    state.skip_disconnected_wireless_headsets = true;
     backend.devices[0].active = false;
     *backend.presence.borrow_mut() = HeadsetPresence::Available;
     enforce_priorities(
@@ -105,45 +146,11 @@ fn radio_state_requires_opt_in_and_cannot_revive_disabled_windows_devices() {
 }
 
 #[test]
-fn presence_settings_roundtrip_and_survive_endpoint_migration_and_cleanup() {
-    let (_, state) = setup(DeviceType::Output);
+fn turning_detection_off_survives_serialization_without_per_device_settings() {
+    let (_, mut state) = setup(DeviceType::Output);
+    state.skip_disconnected_wireless_headsets = false;
     let json = serde_json::to_string(&state).unwrap();
-    let mut loaded: PersistentState = serde_json::from_str(&json).unwrap();
-    loaded.output.priority_list.clear();
-    loaded.remove_device_if_unused(&"headset".into());
-    assert_eq!(
-        loaded.devices["headset"].presence_source,
-        PresenceSource::AstroA50X
-    );
-    let backend = MockAudioBackend::new(vec![MockDevice::new(
-        "new_headset",
-        "Wireless headset",
-        true,
-    )]);
-    let result = migrate_device_ids(
-        &backend,
-        &mut loaded,
-        &mut TemporaryPriorities::default(),
-        &std::collections::HashMap::new(),
-    );
-    assert!(result.persistent_changed);
-    assert_eq!(
-        loaded.devices["new_headset"].presence_source,
-        PresenceSource::AstroA50X
-    );
-    loaded
-        .devices
-        .get_mut("new_headset")
-        .unwrap()
-        .presence_source = PresenceSource::Windows;
-    loaded.remove_device_if_unused(&"new_headset".into());
+    let loaded: PersistentState = serde_json::from_str(&json).unwrap();
+    assert!(!loaded.skip_disconnected_wireless_headsets);
     assert_eq!(loaded.device_count(), 0);
-    let legacy: crate::types::DeviceSettings =
-        serde_json::from_str(r#"{"device_type":"Output","name":"Speakers"}"#).unwrap();
-    assert!(legacy.presence_source.is_windows());
-    assert!(
-        !serde_json::to_string(&legacy)
-            .unwrap()
-            .contains("presence_source")
-    );
 }

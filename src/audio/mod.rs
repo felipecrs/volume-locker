@@ -1,6 +1,4 @@
-use crate::types::{
-    DeviceChangeSource, DeviceId, DeviceRole, DeviceType, PresenceSource, VolumeScalar,
-};
+use crate::types::{DeviceChangeSource, DeviceId, DeviceRole, DeviceType, VolumeScalar};
 
 pub mod presence;
 use presence::HeadsetPresence;
@@ -9,8 +7,8 @@ use presence::HeadsetPresence;
 mod windows_com_policy_config;
 
 pub trait AudioBackend {
-    fn configure_presence_monitoring(&self, _enabled: bool) {}
-    fn headset_presence(&self, _source: PresenceSource) -> HeadsetPresence {
+    fn configure_presence_monitoring(&self, _usb_devices: &[(u16, u16)]) {}
+    fn headset_presence(&self, _usb_vid_pid: (u16, u16)) -> HeadsetPresence {
         HeadsetPresence::Unknown
     }
     fn devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>>;
@@ -290,12 +288,8 @@ pub(crate) mod tests {
     }
 
     impl AudioBackend for MockAudioBackend {
-        fn headset_presence(&self, source: PresenceSource) -> HeadsetPresence {
-            if source == PresenceSource::AstroA50X {
-                *self.presence.borrow()
-            } else {
-                HeadsetPresence::Unknown
-            }
+        fn headset_presence(&self, _usb_vid_pid: (u16, u16)) -> HeadsetPresence {
+            *self.presence.borrow()
         }
 
         fn devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>> {

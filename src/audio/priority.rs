@@ -129,10 +129,10 @@ fn resolve_communication_target(
     main_target: Option<&DeviceId>,
 ) -> Option<DeviceId> {
     if let Some(temp_id) = temporary_comm
-        && let Ok(device) = backend.device_by_id(temp_id)
-        && let Ok(true) = device.is_active()
+        && let Some(device_id) =
+            find_highest_priority_active_device(backend, std::slice::from_ref(temp_id), state)
     {
-        return Some(temp_id.clone());
+        return Some(device_id);
     }
     let comm_list = state.communication_priority_list(device_type);
     for entry_id in comm_list {
@@ -188,14 +188,24 @@ fn find_highest_priority_active_device(
 ) -> Option<DeviceId> {
     priority_list
         .iter()
-        .filter(|device_id| {
-            state.device_settings(device_id).is_none_or(|s| {
-                backend.headset_presence(s.presence_source)
-                    != super::presence::HeadsetPresence::Unavailable
-            })
-        })
         .find_map(|device_id| match backend.device_by_id(device_id) {
             Ok(device) => match device.is_active() {
+                Ok(true)
+                    if state.skip_disconnected_wireless_headsets
+                        && device
+                            .fingerprint()
+                            .and_then(|fingerprint| fingerprint.usb_vid_pid)
+                            .is_some_and(|usb_vid_pid| {
+                                backend.headset_presence(usb_vid_pid)
+                                    == super::presence::HeadsetPresence::Unavailable
+                            }) =>
+                {
+                    log::debug!(
+                        "Device '{}' ({device_id}) has no wireless headset link, skipping in priority order",
+                        device.name()
+                    );
+                    None
+                }
                 Ok(true) => Some(device_id.clone()),
                 Ok(false) => {
                     log::debug!(
