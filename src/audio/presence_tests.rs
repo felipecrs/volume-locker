@@ -44,37 +44,6 @@ fn input_and_output_fall_back_on_power_off_and_restore_on_power_on() {
 }
 
 #[test]
-fn hidpp_headsets_fall_back_when_wireless_link_is_lost() {
-    for product_id in [0x0a66, 0x0ab5] {
-        for device_type in [DeviceType::Output, DeviceType::Input] {
-            let (mut backend, state) = setup(device_type);
-            backend.devices[0].fingerprint = Some(DeviceFingerprint {
-                usb_vid_pid: Some((0x046d, product_id)),
-                ..DeviceFingerprint::default()
-            });
-            for (presence, expected) in [
-                (HeadsetPresence::Unavailable, "fallback"),
-                (HeadsetPresence::Available, "headset"),
-            ] {
-                *backend.presence.borrow_mut() = presence;
-                enforce_priorities(
-                    &backend,
-                    &state,
-                    &mut NotificationThrottler::new(),
-                    &TemporaryPriorities::default(),
-                );
-                assert_eq!(backend.default_console.borrow()[&device_type], expected);
-                assert_eq!(backend.default_multimedia.borrow()[&device_type], expected);
-                assert_eq!(
-                    backend.default_communications.borrow()[&device_type],
-                    expected
-                );
-            }
-        }
-    }
-}
-
-#[test]
 fn temporary_communication_priority_skips_an_unavailable_headset() {
     let (backend, mut state) = setup(DeviceType::Output);
     state.output.communication_priority_list = vec!["fallback".into()];
@@ -98,13 +67,10 @@ fn temporary_communication_priority_skips_an_unavailable_headset() {
 }
 
 #[test]
-fn presence_is_applied_only_to_an_endpoint_with_a_supported_vid_pid() {
+fn presence_is_ignored_for_an_endpoint_without_a_usb_identity() {
     let (mut backend, state) = setup(DeviceType::Output);
     *backend.presence.borrow_mut() = HeadsetPresence::Unavailable;
-    backend.devices[0].fingerprint = Some(DeviceFingerprint {
-        usb_vid_pid: Some((0x1234, 0x5678)),
-        ..DeviceFingerprint::default()
-    });
+    backend.devices[0].fingerprint = None;
     enforce_priorities(
         &backend,
         &state,
@@ -114,21 +80,6 @@ fn presence_is_applied_only_to_an_endpoint_with_a_supported_vid_pid() {
     assert_eq!(
         backend.default_console.borrow()[&DeviceType::Output],
         "headset"
-    );
-
-    backend.devices[0].fingerprint = Some(DeviceFingerprint {
-        usb_vid_pid: Some((0x046d, 0x0a66)),
-        ..DeviceFingerprint::default()
-    });
-    enforce_priorities(
-        &backend,
-        &state,
-        &mut NotificationThrottler::new(),
-        &TemporaryPriorities::default(),
-    );
-    assert_eq!(
-        backend.default_console.borrow()[&DeviceType::Output],
-        "fallback"
     );
 }
 

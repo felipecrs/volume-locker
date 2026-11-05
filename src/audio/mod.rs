@@ -288,15 +288,8 @@ pub(crate) mod tests {
     }
 
     impl AudioBackend for MockAudioBackend {
-        fn headset_presence(&self, usb_vid_pid: (u16, u16)) -> HeadsetPresence {
-            if presence::devices::PROFILES
-                .iter()
-                .any(|profile| (profile.vendor_id, profile.product_id) == usb_vid_pid)
-            {
-                *self.presence.borrow()
-            } else {
-                HeadsetPresence::Unknown
-            }
+        fn headset_presence(&self, _usb_vid_pid: (u16, u16)) -> HeadsetPresence {
+            *self.presence.borrow()
         }
 
         fn devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>> {

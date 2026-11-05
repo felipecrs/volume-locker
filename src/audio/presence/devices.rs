@@ -11,7 +11,7 @@ pub const A50X_PROFILE: HidPresenceProfile = HidPresenceProfile {
     usage_page: 0xff32,
     usage: 0x0074,
     report_length: 64,
-    decode: decode_a50x_report,
+    decode: |report, _| decode_a50x_report(report),
     initial_query: None,
 };
 
@@ -23,10 +23,10 @@ pub const G533_PROFILE: HidPresenceProfile = HidPresenceProfile {
     usage_page: 0xff43,
     usage: 0x0202,
     report_length: HIDPP_LONG_REPORT_LENGTH,
-    decode: |report| decode_adc_measurement_report(report, 7),
+    decode: |report, discovered| decode_adc_measurement_report(report, discovered.unwrap_or(7)),
     initial_query: Some(InitialQuery::HidppAdcMeasurement {
         feature_id: 0x1f20,
-        unavailable_error: Some(0x05),
+        unavailable_error: 0x05,
     }),
 };
 
@@ -38,10 +38,10 @@ pub const G733_PROFILE: HidPresenceProfile = HidPresenceProfile {
     usage_page: 0xff43,
     usage: 0x0202,
     report_length: HIDPP_LONG_REPORT_LENGTH,
-    decode: |report| decode_adc_measurement_report(report, 8),
+    decode: |report, discovered| decode_adc_measurement_report(report, discovered.unwrap_or(8)),
     initial_query: Some(InitialQuery::HidppAdcMeasurement {
         feature_id: 0x1f20,
-        unavailable_error: Some(0x05),
+        unavailable_error: 0x05,
     }),
 };
 
@@ -60,7 +60,8 @@ fn decode_a50x_report(report: &[u8]) -> Option<HeadsetPresence> {
     }
 }
 
-/// Status events carry a per-model feature index, so each profile supplies its own.
+/// Firmware assigns the feature index. Profiles fall back to the index observed
+/// for their model when no startup query has discovered the current one.
 fn decode_adc_measurement_report(report: &[u8], feature_index: u8) -> Option<HeadsetPresence> {
     (report.len() == HIDPP_LONG_REPORT_LENGTH
         && report[..4]
@@ -122,26 +123,43 @@ mod tests {
             report
         };
         assert_eq!(
-            (G533_PROFILE.decode)(&report(0x00, 0x00)),
+            (G533_PROFILE.decode)(&report(0x00, 0x00), None),
             Some(HeadsetPresence::Unavailable)
         );
         for flags in [0x01, 0x03, 0x07] {
             assert_eq!(
-                (G533_PROFILE.decode)(&report(0x00, flags)),
+                (G533_PROFILE.decode)(&report(0x00, flags), None),
                 Some(HeadsetPresence::Available)
             );
         }
         assert_eq!(
-            (G533_PROFILE.decode)(&report(0x00, 0x0f)),
+            (G533_PROFILE.decode)(&report(0x00, 0x0f), None),
             Some(HeadsetPresence::Unknown)
         );
-        assert_eq!((G533_PROFILE.decode)(&report(0x01, 0x00)), None);
+        assert_eq!((G533_PROFILE.decode)(&report(0x01, 0x00), None), None);
         let mut unrelated = report(0x00, 0);
         unrelated[2] = 0x06;
-        assert_eq!((G533_PROFILE.decode)(&unrelated), None);
+        assert_eq!((G533_PROFILE.decode)(&unrelated, None), None);
         for length in 0..20 {
-            assert_eq!((G533_PROFILE.decode)(&report(0x00, 0x01)[..length]), None);
+            assert_eq!(
+                (G533_PROFILE.decode)(&report(0x00, 0x01)[..length], None),
+                None
+            );
         }
+    }
+
+    #[test]
+    fn a_discovered_feature_index_replaces_the_observed_one() {
+        let report = |index| {
+            let mut report = [0; 20];
+            report[..7].copy_from_slice(&[0x11, 0xff, index, 0x00, 0x0f, 0x14, 0x00]);
+            report
+        };
+        assert_eq!(
+            (G533_PROFILE.decode)(&report(9), Some(9)),
+            Some(HeadsetPresence::Unavailable)
+        );
+        assert_eq!((G533_PROFILE.decode)(&report(7), Some(9)), None);
     }
 
     #[test]
@@ -153,24 +171,24 @@ mod tests {
             report
         };
         assert_eq!(
-            (G733_PROFILE.decode)(&report(0x00)),
+            (G733_PROFILE.decode)(&report(0x00), None),
             Some(HeadsetPresence::Unavailable)
         );
         assert_eq!(
-            (G733_PROFILE.decode)(&report(0x01)),
+            (G733_PROFILE.decode)(&report(0x01), None),
             Some(HeadsetPresence::Available)
         );
         assert_eq!(
-            (G733_PROFILE.decode)(&report(0x03)),
+            (G733_PROFILE.decode)(&report(0x03), None),
             Some(HeadsetPresence::Available)
         );
         assert_eq!(
-            (G733_PROFILE.decode)(&report(0x0f)),
+            (G733_PROFILE.decode)(&report(0x0f), None),
             Some(HeadsetPresence::Unknown)
         );
-        assert_eq!((G733_PROFILE.decode)(&report(0x01)[..19]), None);
+        assert_eq!((G733_PROFILE.decode)(&report(0x01)[..19], None), None);
         assert_eq!(
-            (G733_PROFILE.decode)(&[0x11, 0xff, 0x07, 0x00, 0x0f, 0x41, 0x00]),
+            (G733_PROFILE.decode)(&[0x11, 0xff, 0x07, 0x00, 0x0f, 0x41, 0x00], None),
             None
         );
     }
@@ -180,22 +198,22 @@ mod tests {
         let mut report = [0; 64];
         report[..7].copy_from_slice(&[2, 12, 4, 0, 19, 0, 5]);
         assert_eq!(
-            (A50X_PROFILE.decode)(&report),
+            (A50X_PROFILE.decode)(&report, None),
             Some(HeadsetPresence::Unavailable)
         );
         for len in 0..7 {
-            assert_eq!((A50X_PROFILE.decode)(&report[..len]), None);
+            assert_eq!((A50X_PROFILE.decode)(&report[..len], None), None);
         }
     }
 
     #[test]
     fn captured_a50x_power_transitions_are_distinct() {
         assert_eq!(
-            (A50X_PROFILE.decode)(&[2, 12, 4, 0, 19, 0, 0]),
+            (A50X_PROFILE.decode)(&[2, 12, 4, 0, 19, 0, 0], None),
             Some(HeadsetPresence::Available)
         );
         assert_eq!(
-            (A50X_PROFILE.decode)(&[2, 12, 4, 0, 19, 0, 5]),
+            (A50X_PROFILE.decode)(&[2, 12, 4, 0, 19, 0, 5], None),
             Some(HeadsetPresence::Unavailable)
         );
     }
@@ -208,10 +226,10 @@ mod tests {
             vec![2, 12, 4, 0, 10, 0, 6],
             vec![2, 12, 6, 0, 6, 0, 90, 90, 0],
         ] {
-            assert_eq!((A50X_PROFILE.decode)(&report), None);
+            assert_eq!((A50X_PROFILE.decode)(&report, None), None);
         }
         assert_eq!(
-            (A50X_PROFILE.decode)(&[2, 12, 4, 0, 19, 0, 99]),
+            (A50X_PROFILE.decode)(&[2, 12, 4, 0, 19, 0, 99], None),
             Some(HeadsetPresence::Unknown)
         );
     }

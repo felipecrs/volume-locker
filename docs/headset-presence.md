@@ -1,9 +1,9 @@
 # Headset availability
 
 Some wireless receivers keep their Windows audio endpoint active when the
-headset is unavailable. This opt-in detector uses a one-time read-only startup
-query when supported, then listens for device status events so the existing
-input/output priority lists can skip that endpoint.
+headset is unavailable. This opt-in detector uses a read-only status query when
+supported each time it connects to the device, then listens for device status
+events so the existing input/output priority lists can skip that endpoint.
 Enable **Wireless headset detection** in Preferences; supported
 devices are identified automatically by USB VID/PID. It is disabled by
 default. Configure a fallback device in the same priority list.
@@ -22,7 +22,9 @@ changes when a configured startup query succeeds or a valid status report
 arrives. Query failures do not imply Unavailable; if no status is known, the
 state remains Unknown. Monitor failures reset the state to Unknown. A link-loss
 report may not distinguish power-off from out-of-range or interference.
-Detection may vary by firmware.
+Devices with a startup query read status events at the feature index it
+discovers, and otherwise at the index observed for that model. Detection may
+vary by firmware.
 
 ## Adding a device
 
@@ -54,7 +56,8 @@ or `capture`). Watch and capture accept an optional duration in seconds
 
 - `cargo run --locked --example headset_presence -- <model> <list|watch|capture> [seconds]`
 
-Capture prints raw HID input reports to the terminal. Models with a configured
+Capture prints raw HID input reports to the terminal. The app logs them too, but
+only at trace level. Models with a configured
 startup query issue read-only requests to retrieve an initial status; no
 settings are changed. Keep captured reports local; they may contain device
 identifiers.

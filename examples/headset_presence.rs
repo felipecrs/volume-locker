@@ -10,7 +10,6 @@ fn main() -> anyhow::Result<()> {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
-    simplelog::SimpleLogger::init(log::LevelFilter::Info, simplelog::Config::default())?;
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (model, action, seconds) = match args.as_slice() {
         [model, action] => (model.as_str(), action.as_str(), None),
@@ -21,6 +20,13 @@ fn main() -> anyhow::Result<()> {
         .iter()
         .find(|profile| profile.model == model)
         .ok_or_else(|| anyhow::anyhow!("Unknown model '{model}'.\n{}", usage()))?;
+    // The monitor logs raw reports at trace level.
+    let level = if action == "capture" {
+        log::LevelFilter::Trace
+    } else {
+        log::LevelFilter::Info
+    };
+    simplelog::SimpleLogger::init(level, simplelog::Config::default())?;
 
     if action == "list" {
         anyhow::ensure!(seconds.is_none(), "{}", usage());
@@ -58,19 +64,7 @@ fn main() -> anyhow::Result<()> {
     anyhow::ensure!((1..=300).contains(&seconds), "Choose 1–300 seconds");
 
     let started = Instant::now();
-    let on_report: Arc<presence::HidReportCallback> = if action == "capture" {
-        Arc::new(move |report| {
-            let hex = report
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<Vec<_>>()
-                .join(" ");
-            println!("{:.2}s: {hex}", started.elapsed().as_secs_f32());
-        })
-    } else {
-        Arc::new(|_| {})
-    };
-    let monitor = presence::HidPresenceMonitor::start(profile, Arc::new(|| {}), on_report)?;
+    let monitor = presence::HidPresenceMonitor::start(profile, Arc::new(|| {}))?;
     println!(
         "Read-only {} {action} for {seconds}s. Toggle headset power to observe status transitions.",
         profile.name

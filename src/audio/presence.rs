@@ -9,13 +9,11 @@ pub enum HeadsetPresence {
     Unavailable = 2,
 }
 
-pub type HidReportCallback = dyn Fn(&[u8]) + Send + Sync;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InitialQuery {
     HidppAdcMeasurement {
         feature_id: u16,
-        unavailable_error: Option<u8>,
+        unavailable_error: u8,
     },
 }
 
@@ -30,7 +28,8 @@ pub struct HidPresenceProfile {
     pub usage_page: u16,
     pub usage: u16,
     pub report_length: usize,
-    pub decode: fn(&[u8]) -> Option<HeadsetPresence>,
+    /// Takes the report and the feature index a startup query discovered, if any.
+    pub decode: fn(&[u8], Option<u8>) -> Option<HeadsetPresence>,
     pub initial_query: Option<InitialQuery>,
 }
 
@@ -62,8 +61,9 @@ fn decode_adc_flags(flags: u8) -> HeadsetPresence {
 mod windows {
     use super::{
         HIDPP_DIRECT_DEVICE_INDEX, HIDPP_LONG_REPORT_ID, HIDPP_LONG_REPORT_LENGTH, HeadsetPresence,
-        HidPresenceProfile, HidReportCallback, InitialQuery,
+        HidPresenceProfile, InitialQuery,
     };
+    use std::cell::Cell;
     use std::sync::{
         Arc,
         atomic::{AtomicBool, AtomicU8, Ordering},
@@ -83,12 +83,13 @@ mod windows {
     }
 
     struct HidppReader<'a> {
-        device: &'a hidapi::HidDevice,
+        write: &'a dyn Fn(&[u8]) -> anyhow::Result<usize>,
+        read: &'a dyn Fn(&mut [u8]) -> anyhow::Result<usize>,
         profile: HidPresenceProfile,
         stop: &'a AtomicBool,
         state: &'a AtomicU8,
         on_change: &'a Arc<dyn Fn() + Send + Sync>,
-        on_report: &'a Arc<HidReportCallback>,
+        discovered_index: Cell<Option<u8>>,
     }
 
     fn make_hidpp_request(
@@ -129,7 +130,7 @@ mod windows {
     impl HidppReader<'_> {
         fn exchange(&self, feature_index: u8, parameters: [u8; 3]) -> anyhow::Result<HidppReply> {
             let request = make_hidpp_request(feature_index, parameters);
-            let written = self.device.write(&request)?;
+            let written = (self.write)(&request)?;
             anyhow::ensure!(
                 written == request.len(),
                 "HID++ request was only partially written ({written}/{} bytes)",
@@ -139,16 +140,14 @@ mod windows {
             let deadline = Instant::now() + Duration::from_secs(2);
             let mut report = [0; 64];
             while !self.stop.load(Ordering::Relaxed) && Instant::now() < deadline {
-                let count = self.device.read_timeout(&mut report, 500)?;
+                let count = (self.read)(&mut report)?;
                 if count == 0 {
                     continue;
                 }
-                let Some(bytes) = report.get(..count) else {
-                    anyhow::bail!("HID++ response exceeds the read buffer");
-                };
-                (self.on_report)(bytes);
-                if let Some(next) = (self.profile.decode)(bytes) {
-                    publish(self.state, next, self.on_change);
+                let bytes = &report[..count];
+                log::trace!("{}: {bytes:02x?}", self.profile.name);
+                if let Some(next) = (self.profile.decode)(bytes, self.discovered_index.get()) {
+                    publish(self.profile.name, self.state, next, self.on_change);
                 }
                 if let Some(reply) = parse_hidpp_reply(bytes, feature_index) {
                     return Ok(reply);
@@ -178,17 +177,18 @@ mod windows {
             feature_index != 0,
             "ADC feature {feature_id:#06x} is not exposed"
         );
+        reader.discovered_index.set(Some(feature_index));
 
         decode_adc_reply(unavailable_error, reader.exchange(feature_index, [0; 3])?)
     }
 
     fn decode_adc_reply(
-        unavailable_error: Option<u8>,
+        unavailable_error: u8,
         reply: HidppReply,
     ) -> anyhow::Result<HeadsetPresence> {
         match reply {
             HidppReply::Response(report) => Ok(super::decode_adc_flags(report[6])),
-            HidppReply::Error(code) if unavailable_error == Some(code) => {
+            HidppReply::Error(code) if code == unavailable_error => {
                 Ok(HeadsetPresence::Unavailable)
             }
             HidppReply::Error(code) => {
@@ -207,7 +207,6 @@ mod windows {
         pub fn start(
             profile: HidPresenceProfile,
             on_change: Arc<dyn Fn() + Send + Sync>,
-            on_report: Arc<HidReportCallback>,
         ) -> std::io::Result<Self> {
             if !(1..=4096).contains(&profile.report_length) {
                 return Err(std::io::Error::new(
@@ -230,14 +229,18 @@ mod windows {
                             &worker_stop,
                             &worker_state,
                             &on_change,
-                            &on_report,
                             &query_done,
                         );
                         // Don't make the caller wait if listen failed before querying.
                         let _ = query_done.send(());
                         // Losing the provider is not proof that the headset turned off.
                         if !worker_stop.load(Ordering::Relaxed) {
-                            publish(&worker_state, HeadsetPresence::Unknown, &on_change);
+                            publish(
+                                profile.name,
+                                &worker_state,
+                                HeadsetPresence::Unknown,
+                                &on_change,
+                            );
                         }
                         if let Err(error) = result {
                             let message = error.to_string();
@@ -284,9 +287,14 @@ mod windows {
         }
     }
 
-    fn publish(state: &AtomicU8, next: HeadsetPresence, on_change: &Arc<dyn Fn() + Send + Sync>) {
+    fn publish(
+        name: &str,
+        state: &AtomicU8,
+        next: HeadsetPresence,
+        on_change: &Arc<dyn Fn() + Send + Sync>,
+    ) {
         if state.swap(next as u8, Ordering::AcqRel) != next as u8 {
-            log::info!("Headset radio presence: {next:?}");
+            log::info!("{name} radio presence: {next:?}");
             on_change();
         }
     }
@@ -296,7 +304,6 @@ mod windows {
         stop: &AtomicBool,
         state: &AtomicU8,
         on_change: &Arc<dyn Fn() + Send + Sync>,
-        on_report: &Arc<HidReportCallback>,
         query_done: &mpsc::Sender<()>,
     ) -> anyhow::Result<()> {
         let api = hidapi::HidApi::new()?;
@@ -317,33 +324,32 @@ mod windows {
             profile.name
         );
         let device = candidate.open_device(&api)?;
+        let write = |request: &[u8]| -> anyhow::Result<usize> { Ok(device.write(request)?) };
+        let read =
+            |report: &mut [u8]| -> anyhow::Result<usize> { Ok(device.read_timeout(report, 500)?) };
+        let mut feature_index = None;
         if let Some(query) = profile.initial_query {
             let reader = HidppReader {
-                device: &device,
+                write: &write,
+                read: &read,
                 profile,
                 stop,
                 state,
                 on_change,
-                on_report,
+                discovered_index: Cell::new(None),
             };
             match query_initial_state(query, &reader) {
-                Ok(initial_state) => publish(state, initial_state, on_change),
+                Ok(initial_state) => publish(profile.name, state, initial_state, on_change),
                 Err(error) => {
                     log::warn!("Cannot query initial {} state: {error:#}", profile.name);
                 }
             }
+            feature_index = reader.discovered_index.get();
             let _ = query_done.send(());
         }
-        log::info!("Listening for {} status events", profile.name,);
-        // After the one-time startup query, monitoring only reads input reports.
-        observe_reports(
-            profile,
-            |report| device.read_timeout(report, 500).map_err(Into::into),
-            stop,
-            state,
-            on_change,
-            on_report.as_ref(),
-        )
+        log::info!("Listening for {} status events", profile.name);
+        // After the status query on connect, monitoring only reads input reports.
+        observe_reports(profile, read, stop, state, on_change, feature_index)
     }
 
     // The transport only exposes reads. Shared by every protocol adapter and
@@ -354,7 +360,7 @@ mod windows {
         stop: &AtomicBool,
         state: &AtomicU8,
         on_change: &Arc<dyn Fn() + Send + Sync>,
-        mut on_report: impl FnMut(&[u8]),
+        feature_index: Option<u8>,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(
             (1..=4096).contains(&profile.report_length),
@@ -365,7 +371,7 @@ mod windows {
             let count = match read(&mut report) {
                 Ok(count) => count,
                 Err(error) => {
-                    publish(state, HeadsetPresence::Unknown, on_change);
+                    publish(profile.name, state, HeadsetPresence::Unknown, on_change);
                     return Err(error);
                 }
             };
@@ -373,12 +379,12 @@ mod windows {
                 continue;
             }
             let Some(bytes) = report.get(..count) else {
-                publish(state, HeadsetPresence::Unknown, on_change);
+                publish(profile.name, state, HeadsetPresence::Unknown, on_change);
                 anyhow::bail!("HID input report exceeds read buffer");
             };
-            on_report(bytes);
-            if let Some(next) = (profile.decode)(bytes) {
-                publish(state, next, on_change);
+            log::trace!("{}: {bytes:02x?}", profile.name);
+            if let Some(next) = (profile.decode)(bytes, feature_index) {
+                publish(profile.name, state, next, on_change);
             }
         }
         Ok(())
@@ -386,14 +392,16 @@ mod windows {
 
     #[cfg(test)]
     mod tests {
-        use super::super::devices::A50X_PROFILE;
+        use super::super::devices::{A50X_PROFILE, G533_PROFILE};
         use super::*;
+        use std::cell::RefCell;
+        use std::collections::VecDeque;
         use std::sync::atomic::AtomicUsize;
 
         #[test]
         fn timeouts_are_never_decoded_as_device_reports() {
             let profile = HidPresenceProfile {
-                decode: |_| panic!("a timeout is not a report"),
+                decode: |_, _| panic!("a timeout is not a report"),
                 ..A50X_PROFILE
             };
             let stop = AtomicBool::new(false);
@@ -409,7 +417,7 @@ mod windows {
                 &stop,
                 &state,
                 &callback,
-                |_| {},
+                None,
             )
             .unwrap();
             assert_eq!(
@@ -425,9 +433,7 @@ mod windows {
                     report_length,
                     ..A50X_PROFILE
                 };
-                assert!(
-                    HidPresenceMonitor::start(profile, Arc::new(|| {}), Arc::new(|_| {})).is_err()
-                );
+                assert!(HidPresenceMonitor::start(profile, Arc::new(|| {})).is_err());
             }
         }
 
@@ -469,7 +475,7 @@ mod windows {
                 &stop,
                 &state,
                 &callback,
-                |_| {},
+                None,
             );
             assert!(result.is_err());
             assert_eq!(
@@ -485,7 +491,7 @@ mod windows {
 
         #[test]
         fn another_protocol_can_use_the_same_observer_without_a50x_decoding() {
-            fn synthetic_decode(bytes: &[u8]) -> Option<HeadsetPresence> {
+            fn synthetic_decode(bytes: &[u8], _: Option<u8>) -> Option<HeadsetPresence> {
                 match bytes {
                     [0x42, 1] => Some(HeadsetPresence::Available),
                     _ => None,
@@ -507,8 +513,6 @@ mod windows {
             let callback: Arc<dyn Fn() + Send + Sync> =
                 Arc::new(move || worker_stop.store(true, Ordering::Relaxed));
             let state = AtomicU8::new(HeadsetPresence::Unknown as u8);
-            let reports = Arc::new(std::sync::Mutex::new(Vec::new()));
-            let captured_reports = Arc::clone(&reports);
             observe_reports(
                 profile,
                 |buffer| {
@@ -518,15 +522,14 @@ mod windows {
                 &stop,
                 &state,
                 &callback,
-                move |report| captured_reports.lock().unwrap().push(report.to_vec()),
+                None,
             )
             .unwrap();
             assert_eq!(
                 state.load(Ordering::Acquire),
                 HeadsetPresence::Available as u8
             );
-            assert_eq!(*reports.lock().unwrap(), vec![vec![0x42, 1]]);
-            assert_eq!((A50X_PROFILE.decode)(&[0x42, 1]), None);
+            assert_eq!((A50X_PROFILE.decode)(&[0x42, 1], None), None);
             assert!(profile.matches(1, 2, 3, 4));
             assert!(!profile.matches(1, 2, 3, 5));
         }
@@ -561,14 +564,93 @@ mod windows {
             let mut response = [0; HIDPP_LONG_REPORT_LENGTH];
             response[6] = 0x01;
             assert_eq!(
-                decode_adc_reply(Some(0x05), HidppReply::Response(response)).unwrap(),
+                decode_adc_reply(0x05, HidppReply::Response(response)).unwrap(),
                 HeadsetPresence::Available
             );
             assert_eq!(
-                decode_adc_reply(Some(0x05), HidppReply::Error(0x05)).unwrap(),
+                decode_adc_reply(0x05, HidppReply::Error(0x05)).unwrap(),
                 HeadsetPresence::Unavailable
             );
-            assert!(decode_adc_reply(Some(0x05), HidppReply::Error(0x06)).is_err());
+            assert!(decode_adc_reply(0x05, HidppReply::Error(0x06)).is_err());
+        }
+
+        fn hidpp_report(bytes: &[u8]) -> Vec<u8> {
+            let mut report = vec![0; HIDPP_LONG_REPORT_LENGTH];
+            report[..bytes.len()].copy_from_slice(bytes);
+            report
+        }
+
+        /// Runs the G533 query against canned replies; returns the result,
+        /// the written requests and the discovered feature index.
+        fn run_query(
+            replies: Vec<Vec<u8>>,
+            stopped: bool,
+        ) -> (anyhow::Result<HeadsetPresence>, Vec<Vec<u8>>, Option<u8>) {
+            let replies = RefCell::new(VecDeque::from(replies));
+            let written = RefCell::new(Vec::new());
+            let write = |request: &[u8]| -> anyhow::Result<usize> {
+                written.borrow_mut().push(request.to_vec());
+                Ok(request.len())
+            };
+            let read = |buffer: &mut [u8]| -> anyhow::Result<usize> {
+                let reply = replies.borrow_mut().pop_front().expect("unexpected read");
+                buffer[..reply.len()].copy_from_slice(&reply);
+                Ok(reply.len())
+            };
+            let stop = AtomicBool::new(stopped);
+            let state = AtomicU8::new(HeadsetPresence::Unknown as u8);
+            let callback: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+            let reader = HidppReader {
+                write: &write,
+                read: &read,
+                profile: G533_PROFILE,
+                stop: &stop,
+                state: &state,
+                on_change: &callback,
+                discovered_index: Cell::new(None),
+            };
+            let result = query_initial_state(G533_PROFILE.initial_query.unwrap(), &reader);
+            let discovered = reader.discovered_index.get();
+            (result, written.into_inner(), discovered)
+        }
+
+        #[test]
+        fn query_looks_up_the_feature_then_reads_status_at_the_discovered_index() {
+            let (result, written, discovered) = run_query(
+                vec![
+                    hidpp_report(&[0x11, 0xff, 0, HIDPP_SOFTWARE_ID, 9]),
+                    hidpp_report(&[0x11, 0xff, 9, HIDPP_SOFTWARE_ID, 0x0f, 0x14, 0x01]),
+                ],
+                false,
+            );
+            assert_eq!(result.unwrap(), HeadsetPresence::Available);
+            assert_eq!(discovered, Some(9));
+            assert_eq!(
+                written[0][..7],
+                [0x11, 0xff, 0, HIDPP_SOFTWARE_ID, 0x1f, 0x20, 0]
+            );
+            assert_eq!(written[1][..4], [0x11, 0xff, 9, HIDPP_SOFTWARE_ID]);
+        }
+
+        #[test]
+        fn query_maps_the_configured_error_to_unavailable_but_keeps_the_index() {
+            let (result, _, discovered) = run_query(
+                vec![
+                    hidpp_report(&[0x11, 0xff, 0, HIDPP_SOFTWARE_ID, 9]),
+                    hidpp_report(&[0x11, 0xff, 0xff, 9, HIDPP_SOFTWARE_ID, 0x05]),
+                ],
+                false,
+            );
+            assert_eq!(result.unwrap(), HeadsetPresence::Unavailable);
+            assert_eq!(discovered, Some(9));
+        }
+
+        #[test]
+        fn query_stops_without_reading_or_sending_more_once_stopped() {
+            let (result, written, discovered) = run_query(Vec::new(), true);
+            assert!(result.is_err());
+            assert_eq!(written.len(), 1);
+            assert_eq!(discovered, None);
         }
     }
 }
