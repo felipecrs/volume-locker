@@ -82,7 +82,7 @@ Temporarily route audio to a specific device without altering your saved priorit
 
 ### Wireless Headset Availability
 
-Wireless receivers can remain connected while their headset is off or out of range. Enable **Wireless headset detection** in Preferences to skip unavailable supported headsets in the existing input/output priority lists. Detection is selected automatically by device VID/PID; configure a fallback device as usual. G533 and G733 query their state at startup; an A50 X stays unknown until its first status event. See [headset availability](docs/headset-presence.md) for supported devices, diagnostics and steps for adding devices.
+Wireless receivers can remain connected while their headset is off or out of range. Enable **Wireless headset detection** in Preferences to skip unavailable supported headsets in the existing input/output priority lists. Detection is selected automatically by device VID/PID; configure a fallback device as usual. Devices that support a startup status query report their state right away; others stay unknown until their first status event. See [headset availability](docs/headset-presence.md) for supported devices, diagnostics and steps for adding devices.
 
 ### Seamless Device ID Migration
 
