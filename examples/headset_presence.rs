@@ -11,15 +11,19 @@ fn main() -> anyhow::Result<()> {
     use std::time::{Duration, Instant};
 
     simplelog::SimpleLogger::init(log::LevelFilter::Info, simplelog::Config::default())?;
-    let mut args = std::env::args().skip(1);
-    let model = args.next().ok_or_else(|| anyhow::anyhow!("{}", usage()))?;
-    let profile = presence::devices::profile_by_model(&model)
-        .copied()
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let (model, action, seconds) = match args.as_slice() {
+        [model, action] => (model.as_str(), action.as_str(), None),
+        [model, action, seconds] => (model.as_str(), action.as_str(), Some(seconds)),
+        _ => anyhow::bail!("{}", usage()),
+    };
+    let profile = *presence::devices::PROFILES
+        .iter()
+        .find(|profile| profile.model == model)
         .ok_or_else(|| anyhow::anyhow!("Unknown model '{model}'.\n{}", usage()))?;
-    let action = args.next().ok_or_else(|| anyhow::anyhow!("{}", usage()))?;
 
     if action == "list" {
-        anyhow::ensure!(args.next().is_none(), "Usage: {}", usage());
+        anyhow::ensure!(seconds.is_none(), "{}", usage());
         let api = hidapi::HidApi::new()?;
         let mut found = false;
         for device in api.device_list().filter(|device| {
@@ -46,12 +50,11 @@ fn main() -> anyhow::Result<()> {
     }
 
     anyhow::ensure!(
-        matches!(action.as_str(), "watch" | "capture"),
+        matches!(action, "watch" | "capture"),
         "Unknown action '{action}'.\n{}",
         usage()
     );
-    let seconds = args.next().map_or(Ok(30), |value| value.parse::<u64>())?;
-    anyhow::ensure!(args.next().is_none(), "Usage: {}", usage());
+    let seconds = seconds.map_or(Ok(30), |value| value.parse::<u64>())?;
     anyhow::ensure!((1..=300).contains(&seconds), "Choose 1–300 seconds");
 
     let started = Instant::now();
@@ -72,7 +75,6 @@ fn main() -> anyhow::Result<()> {
         "Read-only {} {action} for {seconds}s. Toggle headset power to observe status transitions.",
         profile.name
     );
-    let started = Instant::now();
     let mut previous = None;
     while started.elapsed() < Duration::from_secs(seconds) {
         let current = monitor.presence();

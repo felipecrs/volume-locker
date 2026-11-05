@@ -8,7 +8,7 @@ mod windows_com_policy_config;
 
 pub trait AudioBackend {
     fn configure_presence_monitoring(&self, _usb_devices: &[(u16, u16)]) {}
-    fn headset_presence(&self, _usb_vid_pid: Option<(u16, u16)>) -> HeadsetPresence {
+    fn headset_presence(&self, _usb_vid_pid: (u16, u16)) -> HeadsetPresence {
         HeadsetPresence::Unknown
     }
     fn devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>>;
@@ -288,12 +288,11 @@ pub(crate) mod tests {
     }
 
     impl AudioBackend for MockAudioBackend {
-        fn headset_presence(&self, usb_vid_pid: Option<(u16, u16)>) -> HeadsetPresence {
-            if usb_vid_pid.is_some_and(|(vendor_id, product_id)| {
-                presence::devices::PROFILES
-                    .iter()
-                    .any(|profile| profile.matches_usb_device(vendor_id, product_id))
-            }) {
+        fn headset_presence(&self, usb_vid_pid: (u16, u16)) -> HeadsetPresence {
+            if presence::devices::PROFILES
+                .iter()
+                .any(|profile| (profile.vendor_id, profile.product_id) == usb_vid_pid)
+            {
                 *self.presence.borrow()
             } else {
                 HeadsetPresence::Unknown

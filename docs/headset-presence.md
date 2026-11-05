@@ -38,7 +38,7 @@ diagnostic example:
 3. Configure an optional read-only startup query in the profile. Without a
    query, state remains Unknown until the first valid report; ongoing monitoring
    listens for input reports.
-4. Add captured-report fixtures in `presence.rs` and one supported-device row
+4. Add captured-report fixtures in `devices.rs` and one supported-device row
    in this table. Validate routing with the hardware connected.
 
 Profiles share the HID monitoring worker, not device assumptions or state.

@@ -189,16 +189,12 @@ impl AudioBackend for WindowsAudioBackend {
         }
     }
 
-    fn headset_presence(&self, usb_vid_pid: Option<(u16, u16)>) -> HeadsetPresence {
-        usb_vid_pid
-            .and_then(|identity| {
-                self.presence_monitors
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .get(&identity)
-                    .map(HidPresenceMonitor::presence)
-            })
-            .unwrap_or_default()
+    fn headset_presence(&self, usb_vid_pid: (u16, u16)) -> HeadsetPresence {
+        self.presence_monitors
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&usb_vid_pid)
+            .map_or(HeadsetPresence::Unknown, HidPresenceMonitor::presence)
     }
 
     fn devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>> {

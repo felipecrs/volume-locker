@@ -5,12 +5,12 @@ use crate::notification::NotificationThrottler;
 use crate::types::{DeviceFingerprint, DeviceType, PriorityKind, TemporaryPriorities};
 
 fn setup(device_type: DeviceType) -> (MockAudioBackend, PersistentState) {
-    let mut headset = MockDevice::new("headset", "Wireless headset", true);
+    let mut headset =
+        MockDevice::new("headset", "Wireless headset", true).with_fingerprint(DeviceFingerprint {
+            usb_vid_pid: Some((0x046d, 0x0b0b)),
+            ..DeviceFingerprint::default()
+        });
     headset.device_type = device_type;
-    headset.fingerprint = Some(DeviceFingerprint {
-        usb_vid_pid: Some((0x046d, 0x0b0b)),
-        ..DeviceFingerprint::default()
-    });
     let mut fallback = MockDevice::new("fallback", "Wired device", true);
     fallback.device_type = device_type;
     let backend = MockAudioBackend::new(vec![headset, fallback]);
