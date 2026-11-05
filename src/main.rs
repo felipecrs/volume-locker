@@ -95,21 +95,18 @@ fn setup_logging(executable_directory: &std::path::Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn ensure_writable_directory(executable_directory: &std::path::Path) -> anyhow::Result<()> {
-    if !is_directory_writable(executable_directory) {
-        let path = executable_directory.display().to_string();
-        let _ = send_notification(
-            &t!("directory-not-writable-title"),
-            &t!("directory-not-writable", path = path.as_str()),
-            NotificationDuration::Long,
-        );
-        anyhow::bail!(
-            "{}: {}",
-            t_en!("directory-not-writable-title"),
-            t_en!("directory-not-writable", path = path.as_str())
-        );
-    }
-    Ok(())
+fn notify_directory_not_writable(executable_directory: &std::path::Path) -> anyhow::Error {
+    let path = executable_directory.display().to_string();
+    let _ = send_notification(
+        &t!("directory-not-writable-title"),
+        &t!("directory-not-writable", path = path.as_str()),
+        NotificationDuration::Long,
+    );
+    anyhow::anyhow!(
+        "{}: {}",
+        t_en!("directory-not-writable-title"),
+        t_en!("directory-not-writable", path = path.as_str())
+    )
 }
 
 fn wire_event_proxies(event_loop: &tao::event_loop::EventLoop<UserEvent>) {
@@ -141,13 +138,23 @@ fn create_auto_launch() -> anyhow::Result<AutoLaunch> {
 
 fn run() -> anyhow::Result<()> {
     let executable_directory = get_executable_directory()?;
-    setup_logging(&executable_directory)?;
+    // Comes first because setup_logging truncates the log a running instance is writing to.
+    let _instance =
+        SingleInstanceGuard::acquire(APP_UID).context("failed to acquire single instance lock")?;
+
+    // The log file needs a writable location, and the notification needs the AUMID that
+    // init_platform registers, so the check has to wrap both.
+    let directory_usable = is_directory_writable(&executable_directory)
+        && setup_logging(&executable_directory).is_ok();
+    // After logging, so the chosen language is logged. Before the check below, because its
+    // notification is translated.
     i18n::init();
 
     let com_token = init_platform(&executable_directory)?;
-    ensure_writable_directory(&executable_directory)?;
-    let _instance =
-        SingleInstanceGuard::acquire(APP_UID).context("failed to acquire single instance lock")?;
+    if !directory_usable {
+        return Err(notify_directory_not_writable(&executable_directory));
+    }
+    update::remove_leftover_download();
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     wire_event_proxies(&event_loop);
@@ -224,6 +231,7 @@ fn run() -> anyhow::Result<()> {
         temporary_priorities: TemporaryPriorities::default(),
         update_info: None,
         update_check_in_progress: false,
+        update_download_in_progress: false,
         tray_icon: None,
         backend,
         device_cache: std::collections::HashMap::new(),
@@ -289,6 +297,10 @@ fn run() -> anyhow::Result<()> {
                 result,
             }) => {
                 app.handle_update_check_completed(manual_request, result);
+            }
+
+            Event::UserEvent(UserEvent::UpdateDownloadCompleted(result)) => {
+                app.handle_update_download_completed(result, control_flow);
             }
 
             _ => {}
