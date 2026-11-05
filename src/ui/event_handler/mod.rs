@@ -4,8 +4,7 @@ use crate::config::PersistentState;
 use crate::consts::GITHUB_REPO_URL;
 use crate::notification::log_and_notify_error;
 use crate::platform::{
-    open_device_properties, open_device_settings, open_sound_control_panel, open_sound_settings,
-    open_volume_mixer,
+    open_device_settings, open_sound_control_panel, open_sound_settings, open_volume_mixer,
 };
 use crate::types::{DeviceId, DeviceType, PriorityKind, TemporaryPriorities};
 use crate::update::UpdateInfo;
@@ -321,8 +320,8 @@ fn handle_device_event(
             MenuEventResult::DevicesChanged
         }
         DeviceAction::OpenProperties => {
-            if let Err(e) = open_device_properties(device_id) {
-                log::error!("Failed to open device properties: {e:#}");
+            if let Err(e) = open_sound_control_panel(sound_panel_tab(device_type)) {
+                log::error!("Failed to open sound control panel: {e:#}");
             }
             MenuEventResult::NoChange
         }
