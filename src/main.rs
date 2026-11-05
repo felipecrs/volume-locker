@@ -132,19 +132,19 @@ fn create_auto_launch() -> anyhow::Result<AutoLaunch> {
 
 fn run() -> anyhow::Result<()> {
     let executable_directory = get_executable_directory()?;
-    // The log file needs a writable directory, and the notification needs the AUMID that
-    // init_platform registers, so the check has to wrap both.
-    let directory_writable = is_directory_writable(&executable_directory);
-    if directory_writable {
-        setup_logging(&executable_directory)?;
-    }
-
-    let com_token = init_platform(&executable_directory)?;
-    if !directory_writable {
-        return Err(notify_directory_not_writable(&executable_directory));
-    }
+    // Comes first because setup_logging truncates the log a running instance is writing to.
     let _instance =
         SingleInstanceGuard::acquire(APP_UID).context("failed to acquire single instance lock")?;
+
+    // The log file needs a writable location, and the notification needs the AUMID that
+    // init_platform registers, so the check has to wrap both.
+    let directory_usable = is_directory_writable(&executable_directory)
+        && setup_logging(&executable_directory).is_ok();
+
+    let com_token = init_platform(&executable_directory)?;
+    if !directory_usable {
+        return Err(notify_directory_not_writable(&executable_directory));
+    }
     update::remove_leftover_download();
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
