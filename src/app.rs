@@ -265,8 +265,21 @@ impl AppState {
         log::info!("Audio event ({description}): updating devices and enforcing settings...");
 
         self.migrate_device_ids_if_needed();
+        let device_info = collect_device_info(&self.backend);
+        let presence_devices: Vec<_> = if self.persistent_state.skip_disconnected_wireless_headsets
+        {
+            device_info
+                .iter()
+                .filter_map(|(_, _, _, fingerprint)| fingerprint.as_ref()?.usb_vid_pid)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        self.backend
+            .configure_presence_monitoring(&presence_devices);
+
         let mut settings_changed = false;
-        for (device_id, new_name, device_type, fingerprint) in collect_device_info(&self.backend) {
+        for (device_id, new_name, device_type, fingerprint) in device_info {
             self.device_cache.insert(
                 device_id.clone(),
                 (new_name.clone(), device_type, fingerprint.clone()),
@@ -437,14 +450,11 @@ impl AppState {
         proxy: &EventLoopProxy<UserEvent>,
     ) {
         let tooltip = format!("{APP_NAME} v{CURRENT_VERSION}");
-        let tray_guid = u128::from_str_radix(&APP_UID.replace('-', ""), 16)
-            .expect("APP_UID must be a valid UUID");
         match TrayIconBuilder::new()
             .with_menu(Box::new(tray_menu.clone()))
             .with_tooltip(&tooltip)
             .with_icon(unlocked_icon.clone())
             .with_id(APP_UID)
-            .with_guid(tray_guid)
             .with_menu_on_left_click(false)
             .with_menu_on_right_click(false)
             .build()

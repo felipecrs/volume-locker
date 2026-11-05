@@ -147,8 +147,7 @@ mod tests {
         let submenu = build_device_submenu(&device, DeviceType::Output, &state, &mut map)
             .expect("build_device_submenu should succeed");
 
-        // Should register 6 actions: VolumeLock, VolumeLockNotify, UnmuteLock,
-        // UnmuteLockNotify, OpenProperties, OpenSettings
+        // Volume, mute, properties, and device-settings actions.
         assert_eq!(map.len(), 6);
         assert_eq!(submenu.text(), "Speakers · 100%");
     }

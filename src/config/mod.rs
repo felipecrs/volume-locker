@@ -37,6 +37,7 @@ struct PersistentStateFlat {
     switch_communication_device_input: bool,
     check_updates_on_launch: bool,
     notify_on_device_migration: bool,
+    skip_disconnected_wireless_headsets: bool,
 }
 
 impl Default for PersistentStateFlat {
@@ -82,6 +83,7 @@ impl From<PersistentStateFlat> for PersistentState {
             },
             check_updates_on_launch: flat.check_updates_on_launch,
             notify_on_device_migration: flat.notify_on_device_migration,
+            skip_disconnected_wireless_headsets: flat.skip_disconnected_wireless_headsets,
         }
     }
 }
@@ -117,6 +119,7 @@ impl From<PersistentState> for PersistentStateFlat {
             switch_communication_device_input: switch_comm_in,
             check_updates_on_launch: state.check_updates_on_launch,
             notify_on_device_migration: state.notify_on_device_migration,
+            skip_disconnected_wireless_headsets: state.skip_disconnected_wireless_headsets,
         }
     }
 }
@@ -129,6 +132,7 @@ pub struct PersistentState {
     pub(crate) input: PerTypeSettings,
     pub check_updates_on_launch: bool,
     pub notify_on_device_migration: bool,
+    pub skip_disconnected_wireless_headsets: bool,
 }
 
 impl PersistentState {
@@ -291,6 +295,7 @@ impl Default for PersistentState {
             },
             check_updates_on_launch: true,
             notify_on_device_migration: false,
+            skip_disconnected_wireless_headsets: true,
         }
     }
 }
@@ -321,6 +326,7 @@ mod tests {
             vec![DeviceId::main_priority()]
         );
         assert!(state.check_updates_on_launch);
+        assert!(state.skip_disconnected_wireless_headsets);
     }
 
     #[test]
@@ -366,6 +372,7 @@ mod tests {
         assert!(state.output.priority_list.is_empty());
         assert!(state.check_updates_on_launch);
         assert!(!state.notify_on_device_migration);
+        assert!(state.skip_disconnected_wireless_headsets);
     }
 
     #[test]
@@ -523,6 +530,7 @@ mod tests {
             },
             check_updates_on_launch: false,
             notify_on_device_migration: true,
+            skip_disconnected_wireless_headsets: false,
             devices: HashMap::from([(
                 "dev_a".into(),
                 DeviceSettings {

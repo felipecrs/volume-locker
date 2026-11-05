@@ -1,4 +1,5 @@
 use super::migration::{build_fingerprint, compose_device_name};
+use super::presence::{HeadsetPresence, HidPresenceMonitor, devices::PROFILES};
 use super::{AudioBackend, AudioDevice, windows_com_policy_config};
 use crate::bindings::{
     AUDIO_VOLUME_NOTIFICATION_DATA, CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree,
@@ -14,6 +15,7 @@ use crate::bindings::{
 use crate::types::{
     DeviceChangeSource, DeviceFingerprint, DeviceId, DeviceRole, DeviceType, VolumeScalar,
 };
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::mem::ManuallyDrop;
 use std::os::windows::ffi::OsStrExt;
@@ -104,6 +106,8 @@ pub struct WindowsAudioBackend {
     /// Prevents the COM callback from dropping — the field is written to in
     /// `register_device_change_callback` and must remain alive for the COM callback.
     device_change_callback: Mutex<Option<IMMNotificationClient>>,
+    presence_callback: Mutex<Option<Arc<dyn Fn(DeviceChangeSource) + Send + Sync>>>,
+    presence_monitors: Mutex<HashMap<(u16, u16), HidPresenceMonitor>>,
     power_notify_guard: Mutex<Option<PowerNotifyGuard>>,
 }
 
@@ -116,8 +120,31 @@ impl WindowsAudioBackend {
         Ok(Self {
             enumerator,
             device_change_callback: Mutex::new(None),
+            presence_callback: Mutex::new(None),
+            presence_monitors: Mutex::new(HashMap::new()),
             power_notify_guard: Mutex::new(None),
         })
+    }
+
+    fn start_presence_monitor(
+        &self,
+        profile: super::presence::HidPresenceProfile,
+    ) -> Option<HidPresenceMonitor> {
+        let callback = self
+            .presence_callback
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()?;
+        let on_presence_change = Arc::new(move || {
+            callback(DeviceChangeSource::HeadsetPresenceChanged);
+        });
+        match HidPresenceMonitor::start(profile, on_presence_change) {
+            Ok(started) => Some(started),
+            Err(error) => {
+                log::error!("Cannot start {} presence monitor: {error}", profile.name);
+                None
+            }
+        }
     }
 }
 
@@ -154,6 +181,31 @@ impl WindowsAudioDevice {
 }
 
 impl AudioBackend for WindowsAudioBackend {
+    fn configure_presence_monitoring(&self, usb_devices: &[(u16, u16)]) {
+        let mut monitors = self
+            .presence_monitors
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        monitors.retain(|identity, _| usb_devices.contains(identity));
+        for profile in PROFILES {
+            let identity = (profile.vendor_id, profile.product_id);
+            if usb_devices.contains(&identity)
+                && !monitors.contains_key(&identity)
+                && let Some(monitor) = self.start_presence_monitor(*profile)
+            {
+                monitors.insert(identity, monitor);
+            }
+        }
+    }
+
+    fn headset_presence(&self, usb_vid_pid: (u16, u16)) -> HeadsetPresence {
+        self.presence_monitors
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&usb_vid_pid)
+            .map_or(HeadsetPresence::Unknown, HidPresenceMonitor::presence)
+    }
+
     fn devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>> {
         let endpoint_type = match device_type {
             DeviceType::Output => eRender,
@@ -219,10 +271,14 @@ impl AudioBackend for WindowsAudioBackend {
         &self,
         callback: Box<dyn Fn(DeviceChangeSource) + Send + Sync>,
     ) -> anyhow::Result<()> {
-        let callback: Arc<dyn Fn(DeviceChangeSource) + Send + Sync> = Arc::from(callback);
+        let callback: Arc<dyn Fn(DeviceChangeSource) + Send + Sync> = callback.into();
+        *self
+            .presence_callback
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::clone(&callback));
 
         let cb: IMMNotificationClient = AudioDevicesChangedCallback {
-            callback: callback.clone(),
+            callback: Arc::clone(&callback),
         }
         .into();
 

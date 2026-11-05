@@ -50,7 +50,7 @@ fn enforce_priority_for_type(
         priority_list.insert(0, temp_id.clone());
     }
 
-    let main_target = find_highest_priority_active_device(backend, &priority_list);
+    let main_target = find_highest_priority_active_device(backend, &priority_list, state);
     let comm_target = resolve_communication_target(
         backend,
         device_type,
@@ -129,22 +129,21 @@ fn resolve_communication_target(
     main_target: Option<&DeviceId>,
 ) -> Option<DeviceId> {
     if let Some(temp_id) = temporary_comm
-        && let Ok(device) = backend.device_by_id(temp_id)
-        && let Ok(true) = device.is_active()
+        && let Some(device_id) =
+            find_highest_priority_active_device(backend, std::slice::from_ref(temp_id), state)
     {
-        return Some(temp_id.clone());
+        return Some(device_id);
     }
-
     let comm_list = state.communication_priority_list(device_type);
     for entry_id in comm_list {
         if entry_id.is_main_priority() {
             if let Some(main_id) = main_target {
                 return Some(main_id.clone());
             }
-        } else if let Ok(device) = backend.device_by_id(entry_id)
-            && let Ok(true) = device.is_active()
+        } else if let Some(device_id) =
+            find_highest_priority_active_device(backend, std::slice::from_ref(entry_id), state)
         {
-            return Some(entry_id.clone());
+            return Some(device_id);
         }
     }
 
@@ -185,11 +184,28 @@ fn notify_priority_restored(
 fn find_highest_priority_active_device(
     backend: &impl AudioBackend,
     priority_list: &[DeviceId],
+    state: &PersistentState,
 ) -> Option<DeviceId> {
     priority_list
         .iter()
         .find_map(|device_id| match backend.device_by_id(device_id) {
             Ok(device) => match device.is_active() {
+                Ok(true)
+                    if state.skip_disconnected_wireless_headsets
+                        && device
+                            .fingerprint()
+                            .and_then(|fingerprint| fingerprint.usb_vid_pid)
+                            .is_some_and(|usb_vid_pid| {
+                                backend.headset_presence(usb_vid_pid)
+                                    == super::presence::HeadsetPresence::Unavailable
+                            }) =>
+                {
+                    log::debug!(
+                        "Device '{}' ({device_id}) has no wireless headset link, skipping in priority order",
+                        device.name()
+                    );
+                    None
+                }
                 Ok(true) => Some(device_id.clone()),
                 Ok(false) => {
                     log::debug!(
@@ -736,7 +752,7 @@ mod tests {
         ]);
         let list = vec!["dev_a".into(), "dev_b".into(), "dev_c".into()];
         assert_eq!(
-            find_highest_priority_active_device(&backend, &list),
+            find_highest_priority_active_device(&backend, &list, &PersistentState::default()),
             Some(DeviceId::from("dev_b"))
         );
     }
@@ -748,13 +764,19 @@ mod tests {
             MockDevice::new("dev_b", "B", false),
         ]);
         let list = vec!["dev_a".into(), "dev_b".into()];
-        assert_eq!(find_highest_priority_active_device(&backend, &list), None);
+        assert_eq!(
+            find_highest_priority_active_device(&backend, &list, &PersistentState::default()),
+            None
+        );
     }
 
     #[test]
     fn find_highest_returns_none_for_empty_list() {
         let backend = MockAudioBackend::new(vec![]);
         let list: Vec<DeviceId> = vec![];
-        assert_eq!(find_highest_priority_active_device(&backend, &list), None);
+        assert_eq!(
+            find_highest_priority_active_device(&backend, &list, &PersistentState::default()),
+            None
+        );
     }
 }

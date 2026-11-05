@@ -46,6 +46,7 @@ pub enum AppAction {
     ToggleAutoLaunch,
     ToggleCheckUpdatesOnLaunch,
     ToggleNotifyOnDeviceMigration,
+    ToggleSkipDisconnectedWirelessHeadsets,
 }
 
 #[derive(Debug)]

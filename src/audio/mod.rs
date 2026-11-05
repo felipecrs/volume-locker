@@ -1,9 +1,16 @@
 use crate::types::{DeviceChangeSource, DeviceId, DeviceRole, DeviceType, VolumeScalar};
 
+pub mod presence;
+use presence::HeadsetPresence;
+
 #[cfg(target_os = "windows")]
 mod windows_com_policy_config;
 
 pub trait AudioBackend {
+    fn configure_presence_monitoring(&self, _usb_devices: &[(u16, u16)]) {}
+    fn headset_presence(&self, _usb_vid_pid: (u16, u16)) -> HeadsetPresence {
+        HeadsetPresence::Unknown
+    }
     fn devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>>;
     fn device_by_id(&self, id: &DeviceId) -> anyhow::Result<Box<dyn AudioDevice>>;
     fn default_device(
@@ -56,6 +63,8 @@ mod windows;
 pub use self::windows::WindowsAudioBackend as AudioBackendImpl;
 
 mod migration;
+#[cfg(test)]
+mod presence_tests;
 mod priority;
 
 pub use migration::migrate_device_ids;
@@ -260,6 +269,7 @@ pub(crate) mod tests {
         pub(crate) failing_device_ids: RefCell<Vec<String>>,
         /// If true, `set_default_device` will return `Err`.
         pub(crate) set_default_fails: RefCell<bool>,
+        pub(crate) presence: RefCell<HeadsetPresence>,
         pub(crate) disconnected_fingerprints: RefCell<HashMap<DeviceId, DeviceFingerprint>>,
         pub(crate) restored_properties: RefCell<RestoredProperties>,
         pub(crate) restore_properties_fails: bool,
@@ -274,6 +284,7 @@ pub(crate) mod tests {
                 default_communications: RefCell::new(HashMap::new()),
                 failing_device_ids: RefCell::new(Vec::new()),
                 set_default_fails: RefCell::new(false),
+                presence: RefCell::new(HeadsetPresence::Unknown),
                 disconnected_fingerprints: RefCell::new(HashMap::new()),
                 restored_properties: RefCell::new(Vec::new()),
                 restore_properties_fails: false,
@@ -291,6 +302,10 @@ pub(crate) mod tests {
     }
 
     impl AudioBackend for MockAudioBackend {
+        fn headset_presence(&self, _usb_vid_pid: (u16, u16)) -> HeadsetPresence {
+            *self.presence.borrow()
+        }
+
         fn devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>> {
             Ok(self
                 .devices

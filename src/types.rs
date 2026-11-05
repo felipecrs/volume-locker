@@ -367,6 +367,7 @@ impl TemporaryPriorities {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeviceChangeSource {
     Init,
+    HeadsetPresenceChanged,
     DeviceAdded(DeviceId),
     DeviceRemoved(DeviceId),
     DeviceStateChanged(DeviceId, u32),
@@ -381,6 +382,7 @@ impl DeviceChangeSource {
     pub fn description(&self, get_name: impl Fn(&DeviceId) -> String) -> String {
         match self {
             Self::Init => "Application initialization".to_string(),
+            Self::HeadsetPresenceChanged => "Headset presence changed".to_string(),
             Self::DeviceAdded(id) => {
                 let name = get_name(id);
                 format!("Device added: '{name}' ({id})")

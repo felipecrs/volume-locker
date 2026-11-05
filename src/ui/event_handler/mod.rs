@@ -411,6 +411,12 @@ fn handle_app_event(
                 ctx.persistent_state.notify_on_device_migration = checked;
             })
         }
+        AppAction::ToggleSkipDisconnectedWirelessHeadsets => {
+            with_check_state(ctx.tray_menu, &event.id, |checked| {
+                log::info!("User toggled 'Skip disconnected wireless headsets' to {checked}");
+                ctx.persistent_state.skip_disconnected_wireless_headsets = checked;
+            })
+        }
         AppAction::OpenAppDirectory => {
             match get_executable_directory() {
                 Ok(dir) => {
