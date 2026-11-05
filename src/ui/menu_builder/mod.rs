@@ -4,6 +4,7 @@ mod priority_section;
 use super::{AppAction, DeviceAction, MenuAction, MenuItemInfo};
 use crate::audio::AudioBackend;
 use crate::config::PersistentState;
+use crate::i18n::{t, t_en};
 use crate::types::{DeviceId, DeviceType, TemporaryPriorities, VolumePercent};
 use crate::update::UpdateInfo;
 use std::collections::HashMap;
@@ -58,10 +59,20 @@ fn register_menu_item(
     name: &str,
     device_type: DeviceType,
 ) {
+    // This name goes to the logs. The Follow entry's label is translated app text, so it needs an
+    // English name, unlike real devices, whose names come from Windows.
+    let name = if device_id.is_main_priority() {
+        match device_type {
+            DeviceType::Output => t_en!("follow-output-device-priority"),
+            DeviceType::Input => t_en!("follow-input-device-priority"),
+        }
+    } else {
+        name.to_string()
+    };
     map.insert(
         menu_id,
         MenuItemInfo {
-            name: name.to_string(),
+            name,
             action: MenuAction::Device {
                 device_id: device_id.clone(),
                 device_type,
@@ -133,13 +144,13 @@ pub fn rebuild_tray_menu(
     append_action_item(
         tray_menu,
         &mut map,
-        "Sound settings...",
+        &t!("sound-settings"),
         MenuAction::App(AppAction::OpenSoundSettings),
     )?;
     append_action_item(
         tray_menu,
         &mut map,
-        "Volume mixer...",
+        &t!("volume-mixer"),
         MenuAction::App(AppAction::OpenVolumeMixer),
     )?;
     tray_menu.append(&PredefinedMenuItem::separator())?;
@@ -188,31 +199,31 @@ fn append_preferences_section(
     items: &TrayMenuItems,
     map: &mut MenuIdMap,
 ) -> anyhow::Result<()> {
-    tray_menu.append(&MenuItem::new("Preferences", false, None))?;
+    tray_menu.append(&MenuItem::new(t!("preferences"), false, None))?;
 
-    let settings_transfer = Submenu::new("Settings transfer", true);
+    let settings_transfer = Submenu::new(t!("settings-transfer"), true);
     for (label, checked, action) in [
         (
-            "Automatically transfer device settings",
+            t!("transfer-device-settings"),
             persistent_state.transfer_device_settings,
             AppAction::ToggleTransferDeviceSettings,
         ),
         (
-            "Also transfer device name and icon",
+            t!("transfer-device-name-and-icon"),
             persistent_state.transfer_device_name_and_icon,
             AppAction::ToggleTransferDeviceNameAndIcon,
         ),
         (
-            "Notify on settings transfer",
+            t!("notify-on-settings-transfer"),
             persistent_state.notify_on_settings_transfer,
             AppAction::ToggleNotifyOnSettingsTransfer,
         ),
     ] {
-        let item = CheckMenuItem::new(label, true, checked, None);
+        let item = CheckMenuItem::new(&label, true, checked, None);
         map.insert(
             item.id().clone(),
             MenuItemInfo {
-                name: label.to_string(),
+                name: label,
                 action: MenuAction::App(action),
             },
         );
@@ -221,7 +232,7 @@ fn append_preferences_section(
     tray_menu.append(&settings_transfer)?;
 
     let skip_disconnected_wireless_headsets = CheckMenuItem::new(
-        "Skip disconnected wireless headsets",
+        t!("skip-disconnected-wireless-headsets"),
         true,
         persistent_state.skip_disconnected_wireless_headsets,
         None,
@@ -268,12 +279,12 @@ fn append_footer_section(
     update_download_in_progress: bool,
     items: &TrayMenuItems,
 ) -> anyhow::Result<()> {
-    tray_menu.append(&MenuItem::new("Troubleshooting", false, None))?;
+    tray_menu.append(&MenuItem::new(t!("troubleshooting"), false, None))?;
 
     append_action_item(
         tray_menu,
         map,
-        "Open app folder...",
+        &t!("open-app-folder"),
         MenuAction::App(AppAction::OpenAppDirectory),
     )?;
 
@@ -287,14 +298,14 @@ fn append_footer_section(
     )?;
 
     if update_download_in_progress {
-        tray_menu.append(&MenuItem::new("Downloading update...", false, None))?;
+        tray_menu.append(&MenuItem::new(t!("downloading-update"), false, None))?;
     } else {
         let (label, action) = match update_info {
             Some(info) => (
-                format!("Update to {}...", info.latest_version),
+                t!("update-to-version", version = info.latest_version.as_str()),
                 AppAction::PerformUpdate,
             ),
-            None => ("Check for updates".to_string(), AppAction::CheckForUpdates),
+            None => (t!("check-for-updates"), AppAction::CheckForUpdates),
         };
 
         append_action_item(tray_menu, map, &label, MenuAction::App(action))?;

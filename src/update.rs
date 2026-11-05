@@ -1,5 +1,6 @@
 use crate::consts::{CURRENT_VERSION, GITHUB_RELEASE_ASSET, GITHUB_REPO_URL};
-use crate::notification::log_and_notify_error;
+use crate::i18n::{t, t_en};
+use crate::notification::notify_error;
 use crate::platform::{NotificationDuration, send_notification};
 use crate::utils::get_executable_path_str;
 use anyhow::Context;
@@ -105,11 +106,8 @@ pub fn report_check_result(manual_request: bool, result: &Result<Option<UpdateIn
             log::info!("Update available: v{}", info.latest_version);
             if manual_request
                 && let Err(e) = send_notification(
-                    "Update Available",
-                    &format!(
-                        "Version {} is available. Click 'Update' in the menu to install.",
-                        info.latest_version
-                    ),
+                    &t!("update-available-title"),
+                    &t!("update-available", version = info.latest_version.as_str()),
                     NotificationDuration::Long,
                 )
             {
@@ -120,8 +118,8 @@ pub fn report_check_result(manual_request: bool, result: &Result<Option<UpdateIn
             log::info!("No updates available");
             if manual_request
                 && let Err(e) = send_notification(
-                    "No Updates Available",
-                    "You are running the latest version of Volume Locker.",
+                    &t!("no-updates-title"),
+                    &t!("no-updates"),
                     NotificationDuration::Short,
                 )
             {
@@ -130,12 +128,13 @@ pub fn report_check_result(manual_request: bool, result: &Result<Option<UpdateIn
         }
         Err(e) => {
             if manual_request {
-                log_and_notify_error(
-                    "Update Check Failed",
-                    &format!("Failed to check for updates: {e}"),
+                notify_error!(
+                    "update-check-failed-title",
+                    "update-check-failed",
+                    error = e.as_str()
                 );
             } else {
-                log::error!("Failed to check for updates: {e}");
+                log::error!("{}", t_en!("update-check-failed", error = e.as_str()));
             }
         }
     }

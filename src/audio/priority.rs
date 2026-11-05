@@ -1,4 +1,5 @@
 use crate::config::PersistentState;
+use crate::i18n::t;
 use crate::notification::NotificationThrottler;
 use crate::types::{DeviceId, DeviceRole, DeviceType, PriorityKind, TemporaryPriorities};
 
@@ -160,15 +161,19 @@ fn notify_priority_restored(
     let device_name = backend.device_by_id(target_id).map_or_else(
         |e| {
             log::warn!("Could not get name for device {target_id}: {e:#}");
-            "Unknown Device".to_string()
+            t!("unknown-device")
         },
         |d| d.name(),
     );
     let title = match (device_type, kind) {
-        (DeviceType::Output, PriorityKind::Main) => "Output Device Restored",
-        (DeviceType::Input, PriorityKind::Main) => "Input Device Restored",
-        (DeviceType::Output, PriorityKind::Communication) => "Output Communication Device Restored",
-        (DeviceType::Input, PriorityKind::Communication) => "Input Communication Device Restored",
+        (DeviceType::Output, PriorityKind::Main) => t!("output-restored-title"),
+        (DeviceType::Input, PriorityKind::Main) => t!("input-restored-title"),
+        (DeviceType::Output, PriorityKind::Communication) => {
+            t!("output-communication-restored-title")
+        }
+        (DeviceType::Input, PriorityKind::Communication) => {
+            t!("input-communication-restored-title")
+        }
     };
     let throttle_key = match kind {
         PriorityKind::Main => format!("priority_restore_{target_id}"),
@@ -176,8 +181,8 @@ fn notify_priority_restored(
     };
     throttler.send_if_not_throttled(
         &throttle_key,
-        title,
-        &format!("Switched to {device_name} based on priority list."),
+        &title,
+        &t!("switched-by-priority", device = device_name.as_str()),
     );
 }
 
