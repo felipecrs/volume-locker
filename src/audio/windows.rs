@@ -1,8 +1,5 @@
 use super::migration::{build_fingerprint, clean_device_name};
-use super::presence::{
-    HeadsetPresence, HidPresenceMonitor,
-    devices::{PROFILES, profile_by_usb_device},
-};
+use super::presence::{HeadsetPresence, HidPresenceMonitor, devices::PROFILES};
 use super::{AudioBackend, AudioDevice, windows_com_policy_config};
 use crate::bindings::{
     AUDIO_VOLUME_NOTIFICATION_DATA, CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree,
@@ -17,7 +14,7 @@ use crate::bindings::{
 use crate::types::{
     DeviceChangeSource, DeviceFingerprint, DeviceId, DeviceRole, DeviceType, VolumeScalar,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::sync::{Arc, Mutex};
@@ -176,46 +173,32 @@ impl WindowsAudioDevice {
 
 impl AudioBackend for WindowsAudioBackend {
     fn configure_presence_monitoring(&self, usb_devices: &[(u16, u16)]) {
-        let connected = usb_devices.iter().copied().collect::<HashSet<_>>();
-        let profiles_to_start = {
-            let mut monitors = self
-                .presence_monitors
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            monitors.retain(|identity, _| connected.contains(identity));
-            PROFILES
-                .iter()
-                .filter(|profile| {
-                    let identity = (profile.vendor_id, profile.product_id);
-                    connected.contains(&identity) && !monitors.contains_key(&identity)
-                })
-                .copied()
-                .collect::<Vec<_>>()
-        };
-        for profile in profiles_to_start {
+        let mut monitors = self
+            .presence_monitors
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        monitors.retain(|identity, _| usb_devices.contains(identity));
+        for profile in PROFILES {
             let identity = (profile.vendor_id, profile.product_id);
-            if let Some(monitor) = self.start_presence_monitor(profile) {
-                self.presence_monitors
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .entry(identity)
-                    .or_insert(monitor);
+            if usb_devices.contains(&identity)
+                && !monitors.contains_key(&identity)
+                && let Some(monitor) = self.start_presence_monitor(*profile)
+            {
+                monitors.insert(identity, monitor);
             }
         }
     }
 
     fn headset_presence(&self, usb_vid_pid: Option<(u16, u16)>) -> HeadsetPresence {
-        let Some((vendor_id, product_id)) = usb_vid_pid else {
-            return HeadsetPresence::Unknown;
-        };
-        let Some(profile) = profile_by_usb_device(vendor_id, product_id) else {
-            return HeadsetPresence::Unknown;
-        };
-        self.presence_monitors
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(&(profile.vendor_id, profile.product_id))
-            .map_or(HeadsetPresence::Unknown, HidPresenceMonitor::presence)
+        usb_vid_pid
+            .and_then(|identity| {
+                self.presence_monitors
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .get(&identity)
+                    .map(HidPresenceMonitor::presence)
+            })
+            .unwrap_or_default()
     }
 
     fn devices(&self, device_type: DeviceType) -> anyhow::Result<Vec<Box<dyn AudioDevice>>> {

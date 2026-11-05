@@ -44,70 +44,57 @@ fn input_and_output_fall_back_on_power_off_and_restore_on_power_on() {
 }
 
 #[test]
-fn g533_link_events_fall_back_when_wireless_link_is_lost() {
-    for device_type in [DeviceType::Output, DeviceType::Input] {
-        let (mut backend, state) = setup(device_type);
-        backend.devices[0].fingerprint = Some(DeviceFingerprint {
-            usb_vid_pid: Some((0x046d, 0x0a66)),
-            ..DeviceFingerprint::default()
-        });
-        for (presence, expected) in [
-            (HeadsetPresence::Unavailable, "fallback"),
-            (HeadsetPresence::Available, "headset"),
-        ] {
-            *backend.presence.borrow_mut() = presence;
-            enforce_priorities(
-                &backend,
-                &state,
-                &mut NotificationThrottler::new(),
-                &TemporaryPriorities::default(),
-            );
-            assert_eq!(backend.default_console.borrow()[&device_type], expected);
-            assert_eq!(backend.default_multimedia.borrow()[&device_type], expected);
-            assert_eq!(
-                backend.default_communications.borrow()[&device_type],
-                expected
-            );
+fn hidpp_headsets_fall_back_when_wireless_link_is_lost() {
+    for product_id in [0x0a66, 0x0ab5] {
+        for device_type in [DeviceType::Output, DeviceType::Input] {
+            let (mut backend, state) = setup(device_type);
+            backend.devices[0].fingerprint = Some(DeviceFingerprint {
+                usb_vid_pid: Some((0x046d, product_id)),
+                ..DeviceFingerprint::default()
+            });
+            for (presence, expected) in [
+                (HeadsetPresence::Unavailable, "fallback"),
+                (HeadsetPresence::Available, "headset"),
+            ] {
+                *backend.presence.borrow_mut() = presence;
+                enforce_priorities(
+                    &backend,
+                    &state,
+                    &mut NotificationThrottler::new(),
+                    &TemporaryPriorities::default(),
+                );
+                assert_eq!(backend.default_console.borrow()[&device_type], expected);
+                assert_eq!(backend.default_multimedia.borrow()[&device_type], expected);
+                assert_eq!(
+                    backend.default_communications.borrow()[&device_type],
+                    expected
+                );
+            }
         }
     }
 }
 
 #[test]
-fn g733_link_events_fall_back_for_both_audio_endpoint_types() {
-    for device_type in [DeviceType::Output, DeviceType::Input] {
-        let (mut backend, state) = setup(device_type);
-        backend.devices[0].fingerprint = Some(DeviceFingerprint {
-            usb_vid_pid: Some((0x046d, 0x0ab5)),
-            ..DeviceFingerprint::default()
-        });
-        for (presence, expected) in [
-            (HeadsetPresence::Unavailable, "fallback"),
-            (HeadsetPresence::Available, "headset"),
-        ] {
-            *backend.presence.borrow_mut() = presence;
-            enforce_priorities(
-                &backend,
-                &state,
-                &mut NotificationThrottler::new(),
-                &TemporaryPriorities::default(),
-            );
-            assert_eq!(backend.default_console.borrow()[&device_type], expected);
-            assert_eq!(backend.default_multimedia.borrow()[&device_type], expected);
-            assert_eq!(
-                backend.default_communications.borrow()[&device_type],
-                expected
-            );
-        }
-    }
-}
-
-#[test]
-fn global_detection_setting_survives_state_serialization() {
-    let (_, state) = setup(DeviceType::Output);
-
-    let json = serde_json::to_string(&state).unwrap();
-    let loaded: PersistentState = serde_json::from_str(&json).unwrap();
-    assert!(loaded.wireless_headset_detection_enabled);
+fn temporary_communication_priority_skips_an_unavailable_headset() {
+    let (backend, mut state) = setup(DeviceType::Output);
+    state.output.communication_priority_list = vec!["fallback".into()];
+    *backend.presence.borrow_mut() = HeadsetPresence::Unavailable;
+    let mut temporary = TemporaryPriorities::default();
+    temporary.set(
+        DeviceType::Output,
+        PriorityKind::Communication,
+        Some("headset".into()),
+    );
+    enforce_priorities(
+        &backend,
+        &state,
+        &mut NotificationThrottler::new(),
+        &temporary,
+    );
+    assert_eq!(
+        backend.default_communications.borrow()[&DeviceType::Output],
+        "fallback"
+    );
 }
 
 #[test]
@@ -209,7 +196,7 @@ fn radio_state_requires_opt_in_and_cannot_revive_disabled_windows_devices() {
 }
 
 #[test]
-fn global_detection_setting_does_not_create_per_device_settings() {
+fn global_detection_setting_survives_serialization_without_per_device_settings() {
     let (_, state) = setup(DeviceType::Output);
     let json = serde_json::to_string(&state).unwrap();
     let loaded: PersistentState = serde_json::from_str(&json).unwrap();

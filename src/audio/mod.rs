@@ -289,7 +289,11 @@ pub(crate) mod tests {
 
     impl AudioBackend for MockAudioBackend {
         fn headset_presence(&self, usb_vid_pid: Option<(u16, u16)>) -> HeadsetPresence {
-            if matches!(usb_vid_pid, Some((0x046d, 0x0b0b | 0x0a66 | 0x0ab5))) {
+            if usb_vid_pid.is_some_and(|(vendor_id, product_id)| {
+                presence::devices::PROFILES
+                    .iter()
+                    .any(|profile| profile.matches_usb_device(vendor_id, product_id))
+            }) {
                 *self.presence.borrow()
             } else {
                 HeadsetPresence::Unknown

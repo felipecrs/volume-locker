@@ -80,7 +80,8 @@ mod windows {
     const HIDPP_LONG_REPORT_ID: u8 = 0x11;
     const HIDPP_LONG_REPORT_LENGTH: usize = 20;
     const HIDPP_DIRECT_DEVICE_INDEX: u8 = 0xff;
-    const HIDPP_SOFTWARE_ID: u8 = 0x01;
+    // Replies echo this ID; avoid the low IDs other HID++ clients are likeliest to use.
+    const HIDPP_SOFTWARE_ID: u8 = 0x0b;
 
     enum HidppReply {
         Response([u8; HIDPP_LONG_REPORT_LENGTH]),
@@ -90,6 +91,7 @@ mod windows {
     struct HidppReader<'a> {
         device: &'a hidapi::HidDevice,
         profile: HidPresenceProfile,
+        stop: &'a AtomicBool,
         state: &'a AtomicU8,
         on_change: &'a Arc<dyn Fn() + Send + Sync>,
         on_report: &'a Arc<HidReportCallback>,
@@ -156,7 +158,7 @@ mod windows {
 
             let deadline = Instant::now() + Duration::from_secs(2);
             let mut report = [0; 64];
-            while Instant::now() < deadline {
+            while !self.stop.load(Ordering::Relaxed) && Instant::now() < deadline {
                 let count = self.device.read_timeout(&mut report, 500)?;
                 if count == 0 {
                     continue;
@@ -175,7 +177,7 @@ mod windows {
                 }
             }
             anyhow::bail!(
-                "Timed out waiting for HID++ reply to feature {feature_index:#04x}, function {function_sw_id:#04x}"
+                "No HID++ reply to feature {feature_index:#04x}, function {function_sw_id:#04x}"
             )
         }
     }
@@ -343,6 +345,7 @@ mod windows {
             let reader = HidppReader {
                 device: &device,
                 profile,
+                stop,
                 state,
                 on_change,
                 on_report,
@@ -614,9 +617,7 @@ pub use windows::HidPresenceMonitor;
 
 #[cfg(test)]
 mod tests {
-    use super::devices::{
-        A50X_PROFILE, G533_PROFILE, G733_PROFILE, PROFILES, profile_by_model, profile_by_usb_device,
-    };
+    use super::devices::{A50X_PROFILE, G533_PROFILE, G733_PROFILE, PROFILES, profile_by_model};
     use super::*;
 
     #[test]
@@ -656,10 +657,6 @@ mod tests {
         assert_eq!(
             profile_by_model("g533").map(|profile| profile.product_id),
             Some(0x0a66)
-        );
-        assert_eq!(
-            profile_by_usb_device(0x046d, 0x0ab5).map(|profile| profile.model),
-            Some("g733")
         );
     }
 

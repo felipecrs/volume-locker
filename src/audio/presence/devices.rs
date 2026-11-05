@@ -49,15 +49,6 @@ pub fn profile_by_model(model: &str) -> Option<&'static HidPresenceProfile> {
     PROFILES.iter().find(|profile| profile.model == model)
 }
 
-pub fn profile_by_usb_device(
-    vendor_id: u16,
-    product_id: u16,
-) -> Option<&'static HidPresenceProfile> {
-    PROFILES
-        .iter()
-        .find(|profile| profile.matches_usb_device(vendor_id, product_id))
-}
-
 /// Observed on A50 X 046d:0b0b, firmware 1.3.21, during a real on/off cycle.
 /// Ignore chatmix (command 0x0a): its center value also appears during power-off.
 fn decode_a50x_report(report: &[u8]) -> Option<HeadsetPresence> {

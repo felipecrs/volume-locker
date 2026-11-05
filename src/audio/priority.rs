@@ -129,10 +129,10 @@ fn resolve_communication_target(
     main_target: Option<&DeviceId>,
 ) -> Option<DeviceId> {
     if let Some(temp_id) = temporary_comm
-        && let Ok(device) = backend.device_by_id(temp_id)
-        && let Ok(true) = device.is_active()
+        && let Some(device_id) =
+            find_highest_priority_active_device(backend, std::slice::from_ref(temp_id), state)
     {
-        return Some(temp_id.clone());
+        return Some(device_id);
     }
     let comm_list = state.communication_priority_list(device_type);
     for entry_id in comm_list {
