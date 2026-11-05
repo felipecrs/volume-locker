@@ -1,6 +1,6 @@
-# Keeping names and icons
+# Transferring names and icons
 
-To keep a device's Windows name and icon when it migrates, check **Keep device name and icon on migration** in **Preferences**. It is off by default.
+To transfer a device's Windows name and icon along with its settings, check **Also transfer device name and icon** in **Preferences**. It is off by default, and it needs **Automatically transfer device settings** to be on.
 
 When Windows creates a new endpoint for a device, the endpoint gets a default name and icon. With this preference on, Volume Locker writes the device's last seen name and icon to the new endpoint.
 
@@ -21,19 +21,19 @@ The icon value is a reference, so the image itself is not copied. Volume Locker 
 
 Volume Locker does not try to detect custom names or icons. It stores the current values in the device's fingerprint each time it sees a tracked device, and restores them as they are. A value is only written when it differs from the new endpoint's value.
 
-## How a restore runs
+## How it runs
 
 ```mermaid
 flowchart LR
-    OLD[Saved or cached fingerprint] --> MATCH[Accepted device migration]
+    OLD[Saved or cached fingerprint] --> MATCH[Accepted match]
     MATCH -->|Preference on: name and icon| NEW[New endpoint]
     MATCH -->|Always: locks and priorities| STATE[Settings under the new ID]
 ```
 
-1. The [matching tiers](./device-migration.md#matching-tiers) accept a pair. Restoring does not affect matching.
+1. The [matching tiers](./settings-transfer.md#matching-tiers) accept a pair. The name and icon do not affect matching.
 2. `IPolicyConfig::SetPropertyValue` writes each changed value as a `VT_LPWSTR` string.
 3. Volume locks, unmute locks, and priorities move to the new ID.
 
 ## If a write fails
 
-Volume Locker logs a warning with both endpoint IDs, and the migration still finishes. It does not elevate privileges, edit the registry, or undo the match. Windows may also replace a written value later.
+Volume Locker logs a warning with both endpoint IDs, and the settings still transfer. It does not elevate privileges, edit the registry, or undo the match. Windows may also replace a written value later.

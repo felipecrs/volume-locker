@@ -1,6 +1,6 @@
 use crate::audio::{
     AudioBackend, AudioBackendImpl, AudioDevice, check_and_unmute_device, collect_device_info,
-    enforce_priorities, enforce_volume_lock, migrate_device_ids,
+    enforce_priorities, enforce_volume_lock, transfer_device_settings,
 };
 use crate::config::{PersistentState, save_state};
 use crate::consts::{APP_NAME, APP_UID, CURRENT_VERSION};
@@ -43,7 +43,7 @@ pub struct EventLoopRefs<'a> {
     pub auto_launch: &'a AutoLaunch,
     pub auto_launch_check_item: &'a CheckMenuItem,
     pub check_updates_on_launch_item: &'a CheckMenuItem,
-    pub notify_on_device_migration_item: &'a CheckMenuItem,
+    pub notify_on_settings_transfer_item: &'a CheckMenuItem,
     pub quit_item: &'a MenuItem,
     pub tray_menu: &'a Menu,
     pub output_devices_heading_item: &'a MenuItem,
@@ -106,8 +106,8 @@ impl AppState {
         }
     }
 
-    pub fn migrate_device_ids_if_needed(&mut self) {
-        let result = migrate_device_ids(
+    pub fn transfer_device_settings_if_needed(&mut self) {
+        let result = transfer_device_settings(
             &self.backend,
             &mut self.persistent_state,
             &mut self.temporary_priorities,
@@ -125,10 +125,10 @@ impl AppState {
             }
         }
 
-        if self.persistent_state.notify_on_device_migration {
-            for name in result.migrated_device_names {
+        if self.persistent_state.notify_on_settings_transfer {
+            for name in result.transferred_device_names {
                 self.notification_throttler.send_if_not_throttled(
-                    &format!("migration_{name}"),
+                    &format!("transfer_{name}"),
                     "Device Settings Transferred",
                     &format!("Settings for '{name}' were transferred to its new connection."),
                 );
@@ -264,7 +264,7 @@ impl AppState {
         let description = source.description(|id| self.get_device_display_name(id));
         log::info!("Audio event ({description}): updating devices and enforcing settings...");
 
-        self.migrate_device_ids_if_needed();
+        self.transfer_device_settings_if_needed();
         let device_info = collect_device_info(&self.backend);
         let presence_devices: Vec<_> = if self.persistent_state.skip_disconnected_wireless_headsets
         {
@@ -472,7 +472,7 @@ impl AppState {
             &TrayMenuItems {
                 auto_launch_check: refs.auto_launch_check_item,
                 check_updates_on_launch: refs.check_updates_on_launch_item,
-                notify_on_device_migration: refs.notify_on_device_migration_item,
+                notify_on_settings_transfer: refs.notify_on_settings_transfer_item,
                 quit: refs.quit_item,
                 output_devices_heading: refs.output_devices_heading_item,
                 input_devices_heading: refs.input_devices_heading_item,

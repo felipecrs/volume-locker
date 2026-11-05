@@ -1,8 +1,8 @@
-# Device migration
+# Settings transfer
 
-When Windows gives an audio device a new endpoint ID, Volume Locker finds the same physical device and moves its volume lock, unmute lock, and priority list entries to the new ID. To turn on notifications for this, check **Notify on device migration** in **Preferences**.
+When Windows gives an audio device a new endpoint ID, Volume Locker finds the same physical device and transfers its volume lock, unmute lock, and priority list entries to the new ID. This is on by default. To turn it off, uncheck **Automatically transfer device settings** in **Preferences**. To get a notification when it happens, check **Notify on settings transfer**.
 
-To also keep the device's Windows name and icon, see [Keeping names and icons](./device-names-and-icons.md).
+To also transfer the device's Windows name and icon, see [Transferring names and icons](./device-names-and-icons.md).
 
 ## When endpoint IDs change
 
@@ -17,22 +17,22 @@ The Windows `AudioEndpointBuilder` service can create a new GUID when you:
 2. Unpair and re-pair a Bluetooth device.
 3. Update a driver or Windows.
 
-## How a migration runs
+## How a transfer runs
 
-Migrations run on audio events, with no periodic polling:
+Transfers run on audio events, with no periodic polling:
 
 ```mermaid
 flowchart LR
     NOTIF[IMMNotificationClient<br/>Device added, removed, or changed state<br/>Default device or property changed] --> EVENT[Device change event]
     POWER[System resume] --> EVENT
-    EVENT --> MIGRATE[Migrate device IDs]
-    MIGRATE --> LOCKS[Enforce volume and unmute locks]
+    EVENT --> TRANSFER[Transfer settings]
+    TRANSFER --> LOCKS[Enforce volume and unmute locks]
 ```
 
 1. Volume Locker finds tracked devices whose endpoint is no longer active.
 2. It recovers each missing device's fingerprint.
 3. It compares missing devices with unclaimed active devices through the five matching tiers.
-4. It moves the settings of each accepted match to the new ID and saves them.
+4. It transfers the settings of each accepted match to the new ID and saves them.
 
 Each event also saves any change to a tracked device's name or fingerprint.
 
@@ -96,19 +96,19 @@ Volume Locker tries each tier in order, highest confidence first:
 ### Rules for every tier
 
 1. Both devices must be the same type, output or input.
-2. If both have a form factor, a bus type, or a USB VID/PID, each of those must match. This keeps motherboard speakers named `Speakers` from migrating to a new USB speaker.
+2. If both have a form factor, a bus type, or a USB VID/PID, each of those must match. This keeps motherboard speakers named `Speakers` from matching a new USB speaker.
 3. Active devices already in tracked settings, a priority list, or a temporary priority are not candidates.
-4. A match must be one to one. If several devices qualify, that tier skips them and the next tier tries, so settings do not move between identical devices.
+4. A match must be one to one. If several devices qualify, that tier skips them and the next tier tries, so settings do not transfer between identical devices.
 
 ### Renamed devices
 
 Tiers 1 and 2 ignore the name. Tier 3 only ignores it when both endpoints share a container other than the system container (`{00000000-0000-0000-FFFF-FFFFFFFFFFFF}`), because Windows uses that one for unrelated endpoints.
 
-A renamed endpoint in the system container matches no tier if Windows re-creates it with its default name, so it does not migrate.
+A renamed endpoint in the system container matches no tier if Windows re-creates it with its default name, so its settings do not transfer.
 
 ## Notification
 
-If **Notify on device migration** is checked, each migrated device shows this notification:
+If **Notify on settings transfer** is checked, each transferred device shows this notification:
 
 > **Device Settings Transferred**
 > Settings for '{name}' were transferred to its new connection.

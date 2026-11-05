@@ -29,7 +29,7 @@ pub trait AudioBackend {
         None
     }
 
-    /// Restores user-assigned Windows endpoint properties after a device ID migration.
+    /// Restores user-assigned Windows endpoint properties after a settings transfer.
     fn restore_device_properties(
         &self,
         id: &DeviceId,
@@ -62,13 +62,13 @@ mod windows;
 #[cfg(target_os = "windows")]
 pub use self::windows::WindowsAudioBackend as AudioBackendImpl;
 
-mod migration;
 #[cfg(test)]
 mod presence_tests;
 mod priority;
+mod transfer;
 
-pub use migration::migrate_device_ids;
 pub use priority::enforce_priorities;
+pub use transfer::transfer_device_settings;
 
 use crate::notification::NotificationThrottler;
 
@@ -547,7 +547,7 @@ pub(crate) mod tests {
     // --- Integration test ---
 
     #[test]
-    fn migrate_then_enforce_integration() {
+    fn transfer_then_enforce_integration() {
         let backend = MockAudioBackend::new(vec![
             MockDevice::new("new_id", "Speakers", true),
             MockDevice::new("other", "Headphones", true),
@@ -562,7 +562,7 @@ pub(crate) mod tests {
         );
 
         let mut temp_priorities = TemporaryPriorities::default();
-        migrate_device_ids(
+        transfer_device_settings(
             &backend,
             &mut state,
             &mut temp_priorities,

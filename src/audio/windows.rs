@@ -1,5 +1,5 @@
-use super::migration::{build_fingerprint, compose_device_name};
 use super::presence::{HeadsetPresence, HidPresenceMonitor, devices::PROFILES};
+use super::transfer::{build_fingerprint, compose_device_name};
 use super::{AudioBackend, AudioDevice, windows_com_policy_config};
 use crate::bindings::{
     AUDIO_VOLUME_NOTIFICATION_DATA, CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree,

@@ -406,16 +406,22 @@ fn handle_app_event(
                 ctx.persistent_state.check_updates_on_launch = checked;
             })
         }
-        AppAction::ToggleNotifyOnDeviceMigration => {
+        AppAction::ToggleTransferDeviceSettings => {
             with_check_state(ctx.tray_menu, &event.id, |checked| {
-                log::info!("User toggled 'Notify on device migration' to {checked}");
-                ctx.persistent_state.notify_on_device_migration = checked;
+                log::info!("User toggled 'Automatically transfer device settings' to {checked}");
+                ctx.persistent_state.transfer_device_settings = checked;
             })
         }
-        AppAction::ToggleKeepDeviceNameAndIconOnMigration => {
+        AppAction::ToggleNotifyOnSettingsTransfer => {
             with_check_state(ctx.tray_menu, &event.id, |checked| {
-                log::info!("User toggled 'Keep device name and icon on migration' to {checked}");
-                ctx.persistent_state.keep_device_name_and_icon_on_migration = checked;
+                log::info!("User toggled 'Notify on settings transfer' to {checked}");
+                ctx.persistent_state.notify_on_settings_transfer = checked;
+            })
+        }
+        AppAction::ToggleTransferDeviceNameAndIcon => {
+            with_check_state(ctx.tray_menu, &event.id, |checked| {
+                log::info!("User toggled 'Also transfer device name and icon' to {checked}");
+                ctx.persistent_state.transfer_device_name_and_icon = checked;
             })
         }
         AppAction::ToggleSkipDisconnectedWirelessHeadsets => {

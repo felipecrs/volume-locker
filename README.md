@@ -6,9 +6,9 @@
 
 # Volume Locker
 
-Tired of apps changing your microphone volume without your consent? Or Windows constantly switching to the wrong audio device?
+Tired of apps changing your microphone volume without your consent? Of Windows constantly switching to the wrong audio device? Or of losing your device names and icons every time you change USB ports?
 
-Volume Locker is a tray app that locks the volume of your audio devices and switches your audio and communication devices based on priority lists. Your settings carry over when you change USB ports, re-pair Bluetooth devices, or update drivers. It is a portable, ~1MB binary written in Rust for Windows.
+Volume Locker is a tray app that locks the volume of your audio devices and switches your audio and communication devices based on priority lists. When you change USB ports, re-pair a Bluetooth device, or update a driver, it transfers your settings to the device's new Windows entry, and it can transfer the device's name and icon too. It is a portable, ~1MB binary written in Rust for Windows.
 
 ## Demo
 
@@ -67,19 +67,24 @@ It stays active until you uncheck it or restart the app.
 
 Some wireless receivers stay connected while the headset is off or out of range. Volume Locker skips supported headsets in that state, so put a fallback device below the headset in your priority list. See [Headset availability](docs/headset-availability.md).
 
-### Device migration
+### Keep your settings, names, and icons
 
-Windows can create a new audio endpoint when you change USB ports, re-pair a Bluetooth device, or update a driver. Volume Locker recognizes the device and moves its volume lock, unmute lock, and priority list entries. See [Device migration](docs/device-migration.md).
+Windows sometimes treats your device as new when you change USB ports, re-pair it, or update a driver. You would normally lose its custom name and icon, along with anything tied to it.
+
+Volume Locker recognizes the device and transfers its volume lock, unmute lock, and priority list entries. To transfer its name and icon too, check **Also transfer device name and icon** in **Preferences**.
+
+See [Settings transfer](docs/settings-transfer.md) and [Transferring names and icons](docs/device-names-and-icons.md).
 
 ### Preferences
 
-| Preference                             | Default | What it does                                                                                       |
-| -------------------------------------- | ------- | -------------------------------------------------------------------------------------------------- |
-| Auto-launch on startup                 | Off     | Starts Volume Locker when you sign in to Windows                                                   |
-| Check for updates on launch            | On      | Checks for a new release when the app starts                                                       |
-| Notify on device migration             | Off     | Shows a notification when settings move to a new endpoint                                          |
-| Keep device name and icon on migration | Off     | Copies the device's Windows name and icon to the new endpoint ([details](docs/device-names-and-icons.md)) |
-| Skip disconnected wireless headsets    | On      | Skips supported headsets that are off or out of range                                              |
+| Preference                             | Default | What it does                                                   |
+| -------------------------------------- | ------- | -------------------------------------------------------------- |
+| Auto-launch on startup                 | Off     | Starts Volume Locker when you sign in to Windows               |
+| Check for updates on launch            | On      | Checks for a new release when the app starts                   |
+| Automatically transfer device settings | On      | Transfers settings when Windows treats a device as new         |
+| Notify on settings transfer            | Off     | Shows a notification when settings transfer                    |
+| Also transfer device name and icon     | Off     | Transfers the device's Windows name and icon with its settings |
+| Skip disconnected wireless headsets    | On      | Skips supported headsets that are off or out of range          |
 
 ## Credits
 
