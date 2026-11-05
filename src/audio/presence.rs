@@ -435,43 +435,30 @@ mod windows {
         use std::sync::Mutex;
         use std::sync::atomic::AtomicUsize;
 
-        struct Supervisor {
-            stop: Arc<AtomicBool>,
-            stop_signal: Sender<()>,
-            state: Arc<AtomicU8>,
-            query_finished: Receiver<()>,
-            task: Task<()>,
-        }
-
-        impl Supervisor {
-            fn start(listen_once: impl Fn() -> anyhow::Result<()> + Send + Sync + 'static) -> Self {
-                let stop = Arc::new(AtomicBool::new(false));
-                let state = Arc::new(AtomicU8::new(HeadsetPresence::Available as u8));
-                let (stop_signal, stopped) = channel::bounded(1);
-                let (query_done, query_finished) = channel::bounded(1);
-                let task = smol::spawn(supervise(
-                    "Synthetic test device",
-                    Arc::clone(&stop),
-                    stopped,
-                    Arc::clone(&state),
-                    Arc::new(|| {}),
-                    query_done,
-                    listen_once,
-                ));
-                Self {
-                    stop,
-                    stop_signal,
-                    state,
-                    query_finished,
-                    task,
-                }
-            }
-
-            fn stop_and_wait(self) {
-                self.stop.store(true, Ordering::Relaxed);
-                self.stop_signal.close();
-                smol::block_on(self.task);
-            }
+        /// A monitor around `listen_once`, so stopping goes through the real `Drop`.
+        fn monitor_around(
+            listen_once: impl Fn() -> anyhow::Result<()> + Send + Sync + 'static,
+        ) -> (HidPresenceMonitor, Receiver<()>) {
+            let stop = Arc::new(AtomicBool::new(false));
+            let state = Arc::new(AtomicU8::new(HeadsetPresence::Available as u8));
+            let (stop_signal, stopped) = channel::bounded(1);
+            let (query_done, query_finished) = channel::bounded(1);
+            let worker = smol::spawn(supervise(
+                "Synthetic test device",
+                Arc::clone(&stop),
+                stopped,
+                Arc::clone(&state),
+                Arc::new(|| {}),
+                query_done,
+                listen_once,
+            ));
+            let monitor = HidPresenceMonitor {
+                stop,
+                stop_signal,
+                state,
+                worker: Some(worker),
+            };
+            (monitor, query_finished)
         }
 
         #[test]
@@ -479,7 +466,7 @@ mod windows {
             let attempts = Arc::new(Mutex::new(Vec::new()));
             let (two_attempts, reached_two) = channel::bounded(1);
             let observed = Arc::clone(&attempts);
-            let supervisor = Supervisor::start(move || {
+            let (monitor, query_finished) = monitor_around(move || {
                 let mut attempts = observed.lock().unwrap();
                 attempts.push(Instant::now());
                 if attempts.len() == 2 {
@@ -489,16 +476,13 @@ mod windows {
             });
 
             // A failure before the query must not leave the caller waiting.
-            smol::block_on(supervisor.query_finished.recv()).unwrap();
+            smol::block_on(query_finished.recv()).unwrap();
             smol::block_on(reached_two.recv()).unwrap();
-            assert_eq!(
-                supervisor.state.load(Ordering::Acquire),
-                HeadsetPresence::Unknown as u8
-            );
+            assert_eq!(monitor.presence(), HeadsetPresence::Unknown);
 
             // Stopping must end the retry wait that follows the second failure.
             let stopping = Instant::now();
-            supervisor.stop_and_wait();
+            drop(monitor);
             assert!(stopping.elapsed() < RETRY_DELAY);
 
             let attempts = attempts.lock().unwrap();
@@ -511,7 +495,7 @@ mod windows {
             let reading = Arc::new(AtomicBool::new(false));
             let (read_started, started) = channel::bounded(1);
             let worker_reading = Arc::clone(&reading);
-            let supervisor = Supervisor::start(move || {
+            let (monitor, _query_finished) = monitor_around(move || {
                 worker_reading.store(true, Ordering::SeqCst);
                 let _ = read_started.try_send(());
                 std::thread::sleep(Duration::from_millis(300));
@@ -520,8 +504,8 @@ mod windows {
             });
             smol::block_on(started.recv()).unwrap();
 
-            let state = Arc::clone(&supervisor.state);
-            supervisor.stop_and_wait();
+            let state = Arc::clone(&monitor.state);
+            drop(monitor);
 
             assert!(!reading.load(Ordering::SeqCst));
             assert_eq!(
@@ -535,9 +519,9 @@ mod windows {
             let profile = HidPresenceProfile {
                 vendor_id: 0xffff,
                 product_id: 0xffff,
-                initial_query: None,
-                ..A50X_PROFILE
+                ..G533_PROFILE
             };
+            // The query wait lets the failed attempt finish, so the worker is in its retry wait.
             let monitor = HidPresenceMonitor::start(profile, Arc::new(|| {})).unwrap();
             let stopping = Instant::now();
             drop(monitor);
