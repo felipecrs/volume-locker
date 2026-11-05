@@ -141,6 +141,10 @@ pub fn report_check_result(manual_request: bool, result: &Result<Option<UpdateIn
     }
 }
 
+fn temp_download_path(exe_str: &str) -> String {
+    format!("{exe_str}.download")
+}
+
 fn download_to_file(agent: &Agent, url: &str, path: &str) -> anyhow::Result<()> {
     let mut response = agent.get(url).call()?;
     let mut file = File::create(path)?;
@@ -163,8 +167,7 @@ pub fn download_update(update_info: &UpdateInfo) -> anyhow::Result<()> {
         log::warn!("Failed to open release URL: {e:#}");
     }
 
-    let exe_str = get_executable_path_str()?;
-    let temp_download = format!("{exe_str}.download");
+    let temp_download = temp_download_path(&get_executable_path_str()?);
 
     log::info!("Downloading from {}", update_info.download_url);
 
@@ -179,7 +182,7 @@ pub fn download_update(update_info: &UpdateInfo) -> anyhow::Result<()> {
 /// exit right after this succeeds, or the script cannot replace the executable.
 pub fn launch_post_update_script() -> anyhow::Result<()> {
     let exe_str = get_executable_path_str()?;
-    let temp_download = format!("{exe_str}.download");
+    let temp_download = temp_download_path(&exe_str);
 
     log::info!("Download complete, launching post-update script");
 
@@ -226,31 +229,46 @@ mod tests {
         (url, hold)
     }
 
-    fn short_read_timeout_agent() -> Agent {
-        create_agent_with_timeouts(None, None, Some(Duration::from_millis(200)))
+    fn read_timeout_agent(millis: u64) -> Agent {
+        create_agent_with_timeouts(None, None, Some(Duration::from_millis(millis)))
+    }
+
+    fn temp_path() -> (tempfile::TempDir, String) {
+        let dir = tempfile::tempdir().expect("should create temp dir");
+        let path = dir.path().join("update.download");
+        let path = path.to_str().expect("path should be UTF-8").to_owned();
+        (dir, path)
     }
 
     #[test]
     fn download_writes_complete_body() {
         let (url, _hold) = serve_once("HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nbody");
-        let dir = tempfile::tempdir().expect("should create temp dir");
-        let path = dir.path().join("update.download");
-        let path = path.to_str().expect("path should be UTF-8");
+        let (_dir, path) = temp_path();
 
-        download_to_file(&short_read_timeout_agent(), &url, path).expect("should download");
+        // Generous, so a busy machine can't fail this before the server answers.
+        download_to_file(&read_timeout_agent(10_000), &url, &path).expect("should download");
 
-        assert_eq!(std::fs::read(path).expect("should read file"), b"body");
+        assert_eq!(std::fs::read(&path).expect("should read file"), b"body");
     }
 
     #[test]
     fn stalled_download_fails_and_removes_partial_file() {
         let (url, _hold) = serve_once("HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\npart");
-        let dir = tempfile::tempdir().expect("should create temp dir");
-        let path = dir.path().join("update.download");
-        let path = path.to_str().expect("path should be UTF-8");
+        let (_dir, path) = temp_path();
 
-        assert!(download_to_file(&short_read_timeout_agent(), &url, path).is_err());
-        assert!(!std::path::Path::new(path).exists());
+        assert!(download_to_file(&read_timeout_agent(500), &url, &path).is_err());
+        assert!(!std::path::Path::new(&path).exists());
+    }
+
+    // A truncated file must never reach the script that replaces the executable.
+    #[test]
+    fn dropped_connection_fails_and_removes_partial_file() {
+        let (url, hold) = serve_once("HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\npart");
+        drop(hold);
+        let (_dir, path) = temp_path();
+
+        assert!(download_to_file(&read_timeout_agent(10_000), &url, &path).is_err());
+        assert!(!std::path::Path::new(&path).exists());
     }
 
     #[test]

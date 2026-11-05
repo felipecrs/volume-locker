@@ -364,15 +364,17 @@ impl AppState {
         let result =
             result.and_then(|()| update::launch_post_update_script().map_err(|e| format!("{e:#}")));
         match result {
-            Ok(()) => {
-                self.tray_hwnd.store(0, Ordering::SeqCst);
-                self.tray_icon.take();
-                *control_flow = ControlFlow::Exit;
-            }
+            Ok(()) => self.begin_exit(control_flow),
             Err(e) => {
                 log_and_notify_error("Update Failed", &format!("Update failed: {e}"));
             }
         }
+    }
+
+    fn begin_exit(&mut self, control_flow: &mut ControlFlow) {
+        self.tray_hwnd.store(0, Ordering::SeqCst);
+        self.tray_icon.take();
+        *control_flow = ControlFlow::Exit;
     }
 
     pub fn handle_configuration_changed(&mut self, proxy: &EventLoopProxy<UserEvent>) {
@@ -402,9 +404,7 @@ impl AppState {
     ) {
         self.reopen_menu.store(false, Ordering::SeqCst);
         if event.id == refs.quit_item.id() {
-            self.tray_hwnd.store(0, Ordering::SeqCst);
-            self.tray_icon.take();
-            *control_flow = ControlFlow::Exit;
+            self.begin_exit(control_flow);
         } else if let Some(menu_info) = self.menu_id_map.get(&event.id) {
             let mut ctx = MenuEventContext {
                 tray_menu: refs.tray_menu,
