@@ -4,7 +4,8 @@ use crate::audio::{
 };
 use crate::config::{PersistentState, save_state};
 use crate::consts::{APP_NAME, APP_UID, CURRENT_VERSION};
-use crate::notification::{NotificationThrottler, log_and_notify_error};
+use crate::i18n::t;
+use crate::notification::{NotificationThrottler, notify_error};
 use crate::types::{
     DeviceChangeSource, DeviceFingerprint, DeviceId, DeviceType, TemporaryPriorities, UserEvent,
     VolumeChangedEvent, VolumeScalar,
@@ -116,9 +117,10 @@ impl AppState {
 
         if result.persistent_changed {
             if let Err(e) = save_state(&self.persistent_state) {
-                log_and_notify_error(
-                    "Failed to Save State",
-                    &format!("Failed to save state after device update: {e:#}"),
+                notify_error!(
+                    "save-state-failed-title",
+                    "save-state-after-update-failed",
+                    error = format!("{e:#}")
                 );
             } else {
                 log::info!("Saved state after device update");
@@ -129,8 +131,8 @@ impl AppState {
             for name in result.transferred_device_names {
                 self.notification_throttler.send_if_not_throttled(
                     &format!("transfer_{name}"),
-                    "Device Settings Transferred",
-                    &format!("Settings for '{name}' were transferred to its new connection."),
+                    &t!("settings-transferred-title"),
+                    &t!("settings-transferred", device = name.as_str()),
                 );
             }
         }
@@ -371,7 +373,7 @@ impl AppState {
         match result {
             Ok(()) => self.begin_exit(control_flow),
             Err(e) => {
-                log_and_notify_error("Update Failed", &format!("Update failed: {e}"));
+                notify_error!("update-failed-title", "update-failed", error = e.as_str());
             }
         }
     }
@@ -384,9 +386,10 @@ impl AppState {
 
     pub fn handle_configuration_changed(&mut self, proxy: &EventLoopProxy<UserEvent>) {
         if let Err(e) = save_state(&self.persistent_state) {
-            log_and_notify_error(
-                "Failed to Save State",
-                &format!("Failed to save state: {e:#}"),
+            notify_error!(
+                "save-state-failed-title",
+                "save-state-failed",
+                error = format!("{e:#}")
             );
             return;
         }
@@ -446,9 +449,10 @@ impl AppState {
                         refs.auto_launch.disable()
                     };
                     if let Err(e) = result {
-                        log_and_notify_error(
-                            "Failed to Toggle Auto-Launch",
-                            &format!("Failed to toggle auto-launch: {e:#}"),
+                        notify_error!(
+                            "auto-launch-failed-title",
+                            "auto-launch-failed",
+                            error = format!("{e:#}")
                         );
                     }
                 }
@@ -518,9 +522,10 @@ impl AppState {
                 self.menu_id_map = map;
             }
             Err(e) => {
-                log_and_notify_error(
-                    "Failed to Rebuild Tray Menu",
-                    &format!("Failed to rebuild tray menu: {e:#}"),
+                notify_error!(
+                    "rebuild-menu-failed-title",
+                    "rebuild-menu-failed",
+                    error = format!("{e:#}")
                 );
             }
         }

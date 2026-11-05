@@ -2,8 +2,20 @@ use crate::platform::{NotificationDuration, send_notification};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-pub fn log_and_notify_error(title: &str, message: &str) {
-    log::error!("{message}");
+/// Shows an error notification in the user's language and logs the same message in English.
+macro_rules! notify_error {
+    ($title:tt, $($message:tt)*) => {
+        $crate::notification::log_and_notify_error(
+            &$crate::i18n::t_en!($($message)*),
+            &$crate::i18n::t!($title),
+            &$crate::i18n::t!($($message)*),
+        )
+    };
+}
+pub(crate) use notify_error;
+
+pub fn log_and_notify_error(log_message: &str, title: &str, message: &str) {
+    log::error!("{log_message}");
     if let Err(e) = send_notification(title, message, NotificationDuration::Long) {
         log::error!("Failed to send error notification: {e:#}");
     }
@@ -44,7 +56,7 @@ impl NotificationThrottler {
         if self.should_notify(key)
             && let Err(e) = send_notification(title, message, NotificationDuration::Short)
         {
-            log::error!("Failed to show notification for {title}: {e:#}");
+            log::error!("Failed to show notification {key}: {e:#}");
         }
     }
 }

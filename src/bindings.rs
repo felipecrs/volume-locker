@@ -63,6 +63,23 @@ pub unsafe fn GetLastError() -> u32 {
     unsafe { GetLastError() }
 }
 #[inline]
+pub unsafe fn GetUserPreferredUILanguages(
+    dwflags: u32,
+    pulnumlanguages: *mut u32,
+    pwszlanguagesbuffer: Option<*mut u16>,
+    pcchlanguagesbuffer: *mut u32,
+) -> windows_core::BOOL {
+    windows_core::link!("kernel32.dll" "system" fn GetUserPreferredUILanguages(dwflags : u32, pulnumlanguages : *mut u32, pwszlanguagesbuffer : *mut u16, pcchlanguagesbuffer : *mut u32) -> windows_core::BOOL);
+    unsafe {
+        GetUserPreferredUILanguages(
+            dwflags,
+            pulnumlanguages as _,
+            pwszlanguagesbuffer.unwrap_or(core::mem::zeroed()) as _,
+            pcchlanguagesbuffer as _,
+        )
+    }
+}
+#[inline]
 pub unsafe fn PropVariantClear(pvar: *mut PROPVARIANT) -> windows_core::HRESULT {
     windows_core::link!("ole32.dll" "system" fn PropVariantClear(pvar : *mut PROPVARIANT) -> windows_core::HRESULT);
     unsafe { PropVariantClear(pvar) }
@@ -1329,6 +1346,7 @@ pub type LPSAFEARRAY = *mut SAFEARRAY;
 pub type LPVERSIONEDSTREAM = *mut VERSIONEDSTREAM;
 pub const MMDeviceEnumerator: windows_core::GUID =
     windows_core::GUID::from_u128(0xbcde0395_e52f_467c_8e3d_c4579291692e);
+pub const MUI_LANGUAGE_NAME: i32 = 8;
 pub const PKEY_AudioEndpoint_FormFactor: PROPERTYKEY = PROPERTYKEY {
     fmtid: windows_core::GUID::from_u128(0x1da5d803_d492_4edd_8c23_e0c0ffee7f0e),
     pid: 0,

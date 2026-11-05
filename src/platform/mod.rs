@@ -11,6 +11,7 @@ mod windows;
 pub use self::windows::{
     ComToken, SingleInstanceGuard, init_platform, is_directory_writable, open_device_properties,
     open_device_settings, open_sound_control_panel, open_sound_settings, open_volume_mixer,
+    preferred_ui_languages,
 };
 
 #[cfg(not(target_os = "windows"))]
@@ -26,6 +27,11 @@ pub fn send_notification(
     message: &str,
     duration: NotificationDuration,
 ) -> anyhow::Result<()> {
+    // Tests exercise notifying code paths; don't spam the desktop of whoever runs them.
+    if cfg!(test) {
+        return Ok(());
+    }
+
     let timeout = match duration {
         NotificationDuration::Short => notify_rust::Timeout::Default,
         NotificationDuration::Long => notify_rust::Timeout::Milliseconds(25_000),
