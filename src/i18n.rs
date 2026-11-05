@@ -64,7 +64,7 @@ fn apply_languages(loader: &FluentLanguageLoader, requested: &[LanguageIdentifie
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::expect_used)]
+    #![expect(clippy::expect_used, reason = "tests may panic")]
 
     use super::*;
     use fluent_syntax::ast::{Entry, Expression, InlineExpression, Pattern, PatternElement};

@@ -20,7 +20,10 @@ pub(crate) struct PerTypeSettings {
 }
 
 /// Flat serde representation for backward-compatible JSON serialization.
-#[allow(clippy::struct_excessive_bools)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent user preferences"
+)]
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
 struct PersistentStateFlat {
@@ -312,7 +315,6 @@ impl Default for PersistentState {
 }
 
 #[cfg(test)]
-#[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
     use crate::consts::STATE_FILE_NAME;

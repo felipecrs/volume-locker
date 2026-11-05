@@ -50,6 +50,8 @@ fn to_erole(role: DeviceRole) -> ERole {
     }
 }
 
+type DeviceChangeCallback = Arc<dyn Fn(DeviceChangeSource) + Send + Sync>;
+
 #[repr(C)]
 struct DeviceNotifySubscribeParameters {
     callback: unsafe extern "system" fn(*mut std::ffi::c_void, u32, *mut std::ffi::c_void) -> u32,
@@ -69,8 +71,7 @@ unsafe extern "system" fn power_suspend_resume_callback(
 ) -> u32 {
     // Only react on resume from sleep, never on suspend
     if event_type == PBT_APMRESUMEAUTOMATIC || event_type == PBT_APMRESUMESUSPEND {
-        let callback =
-            unsafe { &*(context as *const Arc<dyn Fn(DeviceChangeSource) + Send + Sync>) };
+        let callback = unsafe { &*(context as *const DeviceChangeCallback) };
         callback(DeviceChangeSource::PowerResume);
     }
     0
@@ -82,7 +83,7 @@ windows_core::link!("user32.dll" "system" fn UnregisterSuspendResumeNotification
 struct PowerNotifyGuard {
     handle: *mut std::ffi::c_void,
     _params: Box<DeviceNotifySubscribeParameters>,
-    _context: Box<Arc<dyn Fn(DeviceChangeSource) + Send + Sync>>,
+    _context: Box<DeviceChangeCallback>,
 }
 
 // SAFETY: handle is an opaque OS registration handle, _params is heap-allocated and immovable, and context is Send + Sync.
@@ -106,7 +107,7 @@ pub struct WindowsAudioBackend {
     /// Prevents the COM callback from dropping — the field is written to in
     /// `register_device_change_callback` and must remain alive for the COM callback.
     device_change_callback: Mutex<Option<IMMNotificationClient>>,
-    presence_callback: Mutex<Option<Arc<dyn Fn(DeviceChangeSource) + Send + Sync>>>,
+    presence_callback: Mutex<Option<DeviceChangeCallback>>,
     presence_monitors: Mutex<HashMap<(u16, u16), HidPresenceMonitor>>,
     power_notify_guard: Mutex<Option<PowerNotifyGuard>>,
 }
@@ -256,14 +257,18 @@ impl AudioBackend for WindowsAudioBackend {
         // undocumented but widely-used COM class for changing default audio endpoints.
         let policy_config: windows_com_policy_config::IPolicyConfig = unsafe {
             CoCreateInstance(
-                &windows_com_policy_config::PolicyConfigClient,
+                &windows_com_policy_config::POLICY_CONFIG_CLIENT,
                 None,
                 CLSCTX_INPROC_SERVER,
             )?
         };
         let wide = encode_wide_null(device_id);
         // SAFETY: wide is a null-terminated UTF-16 string on the stack, valid for this call.
-        unsafe { policy_config.SetDefaultEndpoint(PCWSTR(wide.as_ptr()), role)? };
+        unsafe {
+            policy_config
+                .SetDefaultEndpoint(PCWSTR(wide.as_ptr()), role)
+                .ok()?
+        };
         Ok(())
     }
 
@@ -271,7 +276,7 @@ impl AudioBackend for WindowsAudioBackend {
         &self,
         callback: Box<dyn Fn(DeviceChangeSource) + Send + Sync>,
     ) -> anyhow::Result<()> {
-        let callback: Arc<dyn Fn(DeviceChangeSource) + Send + Sync> = callback.into();
+        let callback: DeviceChangeCallback = callback.into();
         *self
             .presence_callback
             .lock()
@@ -294,8 +299,7 @@ impl AudioBackend for WindowsAudioBackend {
         let context = Box::new(callback);
         let params = Box::new(DeviceNotifySubscribeParameters {
             callback: power_suspend_resume_callback,
-            context: &*context as *const Arc<dyn Fn(DeviceChangeSource) + Send + Sync>
-                as *mut std::ffi::c_void,
+            context: &*context as *const DeviceChangeCallback as *mut std::ffi::c_void,
         });
         // SAFETY: params is heap-allocated and kept alive in PowerNotifyGuard until UnregisterSuspendResumeNotification.
         let handle = unsafe { RegisterSuspendResumeNotification(&*params, DEVICE_NOTIFY_CALLBACK) };
@@ -346,7 +350,7 @@ impl AudioBackend for WindowsAudioBackend {
         // SAFETY: PolicyConfigClient is the existing Windows endpoint configuration COM class.
         let policy_config: windows_com_policy_config::IPolicyConfig = unsafe {
             CoCreateInstance(
-                &windows_com_policy_config::PolicyConfigClient,
+                &windows_com_policy_config::POLICY_CONFIG_CLIENT,
                 None,
                 CLSCTX_INPROC_SERVER,
             )?
@@ -447,7 +451,7 @@ fn pcwstr_to_device_id(dev_id: &PCWSTR) -> DeviceId {
 
 #[implement(IMMNotificationClient)]
 pub struct AudioDevicesChangedCallback {
-    pub callback: Arc<dyn Fn(DeviceChangeSource) + Send + Sync>,
+    pub callback: DeviceChangeCallback,
 }
 
 impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
@@ -626,12 +630,14 @@ fn set_policy_config_string(
     };
     // SAFETY: the UTF-16 buffers and PROPVARIANT remain alive through this COM call.
     unsafe {
-        policy_config.SetPropertyValue(
-            PCWSTR(device_id.as_ptr()),
-            0, // bFxStore = false selects the endpoint's regular property store.
-            key,
-            &mut prop,
-        )?;
+        policy_config
+            .SetPropertyValue(
+                PCWSTR(device_id.as_ptr()),
+                0, // bFxStore = false selects the endpoint's regular property store.
+                key,
+                &mut prop,
+            )
+            .ok()?;
     }
     Ok(())
 }

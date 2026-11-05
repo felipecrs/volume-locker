@@ -2,7 +2,7 @@
 //! cargo run --example headset_presence -- g533 watch 30
 //! cargo run --example headset_presence -- g733 capture 30
 //! cargo run --example headset_presence -- a50x list
-#[allow(dead_code)]
+#[expect(dead_code, reason = "the example uses only part of the module")]
 #[path = "../src/audio/presence.rs"]
 mod presence;
 

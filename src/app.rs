@@ -318,9 +318,8 @@ impl AppState {
 
         self.update_check_in_progress = true;
         let proxy = proxy.clone();
-        smol::spawn(async move {
-            let result =
-                smol::unblock(|| update::fetch_update_info().map_err(|e| format!("{e:#}"))).await;
+        smol::unblock(move || {
+            let result = update::fetch_update_info().map_err(|e| format!("{e:#}"));
             if let Err(e) = proxy.send_event(UserEvent::UpdateCheckCompleted {
                 manual_request,
                 result,
@@ -349,10 +348,8 @@ impl AppState {
 
         self.update_download_in_progress = true;
         let proxy = proxy.clone();
-        smol::spawn(async move {
-            let result =
-                smol::unblock(move || update::download_update(&info).map_err(|e| format!("{e:#}")))
-                    .await;
+        smol::unblock(move || {
+            let result = update::download_update(&info).map_err(|e| format!("{e:#}"));
             if let Err(e) = proxy.send_event(UserEvent::UpdateDownloadCompleted(result)) {
                 log::warn!("Failed to send update download result: {e:#}");
             }

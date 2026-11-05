@@ -20,7 +20,10 @@ pub enum InitialQuery {
 /// One verified HID interface and its device-specific status interpretation.
 #[derive(Clone, Copy)]
 pub struct HidPresenceProfile {
-    #[allow(dead_code)]
+    #[allow(
+        dead_code,
+        reason = "only tests and the headset_presence example read it"
+    )]
     pub model: &'static str,
     pub name: &'static str,
     pub vendor_id: u16,

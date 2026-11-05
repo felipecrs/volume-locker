@@ -1,4 +1,4 @@
-#![allow(clippy::expect_used)]
+#![expect(clippy::expect_used, reason = "tests may panic")]
 
 use super::{
     DeviceAction, DeviceId, DeviceType, PersistentState, PriorityKind, handle_priority_event,

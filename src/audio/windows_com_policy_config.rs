@@ -1,102 +1,51 @@
-#![allow(dead_code)]
-#![allow(non_camel_case_types)]
-#![allow(non_upper_case_globals)]
-#![allow(non_snake_case)]
-#![allow(clippy::missing_safety_doc)]
-#![allow(unsafe_op_in_unsafe_fn)]
+#![expect(non_snake_case, reason = "COM method names")]
 
 use crate::bindings::{ERole, PROPERTYKEY, PROPVARIANT, WAVEFORMATEX};
-use std::ffi::c_void;
-use windows_core::{GUID, HRESULT, Interface, PCWSTR, Param, Result};
+use windows_core::{GUID, HRESULT, IUnknown, PCWSTR, interface};
 
-pub type DeviceSharingMode = i32;
+pub const POLICY_CONFIG_CLIENT: GUID = GUID::from_u128(0x870af99c_171d_4f9e_af0d_e63df40c2bc9);
 
-pub const PolicyConfigClient: GUID = GUID::from_u128(0x870af99c_171d_4f9e_af0d_e63df40c2bc9);
-
-windows_core::imp::define_interface!(
-    IPolicyConfig,
-    IPolicyConfig_Vtbl,
-    0xf8679f50_850a_41cf_9c72_430f290290c8
-);
-windows_core::imp::interface_hierarchy!(IPolicyConfig, windows_core::IUnknown);
-
-impl IPolicyConfig {
-    pub unsafe fn SetPropertyValue(
+// This interface is undocumented. Its method order is the COM vtable layout, so the methods we
+// don't call must stay, in order.
+#[interface("f8679f50-850a-41cf-9c72-430f290290c8")]
+pub unsafe trait IPolicyConfig: IUnknown {
+    fn GetMixFormat(&self, device: PCWSTR, format: *mut *mut WAVEFORMATEX) -> HRESULT;
+    fn GetDeviceFormat(
         &self,
-        device_name: impl Param<PCWSTR>,
+        device: PCWSTR,
+        default: i32,
+        format: *mut *mut WAVEFORMATEX,
+    ) -> HRESULT;
+    fn ResetDeviceFormat(&self, device: PCWSTR) -> HRESULT;
+    fn SetDeviceFormat(
+        &self,
+        device: PCWSTR,
+        endpoint: *mut WAVEFORMATEX,
+        mix: *mut WAVEFORMATEX,
+    ) -> HRESULT;
+    fn GetProcessingPeriod(
+        &self,
+        device: PCWSTR,
+        default: i32,
+        default_period: *mut i64,
+        minimum_period: *mut i64,
+    ) -> HRESULT;
+    fn SetProcessingPeriod(&self, device: PCWSTR, period: *mut i64) -> HRESULT;
+    fn GetShareMode(&self, device: PCWSTR, mode: *mut i32) -> HRESULT;
+    fn SetShareMode(&self, device: PCWSTR, mode: *mut i32) -> HRESULT;
+    fn GetPropertyValue(
+        &self,
+        device: PCWSTR,
         fx_store: i32,
         key: *const PROPERTYKEY,
         value: *mut PROPVARIANT,
-    ) -> Result<()> {
-        unsafe {
-            (Interface::vtable(self).SetPropertyValue)(
-                Interface::as_raw(self),
-                device_name.param().abi(),
-                fx_store,
-                key,
-                value,
-            )
-            .ok()
-        }
-    }
-
-    pub unsafe fn SetDefaultEndpoint(
+    ) -> HRESULT;
+    pub fn SetPropertyValue(
         &self,
-        device_name: impl Param<PCWSTR>,
-        role: ERole,
-    ) -> Result<()> {
-        (Interface::vtable(self).SetDefaultEndpoint)(
-            Interface::as_raw(self),
-            device_name.param().abi(),
-            role,
-        )
-        .ok()
-    }
-}
-
-// The vtable prefix must mirror the COM ABI: the offset of the method we call,
-// SetDefaultEndpoint, depends on every preceding fn-pointer field being present
-// and in order. Unused entries are kept (and dead_code allowed) for that reason.
-#[repr(C)]
-#[doc(hidden)]
-pub struct IPolicyConfig_Vtbl {
-    pub base__: windows_core::IUnknown_Vtbl,
-    pub GetMixFormat:
-        unsafe extern "system" fn(this: *mut c_void, PCWSTR, *mut *mut WAVEFORMATEX) -> HRESULT,
-    pub GetDeviceFormat: unsafe extern "system" fn(
-        this: *mut c_void,
-        PCWSTR,
-        i32,
-        *mut *mut WAVEFORMATEX,
-    ) -> HRESULT,
-    pub ResetDeviceFormat: unsafe extern "system" fn(this: *mut c_void, PCWSTR) -> HRESULT,
-    pub SetDeviceFormat: unsafe extern "system" fn(
-        this: *mut c_void,
-        PCWSTR,
-        *mut WAVEFORMATEX,
-        *mut WAVEFORMATEX,
-    ) -> HRESULT,
-    pub GetProcessingPeriod:
-        unsafe extern "system" fn(this: *mut c_void, PCWSTR, i32, *mut i64, *mut i64) -> HRESULT,
-    pub SetProcessingPeriod:
-        unsafe extern "system" fn(this: *mut c_void, PCWSTR, *mut i64) -> HRESULT,
-    pub GetShareMode:
-        unsafe extern "system" fn(this: *mut c_void, PCWSTR, *mut DeviceSharingMode) -> HRESULT,
-    pub SetShareMode:
-        unsafe extern "system" fn(this: *mut c_void, PCWSTR, *mut DeviceSharingMode) -> HRESULT,
-    pub GetPropertyValue: unsafe extern "system" fn(
-        this: *mut c_void,
-        PCWSTR,
-        i32,
-        *const PROPERTYKEY,
-        *mut PROPVARIANT,
-    ) -> HRESULT,
-    pub SetPropertyValue: unsafe extern "system" fn(
-        this: *mut c_void,
-        PCWSTR,
-        i32,
-        *const PROPERTYKEY,
-        *mut PROPVARIANT,
-    ) -> HRESULT,
-    pub SetDefaultEndpoint: unsafe extern "system" fn(this: *mut c_void, PCWSTR, ERole) -> HRESULT,
+        device: PCWSTR,
+        fx_store: i32,
+        key: *const PROPERTYKEY,
+        value: *mut PROPVARIANT,
+    ) -> HRESULT;
+    pub fn SetDefaultEndpoint(&self, device: PCWSTR, role: ERole) -> HRESULT;
 }

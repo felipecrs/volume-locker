@@ -13,7 +13,7 @@ run = "cargo fmt"
 
 [tasks.lint]
 description = "Run Clippy linter"
-run = "cargo clippy --locked"
+run = "cargo clippy --locked --all-targets"
 
 [tasks.test]
 description = "Run tests"
