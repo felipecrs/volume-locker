@@ -63,19 +63,20 @@ mod windows {
         HIDPP_DIRECT_DEVICE_INDEX, HIDPP_LONG_REPORT_ID, HIDPP_LONG_REPORT_LENGTH, HeadsetPresence,
         HidPresenceProfile, InitialQuery,
     };
+    use smol::channel::{self, Receiver, Sender};
+    use smol::{Task, Timer, future};
     use std::cell::Cell;
     use std::sync::{
         Arc,
         atomic::{AtomicBool, AtomicU8, Ordering},
-        mpsc,
     };
-    use std::thread::{self, JoinHandle};
     use std::time::{Duration, Instant};
 
     // Replies echo this ID; avoid the low IDs other HID++ clients are likeliest to use.
     const HIDPP_SOFTWARE_ID: u8 = 0x0b;
     // shortcut: a slower query can still route once to a dead headset, raise this if that is seen.
     const INITIAL_QUERY_WAIT: Duration = Duration::from_millis(500);
+    const RETRY_DELAY: Duration = Duration::from_secs(2);
 
     enum HidppReply {
         Response([u8; HIDPP_LONG_REPORT_LENGTH]),
@@ -199,8 +200,10 @@ mod windows {
 
     pub struct HidPresenceMonitor {
         stop: Arc<AtomicBool>,
+        /// Closed on drop, to end a retry wait early. The flag above stops the reads.
+        stop_signal: Sender<()>,
         state: Arc<AtomicU8>,
-        worker: Option<JoinHandle<()>>,
+        worker: Option<Task<()>>,
     }
 
     impl HidPresenceMonitor {
@@ -216,54 +219,32 @@ mod windows {
             }
             let stop = Arc::new(AtomicBool::new(false));
             let state = Arc::new(AtomicU8::new(HeadsetPresence::Unknown as u8));
-            let worker_stop = Arc::clone(&stop);
-            let worker_state = Arc::clone(&state);
-            let (query_done, query_finished) = mpsc::channel();
-            let worker = thread::Builder::new()
-                .name("headset-presence".into())
-                .spawn(move || {
-                    let mut last_error = None;
-                    while !worker_stop.load(Ordering::Relaxed) {
-                        let result = listen(
-                            profile,
-                            &worker_stop,
-                            &worker_state,
-                            &on_change,
-                            &query_done,
-                        );
-                        // Don't make the caller wait if listen failed before querying.
-                        let _ = query_done.send(());
-                        // Losing the provider is not proof that the headset turned off.
-                        if !worker_stop.load(Ordering::Relaxed) {
-                            publish(
-                                profile.name,
-                                &worker_state,
-                                HeadsetPresence::Unknown,
-                                &on_change,
-                            );
-                        }
-                        if let Err(error) = result {
-                            let message = error.to_string();
-                            if last_error.as_ref() != Some(&message) {
-                                log::warn!("{} presence unavailable: {message}", profile.name);
-                                last_error = Some(message);
-                            }
-                        }
-                        for _ in 0..10 {
-                            if worker_stop.load(Ordering::Relaxed) {
-                                break;
-                            }
-                            thread::sleep(Duration::from_millis(200));
-                        }
-                    }
-                })?;
+            let (stop_signal, stopped) = channel::bounded(1);
+            let (query_done, query_finished) = channel::bounded(1);
+            let listen_once = {
+                let stop = Arc::clone(&stop);
+                let state = Arc::clone(&state);
+                let on_change = Arc::clone(&on_change);
+                let query_done = query_done.clone();
+                move || listen(profile, &stop, &state, &on_change, &query_done)
+            };
+            let worker = smol::spawn(supervise(
+                profile.name,
+                Arc::clone(&stop),
+                stopped,
+                Arc::clone(&state),
+                on_change,
+                query_done,
+                listen_once,
+            ));
             // Callers apply priorities right after this, so give the query a chance
             // to answer first rather than routing to a headset that is off.
             if profile.initial_query.is_some() {
-                let _ = query_finished.recv_timeout(INITIAL_QUERY_WAIT);
+                smol::block_on(signal_or_timeout(&query_finished, INITIAL_QUERY_WAIT));
             }
             Ok(Self {
                 stop,
+                stop_signal,
                 state,
                 worker: Some(worker),
             })
@@ -281,10 +262,65 @@ mod windows {
     impl Drop for HidPresenceMonitor {
         fn drop(&mut self) {
             self.stop.store(true, Ordering::Relaxed);
+            self.stop_signal.close();
+            // Awaited rather than cancelled: cancelling would leave the blocking read running.
             if let Some(worker) = self.worker.take() {
-                let _ = worker.join();
+                smol::block_on(worker);
             }
         }
+    }
+
+    /// Returns on the first message, when the channel closes, or after `timeout`.
+    async fn signal_or_timeout(signal: &Receiver<()>, timeout: Duration) {
+        future::or(
+            async {
+                let _ = signal.recv().await;
+            },
+            async {
+                Timer::after(timeout).await;
+            },
+        )
+        .await;
+    }
+
+    /// Runs `listen_once` off the executor, since it holds a blocking HID read for as
+    /// long as the connection lasts, and retries until stopped.
+    async fn supervise(
+        name: &'static str,
+        stop: Arc<AtomicBool>,
+        stopped: Receiver<()>,
+        state: Arc<AtomicU8>,
+        on_change: Arc<dyn Fn() + Send + Sync>,
+        query_done: Sender<()>,
+        listen_once: impl Fn() -> anyhow::Result<()> + Send + Sync + 'static,
+    ) {
+        let listen_once = Arc::new(listen_once);
+        let mut last_error = None;
+        while !stop.load(Ordering::Relaxed) {
+            let attempt = Arc::clone(&listen_once);
+            let result = smol::unblock(move || attempt()).await;
+            // Don't make the caller wait if listen failed before querying.
+            let _ = query_done.try_send(());
+            // Losing the provider is not proof that the headset turned off.
+            if !stop.load(Ordering::Relaxed) {
+                publish(name, &state, HeadsetPresence::Unknown, &on_change);
+            }
+            if let Err(error) = result
+                && is_new_error(&mut last_error, &error)
+            {
+                log::warn!("{name} presence unavailable: {error}");
+            }
+            signal_or_timeout(&stopped, RETRY_DELAY).await;
+        }
+    }
+
+    fn is_new_error(last_error: &mut Option<String>, error: &anyhow::Error) -> bool {
+        let message = error.to_string();
+        if last_error.as_ref() == Some(&message) {
+            return false;
+        }
+        *last_error = Some(message);
+        true
     }
 
     fn publish(
@@ -304,7 +340,7 @@ mod windows {
         stop: &AtomicBool,
         state: &AtomicU8,
         on_change: &Arc<dyn Fn() + Send + Sync>,
-        query_done: &mpsc::Sender<()>,
+        query_done: &Sender<()>,
     ) -> anyhow::Result<()> {
         let api = hidapi::HidApi::new()?;
         let mut candidates = api.device_list().filter(|device| {
@@ -345,7 +381,7 @@ mod windows {
                 }
             }
             feature_index = reader.discovered_index.get();
-            let _ = query_done.send(());
+            let _ = query_done.try_send(());
         }
         log::info!("Listening for {} status events", profile.name);
         // After the status query on connect, monitoring only reads input reports.
@@ -396,7 +432,147 @@ mod windows {
         use super::*;
         use std::cell::RefCell;
         use std::collections::VecDeque;
+        use std::sync::Mutex;
         use std::sync::atomic::AtomicUsize;
+
+        struct Supervisor {
+            stop: Arc<AtomicBool>,
+            stop_signal: Sender<()>,
+            state: Arc<AtomicU8>,
+            query_finished: Receiver<()>,
+            task: Task<()>,
+        }
+
+        impl Supervisor {
+            fn start(listen_once: impl Fn() -> anyhow::Result<()> + Send + Sync + 'static) -> Self {
+                let stop = Arc::new(AtomicBool::new(false));
+                let state = Arc::new(AtomicU8::new(HeadsetPresence::Available as u8));
+                let (stop_signal, stopped) = channel::bounded(1);
+                let (query_done, query_finished) = channel::bounded(1);
+                let task = smol::spawn(supervise(
+                    "Synthetic test device",
+                    Arc::clone(&stop),
+                    stopped,
+                    Arc::clone(&state),
+                    Arc::new(|| {}),
+                    query_done,
+                    listen_once,
+                ));
+                Self {
+                    stop,
+                    stop_signal,
+                    state,
+                    query_finished,
+                    task,
+                }
+            }
+
+            fn stop_and_wait(self) {
+                self.stop.store(true, Ordering::Relaxed);
+                self.stop_signal.close();
+                smol::block_on(self.task);
+            }
+        }
+
+        #[test]
+        fn failed_listen_retries_after_the_delay_until_stopped() {
+            let attempts = Arc::new(Mutex::new(Vec::new()));
+            let (two_attempts, reached_two) = channel::bounded(1);
+            let observed = Arc::clone(&attempts);
+            let supervisor = Supervisor::start(move || {
+                let mut attempts = observed.lock().unwrap();
+                attempts.push(Instant::now());
+                if attempts.len() == 2 {
+                    let _ = two_attempts.try_send(());
+                }
+                anyhow::bail!("not found")
+            });
+
+            // A failure before the query must not leave the caller waiting.
+            smol::block_on(supervisor.query_finished.recv()).unwrap();
+            smol::block_on(reached_two.recv()).unwrap();
+            assert_eq!(
+                supervisor.state.load(Ordering::Acquire),
+                HeadsetPresence::Unknown as u8
+            );
+
+            // Stopping must end the retry wait that follows the second failure.
+            let stopping = Instant::now();
+            supervisor.stop_and_wait();
+            assert!(stopping.elapsed() < RETRY_DELAY);
+
+            let attempts = attempts.lock().unwrap();
+            assert_eq!(attempts.len(), 2);
+            assert!(attempts[1] - attempts[0] >= RETRY_DELAY);
+        }
+
+        #[test]
+        fn stopping_waits_for_a_blocking_read_and_keeps_the_last_state() {
+            let reading = Arc::new(AtomicBool::new(false));
+            let (read_started, started) = channel::bounded(1);
+            let worker_reading = Arc::clone(&reading);
+            let supervisor = Supervisor::start(move || {
+                worker_reading.store(true, Ordering::SeqCst);
+                let _ = read_started.try_send(());
+                std::thread::sleep(Duration::from_millis(300));
+                worker_reading.store(false, Ordering::SeqCst);
+                Ok(())
+            });
+            smol::block_on(started.recv()).unwrap();
+
+            let state = Arc::clone(&supervisor.state);
+            supervisor.stop_and_wait();
+
+            assert!(!reading.load(Ordering::SeqCst));
+            assert_eq!(
+                state.load(Ordering::Acquire),
+                HeadsetPresence::Available as u8
+            );
+        }
+
+        #[test]
+        fn dropping_a_monitor_ends_its_retry_wait() {
+            let profile = HidPresenceProfile {
+                vendor_id: 0xffff,
+                product_id: 0xffff,
+                initial_query: None,
+                ..A50X_PROFILE
+            };
+            let monitor = HidPresenceMonitor::start(profile, Arc::new(|| {})).unwrap();
+            let stopping = Instant::now();
+            drop(monitor);
+            assert!(stopping.elapsed() < RETRY_DELAY);
+        }
+
+        #[test]
+        fn initial_query_wait_ends_on_an_answer_or_the_timeout() {
+            let (query_done, query_finished) = channel::bounded(1);
+            let long_wait = Duration::from_secs(60);
+
+            let waiting = Instant::now();
+            smol::block_on(signal_or_timeout(&query_finished, INITIAL_QUERY_WAIT));
+            assert!(waiting.elapsed() >= INITIAL_QUERY_WAIT);
+
+            query_done.try_send(()).unwrap();
+            let waiting = Instant::now();
+            smol::block_on(signal_or_timeout(&query_finished, long_wait));
+            assert!(waiting.elapsed() < long_wait);
+
+            drop(query_done);
+            let waiting = Instant::now();
+            smol::block_on(signal_or_timeout(&query_finished, long_wait));
+            assert!(waiting.elapsed() < long_wait);
+        }
+
+        #[test]
+        fn repeated_errors_are_reported_once() {
+            let mut last_error = None;
+            let not_found = anyhow::anyhow!("not found");
+            assert!(is_new_error(&mut last_error, &not_found));
+            assert!(!is_new_error(&mut last_error, &not_found));
+            assert!(is_new_error(&mut last_error, &anyhow::anyhow!("busy")));
+            assert!(is_new_error(&mut last_error, &not_found));
+        }
 
         #[test]
         fn timeouts_are_never_decoded_as_device_reports() {

@@ -316,15 +316,17 @@ impl AppState {
 
         self.update_check_in_progress = true;
         let proxy = proxy.clone();
-        std::thread::spawn(move || {
-            let result = update::fetch_update_info().map_err(|e| format!("{e:#}"));
+        smol::spawn(async move {
+            let result =
+                smol::unblock(|| update::fetch_update_info().map_err(|e| format!("{e:#}"))).await;
             if let Err(e) = proxy.send_event(UserEvent::UpdateCheckCompleted {
                 manual_request,
                 result,
             }) {
                 log::warn!("Failed to send update check result: {e:#}");
             }
-        });
+        })
+        .detach();
     }
 
     pub fn handle_update_check_completed(
@@ -345,12 +347,15 @@ impl AppState {
 
         self.update_download_in_progress = true;
         let proxy = proxy.clone();
-        std::thread::spawn(move || {
-            let result = update::download_update(&info).map_err(|e| format!("{e:#}"));
+        smol::spawn(async move {
+            let result =
+                smol::unblock(move || update::download_update(&info).map_err(|e| format!("{e:#}")))
+                    .await;
             if let Err(e) = proxy.send_event(UserEvent::UpdateDownloadCompleted(result)) {
                 log::warn!("Failed to send update download result: {e:#}");
             }
-        });
+        })
+        .detach();
     }
 
     pub fn handle_update_download_completed(
@@ -359,7 +364,7 @@ impl AppState {
         control_flow: &mut ControlFlow,
     ) {
         self.update_download_in_progress = false;
-        // Launched here rather than on the download thread, so the app is guaranteed
+        // Launched here rather than in the download task, so the app is guaranteed
         // to exit right after, even if the tray menu was open when the download ended.
         let result =
             result.and_then(|()| update::launch_post_update_script().map_err(|e| format!("{e:#}")));
