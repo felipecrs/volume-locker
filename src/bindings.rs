@@ -1349,10 +1349,6 @@ pub const PKEY_Device_EnumeratorName: PROPERTYKEY = PROPERTYKEY {
     fmtid: windows_core::GUID::from_u128(0xa45c254e_df1c_4efd_8020_67d146a850e0),
     pid: 24,
 };
-pub const PKEY_Device_FriendlyName: PROPERTYKEY = PROPERTYKEY {
-    fmtid: windows_core::GUID::from_u128(0xa45c254e_df1c_4efd_8020_67d146a850e0),
-    pid: 14,
-};
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct PROPERTYKEY {
@@ -1533,6 +1529,7 @@ pub struct SECURITY_ATTRIBUTES {
     pub bInheritHandle: windows_core::BOOL,
 }
 pub const STGM_READ: i32 = 0;
+pub type VARENUM = i32;
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct VARIANT_BOOL(pub i16);
@@ -1545,6 +1542,7 @@ pub struct VERSIONEDSTREAM {
     pub guidVersion: windows_core::GUID,
     pub pStream: core::mem::ManuallyDrop<Option<IStream>>,
 }
+pub const VT_LPWSTR: VARENUM = 31;
 #[repr(C, packed(1))]
 #[derive(Clone, Copy, Default)]
 pub struct WAVEFORMATEX {

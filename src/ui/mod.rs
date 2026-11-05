@@ -45,7 +45,9 @@ pub enum AppAction {
     OpenAppDirectory,
     ToggleAutoLaunch,
     ToggleCheckUpdatesOnLaunch,
-    ToggleNotifyOnDeviceMigration,
+    ToggleTransferDeviceSettings,
+    ToggleNotifyOnSettingsTransfer,
+    ToggleTransferDeviceNameAndIcon,
     ToggleSkipDisconnectedWirelessHeadsets,
 }
 

@@ -28,6 +28,14 @@ pub trait AudioBackend {
     fn device_fingerprint(&self, _id: &DeviceId) -> Option<crate::types::DeviceFingerprint> {
         None
     }
+
+    /// Writes a device's last seen Windows endpoint name and icon to its new endpoint.
+    fn restore_device_properties(
+        &self,
+        id: &DeviceId,
+        endpoint_name: Option<&str>,
+        icon_path: Option<&str>,
+    ) -> anyhow::Result<()>;
 }
 
 pub trait AudioDevice {
@@ -54,13 +62,13 @@ mod windows;
 #[cfg(target_os = "windows")]
 pub use self::windows::WindowsAudioBackend as AudioBackendImpl;
 
-mod migration;
 #[cfg(test)]
 mod presence_tests;
 mod priority;
+mod transfer;
 
-pub use migration::migrate_device_ids;
 pub use priority::enforce_priorities;
+pub use transfer::transfer_device_settings;
 
 use crate::notification::NotificationThrottler;
 
@@ -186,6 +194,8 @@ pub(crate) mod tests {
     use std::cell::RefCell;
     use std::collections::HashMap;
 
+    type RestoredProperties = Vec<(DeviceId, Option<String>, Option<String>)>;
+
     pub(crate) struct MockDevice {
         pub(crate) id: DeviceId,
         pub(crate) name: String,
@@ -261,6 +271,8 @@ pub(crate) mod tests {
         pub(crate) set_default_fails: RefCell<bool>,
         pub(crate) presence: RefCell<HeadsetPresence>,
         pub(crate) disconnected_fingerprints: RefCell<HashMap<DeviceId, DeviceFingerprint>>,
+        pub(crate) restored_properties: RefCell<RestoredProperties>,
+        pub(crate) restore_properties_fails: bool,
     }
 
     impl MockAudioBackend {
@@ -274,6 +286,8 @@ pub(crate) mod tests {
                 set_default_fails: RefCell::new(false),
                 presence: RefCell::new(HeadsetPresence::Unknown),
                 disconnected_fingerprints: RefCell::new(HashMap::new()),
+                restored_properties: RefCell::new(Vec::new()),
+                restore_properties_fails: false,
             }
         }
 
@@ -330,6 +344,23 @@ pub(crate) mod tests {
                 .iter()
                 .find(|d| &d.id == id)
                 .and_then(|d| d.fingerprint.clone())
+        }
+
+        fn restore_device_properties(
+            &self,
+            id: &DeviceId,
+            endpoint_name: Option<&str>,
+            icon_path: Option<&str>,
+        ) -> anyhow::Result<()> {
+            self.restored_properties.borrow_mut().push((
+                id.clone(),
+                endpoint_name.map(str::to_string),
+                icon_path.map(str::to_string),
+            ));
+            if self.restore_properties_fails {
+                return Err(anyhow::anyhow!("Injected restore properties failure"));
+            }
+            Ok(())
         }
 
         fn default_device(
@@ -516,7 +547,7 @@ pub(crate) mod tests {
     // --- Integration test ---
 
     #[test]
-    fn migrate_then_enforce_integration() {
+    fn transfer_then_enforce_integration() {
         let backend = MockAudioBackend::new(vec![
             MockDevice::new("new_id", "Speakers", true),
             MockDevice::new("other", "Headphones", true),
@@ -531,7 +562,7 @@ pub(crate) mod tests {
         );
 
         let mut temp_priorities = TemporaryPriorities::default();
-        migrate_device_ids(
+        transfer_device_settings(
             &backend,
             &mut state,
             &mut temp_priorities,

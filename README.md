@@ -6,9 +6,9 @@
 
 # Volume Locker
 
-Tired of apps changing your microphone volume without your consent? Or Windows constantly switching to the wrong audio device?
+Tired of apps changing your microphone volume without your consent? Of Windows constantly switching to the wrong audio device? Or of losing your device names and icons every time you change USB ports?
 
-Volume Locker is a tray app that locks the volume of your audio devices and switches your audio and communication devices based on priority lists. Your volume locks, unmute settings, and priority lists carry over when you change USB ports, re-pair Bluetooth devices, or update drivers. It is a portable, ~1MB binary written in Rust for Windows.
+Volume Locker is a tray app that locks the volume of your audio devices and switches your audio and communication devices based on priority lists. When you change USB ports, re-pair a Bluetooth device, or update a driver, it transfers your settings, along with the device's name and icon, to the device's new Windows entry. It is a portable, ~1MB binary written in Rust for Windows.
 
 ## Demo
 
@@ -30,70 +30,61 @@ Or download the executable from the [releases page](https://github.com/felipecrs
 
 ## Usage
 
-Click the Volume Locker tray icon to open the menu. It has these sections:
+Click the Volume Locker tray icon to open the menu.
 
-1.  **Output devices**: List of active output devices.
-2.  **Input devices**: List of active input devices.
-3.  **Output device priority**: Priorities for output and communication audio.
-4.  **Input device priority**: Priorities for input and communication microphones.
-5.  **Temporary priority**: Quick temporary overrides for any audio role.
+### Lock volume and unmute
 
-### Lock volume and unmute state
+1.  Open **Output devices** or **Input devices**, then select a device.
+2.  Check **Keep volume locked** to hold the volume at its current level.
+3.  Check **Keep unmuted** to prevent the device from being muted.
 
-1.  Open **Output devices** or **Input devices**.
-2.  Select the device.
-3.  Check **Keep volume locked** to lock the volume at the current level.
-4.  Check **Keep unmuted** to prevent the device from being muted.
-5.  Optionally, enable notifications for these actions.
+**Notify on volume restore** and **Notify on unmute** show a notification when Volume Locker acts.
 
-### Device priority
+### Set device priority
 
-Volume Locker switches your audio devices based on a priority list.
+Volume Locker switches your default device to the highest-priority one available.
 
-1.  Open **Output device priority** or **Input device priority** in the tray menu. The active devices are shown under **Current: <device>**.
-2.  Open **Device priority settings** to manage the priority list:
-    - Check **Notify on restore** to receive a notification when switching devices based on priority.
-    - Use **Move up** and **Move down** to adjust device order. The top device has highest priority.
-    - Under **Add device**, select a device to **Add to top** or **Add to bottom**.
-3.  Open **Communication priority settings** to configure communication routing.
+1.  Open **Output device priority** or **Input device priority**.
+2.  Open **Device priority settings**.
+3.  Under **Add device**, select a device, then **Add to top** or **Add to bottom**.
+4.  Select a device in the **Priority list** to move or remove it.
 
-### Communication priority settings
+**Communication priority settings** works the same way for voice calls and chat apps. By default, it follows the device priority list.
 
-Output and input each support an independent communication priority list for voice calls and chat apps.
+Check **Notify on restore** in either list to get a notification when Volume Locker switches devices.
 
-1.  Open **Communication priority settings** under output or input.
-2.  By default, communication follows the main priority list (**Follow output device priority** or **Follow input device priority**).
-3.  You can reorder priorities, add specific devices to take precedence over following the main list, or remove the main priority entry.
-4.  Check **Notify on restore** inside communication priority settings to receive notifications when communication devices switch.
+### Use a device temporarily
 
-### Temporary priority
+To override your priority lists without changing them:
 
-Route audio to a specific device without changing your saved priority lists:
+1.  Open **Temporary priority**.
+2.  Select **Output**, **Input**, or the **Communication** role under either one.
+3.  Select the device.
 
-1.  Open **Temporary priority** in the tray menu.
-2.  Select the role: **Output**, **Communication**, **Input**, or **Communication**. The submenu label displays the selected device when active.
-3.  Select the device to use temporarily. It remains active until unchecked or when the app restarts. Temporary communication overrides take precedence over configured communication priorities.
+It stays active until you uncheck it or restart the app.
 
-### Wireless headset availability
+### Skip wireless headsets that are off
 
-Wireless receivers can stay connected while their headset is off or out of range. Volume Locker skips supported headsets in that state, so put a fallback device below the headset in your priority list.
+Some wireless receivers stay connected while the headset is off or out of range. Volume Locker skips supported headsets in that state, so put a fallback device below the headset in your priority list. See [Headset availability](docs/headset-availability.md).
 
-Supported headsets are detected automatically by USB VID/PID, and detection is on by default. Devices that support a startup status query report their state right away; others stay unknown until their first status event.
+### Keep your settings, names, and icons
 
-See [headset availability](docs/headset-presence.md) for supported devices, diagnostics, and how to add a device.
+Windows sometimes treats your device as new when you change USB ports, re-pair it, or update a driver. You would normally lose its custom name and icon, along with anything tied to it.
 
-### Device ID migration
+Volume Locker recognizes the device and transfers its volume lock, unmute lock, priority list entries, name, and icon.
 
-Windows often regenerates audio endpoint IDs when you plug a device into a different USB port, unpair and re-pair a Bluetooth headset, or update audio drivers.
-
-Volume Locker recognizes the physical device across these changes and moves your volume locks, unmute settings, and priority lists to the new ID. See [docs/device-id-migration.md](docs/device-id-migration.md) for how it works.
+See [Settings transfer](docs/settings-transfer.md) and [Transferring names and icons](docs/device-names-and-icons.md).
 
 ### Preferences
 
-- **Auto-launch on startup**: Starts Volume Locker when you sign in to Windows.
-- **Check for updates on launch**: Checks for new releases on startup.
-- **Notify on device migration**: Shows a desktop notification when settings move to a reconnected device.
-- **Skip disconnected wireless headsets**: Skips supported wireless headsets that are off or out of range. On by default.
+| Preference                                                 | Default | What it does                                                   |
+| ---------------------------------------------------------- | ------- | -------------------------------------------------------------- |
+| Settings transfer > Automatically transfer device settings | On      | Transfers settings when Windows treats a device as new         |
+| Settings transfer > Also transfer device name and icon     | On      | Transfers the device's Windows name and icon with its settings |
+| Settings transfer > Notify on settings transfer            | Off     | Shows a notification when settings transfer                    |
+| Skip disconnected wireless headsets                        | On      | Skips supported headsets that are off or out of range          |
+| Auto-launch on startup                                     | Off     | Starts Volume Locker when you sign in to Windows               |
+| Check for updates on launch                                | On      | Checks for a new release when the app starts                   |
 
 ## Credits
 

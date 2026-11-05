@@ -1,5 +1,5 @@
-use super::migration::{build_fingerprint, clean_device_name};
 use super::presence::{HeadsetPresence, HidPresenceMonitor, devices::PROFILES};
+use super::transfer::{build_fingerprint, compose_device_name};
 use super::{AudioBackend, AudioDevice, windows_com_policy_config};
 use crate::bindings::{
     AUDIO_VOLUME_NOTIFICATION_DATA, CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree,
@@ -7,15 +7,17 @@ use crate::bindings::{
     IAudioEndpointVolumeCallback_Impl, IMMDevice, IMMDeviceEnumerator, IMMNotificationClient,
     IMMNotificationClient_Impl, MMDeviceEnumerator, PKEY_AudioEndpoint_FormFactor,
     PKEY_Device_ContainerId, PKEY_Device_DeviceDesc, PKEY_Device_EnumeratorName,
-    PKEY_Device_FriendlyName, PKEY_DeviceInterface_FriendlyName, PROPERTYKEY, PropVariantClear,
-    PropVariantToStringAlloc, PropVariantToUInt32, STGM_READ, eCapture, eCommunications, eConsole,
-    eMultimedia, eRender,
+    PKEY_DeviceInterface_FriendlyName, PROPERTYKEY, PROPVAR_PAD1, PROPVAR_PAD2, PROPVAR_PAD3,
+    PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0, PropVariantClear,
+    PropVariantToStringAlloc, PropVariantToUInt32, STGM_READ, VARTYPE, VT_LPWSTR, eCapture,
+    eCommunications, eConsole, eMultimedia, eRender,
 };
 use crate::types::{
     DeviceChangeSource, DeviceFingerprint, DeviceId, DeviceRole, DeviceType, VolumeScalar,
 };
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::mem::ManuallyDrop;
 use std::os::windows::ffi::OsStrExt;
 use std::sync::{Arc, Mutex};
 use windows_core::{PCWSTR, implement};
@@ -23,6 +25,13 @@ use windows_core::{PCWSTR, implement};
 const PKEY_DEVICE_INTERFACE_PATH: PROPERTYKEY = PROPERTYKEY {
     fmtid: windows_core::GUID::from_u128(0xb3f8fa53_0004_438e_9003_51a46e139bfc),
     pid: 2,
+};
+
+/// PKEY_DeviceClass_IconPath: the endpoint icon chosen in Sound settings (a `.ico` path or a
+/// `module.dll,index` resource reference). Endpoints store it here, not in the logo property.
+const PKEY_ENDPOINT_ICON_PATH: PROPERTYKEY = PROPERTYKEY {
+    fmtid: windows_core::GUID::from_u128(0x259abffc_50a7_47ce_af08_68c9a7d73366),
+    pid: 12,
 };
 
 /// Encodes a string slice as a null-terminated UTF-16 wide string for Win32 APIs.
@@ -323,6 +332,50 @@ impl AudioBackend for WindowsAudioBackend {
         let device = unsafe { self.enumerator.GetDevice(PCWSTR(wide.as_ptr())).ok()? };
         get_device_fingerprint(&device)
     }
+
+    fn restore_device_properties(
+        &self,
+        id: &DeviceId,
+        endpoint_name: Option<&str>,
+        icon_path: Option<&str>,
+    ) -> anyhow::Result<()> {
+        if endpoint_name.is_none() && icon_path.is_none() {
+            return Ok(());
+        }
+
+        // SAFETY: PolicyConfigClient is the existing Windows endpoint configuration COM class.
+        let policy_config: windows_com_policy_config::IPolicyConfig = unsafe {
+            CoCreateInstance(
+                &windows_com_policy_config::PolicyConfigClient,
+                None,
+                CLSCTX_INPROC_SERVER,
+            )?
+        };
+        let wide_id = encode_wide_null(id);
+        let mut errors = Vec::new();
+
+        if let Some(name) = endpoint_name
+            && let Err(e) =
+                set_policy_config_string(&policy_config, &wide_id, &PKEY_Device_DeviceDesc, name)
+        {
+            errors.push(format!("endpoint name: {e:#}"));
+        }
+        if let Some(path) = icon_path
+            && let Err(e) =
+                set_policy_config_string(&policy_config, &wide_id, &PKEY_ENDPOINT_ICON_PATH, path)
+        {
+            errors.push(format!("icon path: {e:#}"));
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            anyhow::bail!(
+                "failed to restore endpoint properties ({})",
+                errors.join("; ")
+            )
+        }
+    }
 }
 
 impl AudioDevice for WindowsAudioDevice {
@@ -447,14 +500,20 @@ impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
         dev_id: &PCWSTR,
         key: &PROPERTYKEY,
     ) -> windows_core::Result<()> {
-        // Only react when an endpoint's friendly name changes (e.g. user renamed the device
-        // in Windows Sound Settings). Other property updates (internal routing, formats,
-        // volume, Bluetooth battery/telemetry) fire continuously and must be ignored.
-        if *key == PKEY_Device_FriendlyName {
-            let id = pcwstr_to_device_id(dev_id);
-            if !id.is_empty() {
-                (self.callback)(DeviceChangeSource::DeviceRenamed(id));
-            }
+        // Only react when an endpoint's name or icon changes (e.g. user edited the device in
+        // Windows Sound Settings; a rename edits PKEY_Device_DeviceDesc). Other property updates
+        // (internal routing, formats, volume, Bluetooth battery/telemetry) fire continuously and
+        // must be ignored.
+        let source = if *key == PKEY_Device_DeviceDesc {
+            DeviceChangeSource::DeviceRenamed
+        } else if *key == PKEY_ENDPOINT_ICON_PATH {
+            DeviceChangeSource::DeviceIconChanged
+        } else {
+            return Ok(());
+        };
+        let id = pcwstr_to_device_id(dev_id);
+        if !id.is_empty() {
+            (self.callback)(source(id));
         }
         Ok(())
     }
@@ -510,68 +569,69 @@ unsafe fn read_prop_u32(
 
 fn get_device_name(device: &IMMDevice) -> windows_core::Result<String> {
     // SAFETY: device from IMMDeviceEnumerator; property store operations are standard COM calls.
-    let friendly_name = unsafe {
+    let (desc, interface) = unsafe {
         let prop_store = device.OpenPropertyStore(STGM_READ as u32)?;
-        read_prop_string(&prop_store, &PKEY_Device_FriendlyName)
-            .ok_or_else(|| windows_core::Error::from_hresult(windows_core::HRESULT(-1)))?
+        (
+            read_prop_string(&prop_store, &PKEY_Device_DeviceDesc),
+            read_prop_string(&prop_store, &PKEY_DeviceInterface_FriendlyName),
+        )
     };
-    Ok(clean_device_name(&friendly_name))
+    compose_device_name(desc.as_deref(), interface.as_deref())
+        .ok_or_else(|| windows_core::Error::from_hresult(windows_core::HRESULT(-1)))
 }
 
 fn get_device_fingerprint(device: &IMMDevice) -> Option<DeviceFingerprint> {
     unsafe {
         let prop_store = device.OpenPropertyStore(STGM_READ as u32).ok()?;
-        let friendly_name = read_prop_string(&prop_store, &PKEY_Device_FriendlyName);
-        let hardware_desc = read_prop_string(&prop_store, &PKEY_Device_DeviceDesc);
+        let device_desc = read_prop_string(&prop_store, &PKEY_Device_DeviceDesc);
         let interface_name = read_prop_string(&prop_store, &PKEY_DeviceInterface_FriendlyName);
         let enumerator_name = read_prop_string(&prop_store, &PKEY_Device_EnumeratorName);
         let container_id = read_prop_string(&prop_store, &PKEY_Device_ContainerId);
         let form_factor = read_prop_u32(&prop_store, &PKEY_AudioEndpoint_FormFactor);
         let pnp_interface = read_prop_string(&prop_store, &PKEY_DEVICE_INTERFACE_PATH);
+        let icon_path = read_prop_string(&prop_store, &PKEY_ENDPOINT_ICON_PATH);
 
-        Some(build_fingerprint(
-            friendly_name,
-            hardware_desc,
+        let mut fingerprint = build_fingerprint(
+            device_desc,
             interface_name,
             enumerator_name,
             container_id,
             form_factor,
             pnp_interface,
-        ))
+        );
+        fingerprint.icon_path = icon_path;
+        Some(fingerprint)
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::clean_device_name;
-
-    #[test]
-    fn clean_device_name_standard_format() {
-        let result = clean_device_name("Speakers (Realtek High Definition Audio)");
-        assert_eq!(result, "Speakers (Realtek High Definition Audio)");
+fn set_policy_config_string(
+    policy_config: &windows_com_policy_config::IPolicyConfig,
+    device_id: &[u16],
+    key: &PROPERTYKEY,
+    value: &str,
+) -> anyhow::Result<()> {
+    let wide_value = encode_wide_null(value);
+    let mut prop = PROPVARIANT {
+        Anonymous: PROPVARIANT_0 {
+            Anonymous: ManuallyDrop::new(PROPVARIANT_0_0 {
+                vt: VARTYPE(VT_LPWSTR as u16),
+                wReserved1: PROPVAR_PAD1(0),
+                wReserved2: PROPVAR_PAD2(0),
+                wReserved3: PROPVAR_PAD3(0),
+                Anonymous: PROPVARIANT_0_0_0 {
+                    pwszVal: windows_core::PWSTR(wide_value.as_ptr().cast_mut()),
+                },
+            }),
+        },
+    };
+    // SAFETY: the UTF-16 buffers and PROPVARIANT remain alive through this COM call.
+    unsafe {
+        policy_config.SetPropertyValue(
+            PCWSTR(device_id.as_ptr()),
+            0, // bFxStore = false selects the endpoint's regular property store.
+            key,
+            &mut prop,
+        )?;
     }
-
-    #[test]
-    fn clean_device_name_with_device_number() {
-        let result = clean_device_name("Speakers (2) (Realtek High Definition Audio)");
-        assert_eq!(result, "Speakers (Realtek High Definition Audio)");
-    }
-
-    #[test]
-    fn clean_device_name_with_numbered_prefix() {
-        let result = clean_device_name("2 - Speakers (Realtek Audio)");
-        assert_eq!(result, "Speakers (Realtek Audio)");
-    }
-
-    #[test]
-    fn clean_device_name_old_format_passthrough() {
-        let result = clean_device_name("My Audio Device");
-        assert_eq!(result, "My Audio Device");
-    }
-
-    #[test]
-    fn clean_device_name_with_port_numbers() {
-        let result = clean_device_name("Headphones (2- USB Audio Device)");
-        assert_eq!(result, "Headphones (USB Audio Device)");
-    }
+    Ok(())
 }

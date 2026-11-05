@@ -225,21 +225,33 @@ pub struct DeviceFingerprint {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bus_type: Option<DeviceBusType>,
 
-    /// Raw driver description from PKEY_Device_DeviceDesc (e.g. "Speakers", "LU28R55")
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hardware_desc: Option<String>,
+    /// Raw endpoint name from PKEY_Device_DeviceDesc (e.g. "Speakers", "LU28R55"). Windows edits
+    /// it when the user renames an endpoint, so it does not identify hardware. It is re-applied
+    /// to the new endpoint after a settings transfer.
+    #[serde(
+        default,
+        alias = "hardware_desc",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub device_desc: Option<String>,
 
-    /// Audio adapter product name from PKEY_DeviceInterface_FriendlyName
+    /// Raw audio adapter name from PKEY_DeviceInterface_FriendlyName. Windows may prefix it with a
+    /// port number (e.g. "2- Logitech G533"), so use `clean_name` for comparisons.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interface_name: Option<String>,
 
-    /// Canonical cleaned original name: "{clean(desc)} ({clean(interface)})"
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub clean_original_name: Option<String>,
+    /// Normalized "{clean(desc)} ({clean(interface)})" used for name matching. It follows
+    /// renames made in Sound settings, so it is the last seen name, not an original one.
+    #[serde(
+        default,
+        alias = "clean_original_name",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub clean_name: Option<String>,
 
-    /// True if PKEY_Device_FriendlyName differed from default template at registration
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub is_custom_name: bool,
+    /// Endpoint icon path from PKEY_DeviceClass_IconPath (a `.ico` file or `module.dll,index`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_path: Option<String>,
 
     /// Bluetooth 48-bit MAC address (12 hex digits)
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -339,7 +351,7 @@ impl TemporaryPriorities {
         }
     }
 
-    pub fn migrate_device_id(
+    pub fn transfer_device_id(
         &mut self,
         device_type: DeviceType,
         old_id: &DeviceId,
@@ -365,6 +377,7 @@ pub enum DeviceChangeSource {
     DeviceStateChanged(DeviceId, u32),
     DefaultDeviceChanged(DeviceId, String, String),
     DeviceRenamed(DeviceId),
+    DeviceIconChanged(DeviceId),
     PowerResume,
     UserAction,
 }
@@ -404,6 +417,10 @@ impl DeviceChangeSource {
             Self::DeviceRenamed(id) => {
                 let name = get_name(id);
                 format!("Device renamed: '{name}' ({id})")
+            }
+            Self::DeviceIconChanged(id) => {
+                let name = get_name(id);
+                format!("Device icon changed: '{name}' ({id})")
             }
             Self::PowerResume => "System resume from sleep".to_string(),
             Self::UserAction => "User menu action".to_string(),
@@ -489,9 +506,8 @@ mod tests {
         use super::{DeviceBusType, DeviceFingerprint};
         let fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
-            hardware_desc: Some("G533".into()),
+            device_desc: Some("G533".into()),
             usb_vid_pid: Some((0x046d, 0x0a66)),
-            is_custom_name: true,
             ..Default::default()
         };
         let settings = DeviceSettings::new("Headset".into(), DeviceType::Output)
@@ -499,6 +515,16 @@ mod tests {
         let json = serde_json::to_string(&settings).unwrap();
         let loaded: DeviceSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(loaded.fingerprint, Some(fp));
+    }
+
+    #[test]
+    fn fingerprint_loads_state_saved_by_older_versions() {
+        let fp: super::DeviceFingerprint = serde_json::from_str(
+            r#"{"hardware_desc":"Speakers","clean_original_name":"Speakers (USB Audio)","is_custom_name":true}"#,
+        )
+        .unwrap();
+        assert_eq!(fp.device_desc.as_deref(), Some("Speakers"));
+        assert_eq!(fp.clean_name.as_deref(), Some("Speakers (USB Audio)"));
     }
 
     #[test]
