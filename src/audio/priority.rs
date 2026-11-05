@@ -191,7 +191,7 @@ fn find_highest_priority_active_device(
         .find_map(|device_id| match backend.device_by_id(device_id) {
             Ok(device) => match device.is_active() {
                 Ok(true)
-                    if state.wireless_headset_detection_enabled
+                    if state.skip_disconnected_wireless_headsets
                         && device
                             .fingerprint()
                             .and_then(|fingerprint| fingerprint.usb_vid_pid)

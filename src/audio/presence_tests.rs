@@ -118,7 +118,7 @@ fn independent_communication_priorities_follow_presence_without_a_main_list() {
 #[test]
 fn radio_state_requires_the_setting_and_cannot_revive_disabled_windows_devices() {
     let (mut backend, mut state) = setup(DeviceType::Output);
-    state.wireless_headset_detection_enabled = false;
+    state.skip_disconnected_wireless_headsets = false;
     *backend.presence.borrow_mut() = HeadsetPresence::Unavailable;
     enforce_priorities(
         &backend,
@@ -130,7 +130,7 @@ fn radio_state_requires_the_setting_and_cannot_revive_disabled_windows_devices()
         backend.default_console.borrow()[&DeviceType::Output],
         "headset"
     );
-    state.wireless_headset_detection_enabled = true;
+    state.skip_disconnected_wireless_headsets = true;
     backend.devices[0].active = false;
     *backend.presence.borrow_mut() = HeadsetPresence::Available;
     enforce_priorities(
@@ -148,9 +148,9 @@ fn radio_state_requires_the_setting_and_cannot_revive_disabled_windows_devices()
 #[test]
 fn turning_detection_off_survives_serialization_without_per_device_settings() {
     let (_, mut state) = setup(DeviceType::Output);
-    state.wireless_headset_detection_enabled = false;
+    state.skip_disconnected_wireless_headsets = false;
     let json = serde_json::to_string(&state).unwrap();
     let loaded: PersistentState = serde_json::from_str(&json).unwrap();
-    assert!(!loaded.wireless_headset_detection_enabled);
+    assert!(!loaded.skip_disconnected_wireless_headsets);
     assert_eq!(loaded.device_count(), 0);
 }

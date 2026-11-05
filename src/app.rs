@@ -266,7 +266,8 @@ impl AppState {
 
         self.migrate_device_ids_if_needed();
         let device_info = collect_device_info(&self.backend);
-        let presence_devices: Vec<_> = if self.persistent_state.wireless_headset_detection_enabled {
+        let presence_devices: Vec<_> = if self.persistent_state.skip_disconnected_wireless_headsets
+        {
             device_info
                 .iter()
                 .filter_map(|(_, _, _, fingerprint)| fingerprint.as_ref()?.usb_vid_pid)
