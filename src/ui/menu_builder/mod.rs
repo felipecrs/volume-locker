@@ -7,7 +7,7 @@ use crate::config::PersistentState;
 use crate::types::{DeviceId, DeviceType, TemporaryPriorities, VolumePercent};
 use crate::update::UpdateInfo;
 use std::collections::HashMap;
-use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem};
+use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 
 use super::MenuIdMap;
 
@@ -92,7 +92,6 @@ fn lookup_device_name(
 pub struct TrayMenuItems<'a> {
     pub auto_launch_check: &'a CheckMenuItem,
     pub check_updates_on_launch: &'a CheckMenuItem,
-    pub notify_on_settings_transfer: &'a CheckMenuItem,
     pub quit: &'a MenuItem,
     pub output_devices_heading: &'a MenuItem,
     pub input_devices_heading: &'a MenuItem,
@@ -184,6 +183,51 @@ fn append_preferences_section(
 ) -> anyhow::Result<()> {
     tray_menu.append(&MenuItem::new("Preferences", false, None))?;
 
+    let settings_transfer = Submenu::new("Settings transfer", true);
+    for (label, checked, action) in [
+        (
+            "Automatically transfer device settings",
+            persistent_state.transfer_device_settings,
+            AppAction::ToggleTransferDeviceSettings,
+        ),
+        (
+            "Also transfer device name and icon",
+            persistent_state.transfer_device_name_and_icon,
+            AppAction::ToggleTransferDeviceNameAndIcon,
+        ),
+        (
+            "Notify on settings transfer",
+            persistent_state.notify_on_settings_transfer,
+            AppAction::ToggleNotifyOnSettingsTransfer,
+        ),
+    ] {
+        let item = CheckMenuItem::new(label, true, checked, None);
+        map.insert(
+            item.id().clone(),
+            MenuItemInfo {
+                name: label.to_string(),
+                action: MenuAction::App(action),
+            },
+        );
+        settings_transfer.append(&item)?;
+    }
+    tray_menu.append(&settings_transfer)?;
+
+    let skip_disconnected_wireless_headsets = CheckMenuItem::new(
+        "Skip disconnected wireless headsets",
+        true,
+        persistent_state.skip_disconnected_wireless_headsets,
+        None,
+    );
+    map.insert(
+        skip_disconnected_wireless_headsets.id().clone(),
+        MenuItemInfo {
+            name: "Skip disconnected wireless headsets".to_string(),
+            action: MenuAction::App(AppAction::ToggleSkipDisconnectedWirelessHeadsets),
+        },
+    );
+    tray_menu.append(&skip_disconnected_wireless_headsets)?;
+
     items.auto_launch_check.set_checked(auto_launch_enabled);
     map.insert(
         items.auto_launch_check.id().clone(),
@@ -205,63 +249,6 @@ fn append_preferences_section(
         },
     );
     tray_menu.append(items.check_updates_on_launch)?;
-
-    let skip_disconnected_wireless_headsets = CheckMenuItem::new(
-        "Skip disconnected wireless headsets",
-        true,
-        persistent_state.skip_disconnected_wireless_headsets,
-        None,
-    );
-    map.insert(
-        skip_disconnected_wireless_headsets.id().clone(),
-        MenuItemInfo {
-            name: "Skip disconnected wireless headsets".to_string(),
-            action: MenuAction::App(AppAction::ToggleSkipDisconnectedWirelessHeadsets),
-        },
-    );
-    tray_menu.append(&skip_disconnected_wireless_headsets)?;
-
-    let transfer_device_settings = CheckMenuItem::new(
-        "Automatically transfer device settings",
-        true,
-        persistent_state.transfer_device_settings,
-        None,
-    );
-    map.insert(
-        transfer_device_settings.id().clone(),
-        MenuItemInfo {
-            name: "Automatically transfer device settings".to_string(),
-            action: MenuAction::App(AppAction::ToggleTransferDeviceSettings),
-        },
-    );
-    tray_menu.append(&transfer_device_settings)?;
-
-    let transfer_device_name_and_icon = CheckMenuItem::new(
-        "Also transfer device name and icon",
-        true,
-        persistent_state.transfer_device_name_and_icon,
-        None,
-    );
-    map.insert(
-        transfer_device_name_and_icon.id().clone(),
-        MenuItemInfo {
-            name: "Also transfer device name and icon".to_string(),
-            action: MenuAction::App(AppAction::ToggleTransferDeviceNameAndIcon),
-        },
-    );
-    tray_menu.append(&transfer_device_name_and_icon)?;
-
-    items
-        .notify_on_settings_transfer
-        .set_checked(persistent_state.notify_on_settings_transfer);
-    map.insert(
-        items.notify_on_settings_transfer.id().clone(),
-        MenuItemInfo {
-            name: "Notify on settings transfer".to_string(),
-            action: MenuAction::App(AppAction::ToggleNotifyOnSettingsTransfer),
-        },
-    );
-    tray_menu.append(items.notify_on_settings_transfer)?;
     tray_menu.append(&PredefinedMenuItem::separator())?;
 
     Ok(())

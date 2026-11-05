@@ -77,14 +77,14 @@ See [Settings transfer](docs/settings-transfer.md) and [Transferring names and i
 
 ### Preferences
 
-| Preference                             | Default | What it does                                                   |
-| -------------------------------------- | ------- | -------------------------------------------------------------- |
-| Auto-launch on startup                 | Off     | Starts Volume Locker when you sign in to Windows               |
-| Check for updates on launch            | On      | Checks for a new release when the app starts                   |
-| Skip disconnected wireless headsets    | On      | Skips supported headsets that are off or out of range          |
-| Automatically transfer device settings | On      | Transfers settings when Windows treats a device as new         |
-| Also transfer device name and icon     | On      | Transfers the device's Windows name and icon with its settings |
-| Notify on settings transfer            | Off     | Shows a notification when settings transfer                    |
+| Preference                                                 | Default | What it does                                                   |
+| ---------------------------------------------------------- | ------- | -------------------------------------------------------------- |
+| Settings transfer > Automatically transfer device settings | On      | Transfers settings when Windows treats a device as new         |
+| Settings transfer > Also transfer device name and icon     | On      | Transfers the device's Windows name and icon with its settings |
+| Settings transfer > Notify on settings transfer            | Off     | Shows a notification when settings transfer                    |
+| Skip disconnected wireless headsets                        | On      | Skips supported headsets that are off or out of range          |
+| Auto-launch on startup                                     | Off     | Starts Volume Locker when you sign in to Windows               |
+| Check for updates on launch                                | On      | Checks for a new release when the app starts                   |
 
 ## Credits
 

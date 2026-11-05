@@ -1,6 +1,6 @@
 # Settings transfer
 
-When Windows gives an audio device a new endpoint ID, Volume Locker finds the same physical device and transfers its volume lock, unmute lock, and priority list entries to the new ID. This is on by default. To turn it off, uncheck **Automatically transfer device settings** in **Preferences**. To get a notification when it happens, check **Notify on settings transfer**.
+When Windows gives an audio device a new endpoint ID, Volume Locker finds the same physical device and transfers its volume lock, unmute lock, and priority list entries to the new ID. This is on by default. To turn it off, uncheck **Automatically transfer device settings** under **Preferences** > **Settings transfer**. To get a notification when it happens, check **Notify on settings transfer**.
 
 To also transfer the device's Windows name and icon, see [Transferring names and icons](./device-names-and-icons.md).
 

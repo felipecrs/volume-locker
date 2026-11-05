@@ -43,7 +43,6 @@ pub struct EventLoopRefs<'a> {
     pub auto_launch: &'a AutoLaunch,
     pub auto_launch_check_item: &'a CheckMenuItem,
     pub check_updates_on_launch_item: &'a CheckMenuItem,
-    pub notify_on_settings_transfer_item: &'a CheckMenuItem,
     pub quit_item: &'a MenuItem,
     pub tray_menu: &'a Menu,
     pub output_devices_heading_item: &'a MenuItem,
@@ -472,7 +471,6 @@ impl AppState {
             &TrayMenuItems {
                 auto_launch_check: refs.auto_launch_check_item,
                 check_updates_on_launch: refs.check_updates_on_launch_item,
-                notify_on_settings_transfer: refs.notify_on_settings_transfer_item,
                 quit: refs.quit_item,
                 output_devices_heading: refs.output_devices_heading_item,
                 input_devices_heading: refs.input_devices_heading_item,
