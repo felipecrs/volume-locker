@@ -93,17 +93,14 @@ fn setup_logging(executable_directory: &std::path::Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn ensure_writable_directory(executable_directory: &std::path::Path) -> anyhow::Result<()> {
-    if !is_directory_writable(executable_directory) {
-        let error_title = "Volume Locker Directory Not Writable";
-        let error_message = format!(
-            "Please move Volume Locker to a directory that is writable or fix the permissions of '{}'.",
-            executable_directory.display(),
-        );
-        let _ = send_notification(error_title, &error_message, NotificationDuration::Long);
-        anyhow::bail!("{error_title}: {error_message}");
-    }
-    Ok(())
+fn notify_directory_not_writable(executable_directory: &std::path::Path) -> anyhow::Error {
+    let error_title = "Volume Locker Directory Not Writable";
+    let error_message = format!(
+        "Please move Volume Locker to a directory that is writable or fix the permissions of '{}'.",
+        executable_directory.display(),
+    );
+    let _ = send_notification(error_title, &error_message, NotificationDuration::Long);
+    anyhow::anyhow!("{error_title}: {error_message}")
 }
 
 fn wire_event_proxies(event_loop: &tao::event_loop::EventLoop<UserEvent>) {
@@ -135,10 +132,17 @@ fn create_auto_launch() -> anyhow::Result<AutoLaunch> {
 
 fn run() -> anyhow::Result<()> {
     let executable_directory = get_executable_directory()?;
-    setup_logging(&executable_directory)?;
+    // The log file needs a writable directory, and the notification needs the AUMID that
+    // init_platform registers, so the check has to wrap both.
+    let directory_writable = is_directory_writable(&executable_directory);
+    if directory_writable {
+        setup_logging(&executable_directory)?;
+    }
 
     let com_token = init_platform(&executable_directory)?;
-    ensure_writable_directory(&executable_directory)?;
+    if !directory_writable {
+        return Err(notify_directory_not_writable(&executable_directory));
+    }
     let _instance =
         SingleInstanceGuard::acquire(APP_UID).context("failed to acquire single instance lock")?;
     update::remove_leftover_download();
