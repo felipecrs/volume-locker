@@ -67,12 +67,15 @@ mod windows {
     use std::sync::{
         Arc,
         atomic::{AtomicBool, AtomicU8, Ordering},
+        mpsc,
     };
     use std::thread::{self, JoinHandle};
     use std::time::{Duration, Instant};
 
     // Replies echo this ID; avoid the low IDs other HID++ clients are likeliest to use.
     const HIDPP_SOFTWARE_ID: u8 = 0x0b;
+    // shortcut: a slower query can still route once to a dead headset, raise this if that is seen.
+    const INITIAL_QUERY_WAIT: Duration = Duration::from_millis(500);
 
     enum HidppReply {
         Response([u8; HIDPP_LONG_REPORT_LENGTH]),
@@ -216,13 +219,22 @@ mod windows {
             let state = Arc::new(AtomicU8::new(HeadsetPresence::Unknown as u8));
             let worker_stop = Arc::clone(&stop);
             let worker_state = Arc::clone(&state);
+            let (query_done, query_finished) = mpsc::channel();
             let worker = thread::Builder::new()
                 .name("headset-presence".into())
                 .spawn(move || {
                     let mut last_error = None;
                     while !worker_stop.load(Ordering::Relaxed) {
-                        let result =
-                            listen(profile, &worker_stop, &worker_state, &on_change, &on_report);
+                        let result = listen(
+                            profile,
+                            &worker_stop,
+                            &worker_state,
+                            &on_change,
+                            &on_report,
+                            &query_done,
+                        );
+                        // Don't make the caller wait if listen failed before querying.
+                        let _ = query_done.send(());
                         // Losing the provider is not proof that the headset turned off.
                         if !worker_stop.load(Ordering::Relaxed) {
                             publish(&worker_state, HeadsetPresence::Unknown, &on_change);
@@ -242,6 +254,11 @@ mod windows {
                         }
                     }
                 })?;
+            // Callers apply priorities right after this, so give the query a chance
+            // to answer first rather than routing to a headset that is off.
+            if profile.initial_query.is_some() {
+                let _ = query_finished.recv_timeout(INITIAL_QUERY_WAIT);
+            }
             Ok(Self {
                 stop,
                 state,
@@ -280,6 +297,7 @@ mod windows {
         state: &AtomicU8,
         on_change: &Arc<dyn Fn() + Send + Sync>,
         on_report: &Arc<HidReportCallback>,
+        query_done: &mpsc::Sender<()>,
     ) -> anyhow::Result<()> {
         let api = hidapi::HidApi::new()?;
         let mut candidates = api.device_list().filter(|device| {
@@ -314,6 +332,7 @@ mod windows {
                     log::warn!("Cannot query initial {} state: {error:#}", profile.name);
                 }
             }
+            let _ = query_done.send(());
         }
         log::info!("Listening for {} status events", profile.name,);
         // After the one-time startup query, monitoring only reads input reports.
