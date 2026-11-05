@@ -26,6 +26,11 @@ pub fn send_notification(
     message: &str,
     duration: NotificationDuration,
 ) -> anyhow::Result<()> {
+    // Tests exercise notifying code paths; don't spam the desktop of whoever runs them.
+    if cfg!(test) {
+        return Ok(());
+    }
+
     let timeout = match duration {
         NotificationDuration::Short => notify_rust::Timeout::Default,
         NotificationDuration::Long => notify_rust::Timeout::Milliseconds(25_000),
