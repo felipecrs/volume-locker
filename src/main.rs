@@ -217,6 +217,7 @@ fn run() -> anyhow::Result<()> {
         temporary_priorities: TemporaryPriorities::default(),
         update_info: None,
         update_check_in_progress: false,
+        update_download_in_progress: false,
         tray_icon: None,
         backend,
         device_cache: std::collections::HashMap::new(),
@@ -282,6 +283,10 @@ fn run() -> anyhow::Result<()> {
                 result,
             }) => {
                 app.handle_update_check_completed(manual_request, result);
+            }
+
+            Event::UserEvent(UserEvent::UpdateDownloadCompleted(result)) => {
+                app.handle_update_download_completed(result, control_flow);
             }
 
             _ => {}

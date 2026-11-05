@@ -31,6 +31,7 @@ pub struct AppState {
     pub temporary_priorities: TemporaryPriorities,
     pub update_info: Option<UpdateInfo>,
     pub update_check_in_progress: bool,
+    pub update_download_in_progress: bool,
     pub tray_icon: Option<tray_icon::TrayIcon>,
     pub backend: AudioBackendImpl,
     pub device_cache: HashMap<DeviceId, (String, DeviceType, Option<DeviceFingerprint>)>,
@@ -336,6 +337,44 @@ impl AppState {
         self.update_info = result.ok().flatten();
     }
 
+    fn start_update_download(&mut self, info: UpdateInfo, proxy: &EventLoopProxy<UserEvent>) {
+        if self.update_download_in_progress {
+            log::info!("Update download already in progress");
+            return;
+        }
+
+        self.update_download_in_progress = true;
+        let proxy = proxy.clone();
+        std::thread::spawn(move || {
+            let result = update::download_update(&info).map_err(|e| format!("{e:#}"));
+            if let Err(e) = proxy.send_event(UserEvent::UpdateDownloadCompleted(result)) {
+                log::warn!("Failed to send update download result: {e:#}");
+            }
+        });
+    }
+
+    pub fn handle_update_download_completed(
+        &mut self,
+        result: Result<(), String>,
+        control_flow: &mut ControlFlow,
+    ) {
+        self.update_download_in_progress = false;
+        // Launched here rather than on the download thread, so the app is guaranteed
+        // to exit right after, even if the tray menu was open when the download ended.
+        let result =
+            result.and_then(|()| update::launch_post_update_script().map_err(|e| format!("{e:#}")));
+        match result {
+            Ok(()) => {
+                self.tray_hwnd.store(0, Ordering::SeqCst);
+                self.tray_icon.take();
+                *control_flow = ControlFlow::Exit;
+            }
+            Err(e) => {
+                log_and_notify_error("Update Failed", &format!("Update failed: {e}"));
+            }
+        }
+    }
+
     pub fn handle_configuration_changed(&mut self, proxy: &EventLoopProxy<UserEvent>) {
         if let Err(e) = save_state(&self.persistent_state) {
             log_and_notify_error(
@@ -389,16 +428,9 @@ impl AppState {
                         log::warn!("Failed to send ConfigurationChanged event: {e:#}");
                     }
                 }
-                MenuEventResult::UpdatePerform(info) => match update::install_update(&info) {
-                    Ok(()) => {
-                        self.tray_hwnd.store(0, Ordering::SeqCst);
-                        self.tray_icon.take();
-                        *control_flow = ControlFlow::Exit;
-                    }
-                    Err(e) => {
-                        log_and_notify_error("Update Failed", &format!("Update failed: {e:#}"));
-                    }
-                },
+                MenuEventResult::UpdatePerform(info) => {
+                    self.start_update_download(info, proxy);
+                }
                 MenuEventResult::UpdateCheck => {
                     self.start_update_check(true, proxy);
                 }

@@ -439,6 +439,7 @@ pub enum UserEvent {
         manual_request: bool,
         result: Result<Option<crate::update::UpdateInfo>, String>,
     },
+    UpdateDownloadCompleted(Result<(), String>),
 }
 
 #[cfg(test)]
