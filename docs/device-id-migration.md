@@ -110,14 +110,14 @@ classDiagram
 - **Display / Motherboard (`HDAUDIO`, `PCI`)**: Driver subsystem ID, monitor description, and form factor.
 - **Form factor (`PKEY_AudioEndpoint_FormFactor`)**: Prevents migrating between different profiles (e.g. A2DP Stereo Headphones vs. HFP Hands-Free Headset, or Game vs. Chat audio channels).
 
-## 3. Name normalization and cross-matching
+## 3. Name normalization
 
 Volume Locker never reads `PKEY_Device_FriendlyName`: Windows computes it as `"{DeviceDesc} ({DeviceInterface_FriendlyName})"`, it is not stored, and it is never notified on change. Instead the name is composed (`compose_device_name`) from two stored properties:
 
 - `PKEY_Device_DeviceDesc`: the endpoint name. Sound Settings edits this property on rename.
 - `PKEY_DeviceInterface_FriendlyName`: the adapter name, cleaned before use.
 
-The composed name is `"{DeviceDesc} ({cleaned interface})"`. It is the user-facing name and the input for name matching, and it is not classified as custom or default; property restoration ([Windows Audio Endpoint Property Migration](./device-property-migration.md)) does not depend on it.
+The composed name is `"{DeviceDesc} ({cleaned interface})"`. It is the user-facing name and the input for name matching, and it is not classified as custom or default; property restoration ([Endpoint property migration](./device-property-migration.md)) does not depend on it.
 
 ### Safety rules
 
@@ -134,7 +134,7 @@ flowchart LR
 3. **Devices in use**: Active endpoints already in a priority list or an active temporary priority are excluded from the candidates.
    - _Prevents:_ Devices already assigned from being overwritten as migration targets.
 
-## 4. The 6-tier migration cascade
+## 4. The 5-tier migration cascade
 
 Volume Locker compares missing registered devices against unclaimed active devices in five tiers, highest confidence first:
 

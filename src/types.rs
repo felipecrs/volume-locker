@@ -247,7 +247,7 @@ pub struct DeviceFingerprint {
 
     /// Endpoint icon path from PKEY_DeviceClass_IconPath (a `.ico` file or `module.dll,index`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub custom_icon_path: Option<String>,
+    pub icon_path: Option<String>,
 
     /// Bluetooth 48-bit MAC address (12 hex digits)
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -511,6 +511,15 @@ mod tests {
         let json = serde_json::to_string(&settings).unwrap();
         let loaded: DeviceSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(loaded.fingerprint, Some(fp));
+    }
+
+    #[test]
+    fn fingerprint_loads_state_saved_by_older_versions() {
+        let fp: super::DeviceFingerprint = serde_json::from_str(
+            r#"{"clean_original_name":"Speakers (USB Audio)","is_custom_name":true}"#,
+        )
+        .unwrap();
+        assert_eq!(fp.clean_name.as_deref(), Some("Speakers (USB Audio)"));
     }
 
     #[test]

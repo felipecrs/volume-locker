@@ -285,24 +285,13 @@ impl AppState {
                 (new_name.clone(), device_type, fingerprint.clone()),
             );
             if let Some(settings) = self.persistent_state.device_settings_mut(&device_id) {
-                let before = (
-                    settings.name.clone(),
-                    settings.device_type,
-                    settings.fingerprint.clone(),
-                );
+                settings_changed |= settings.name != new_name
+                    || settings.device_type != device_type
+                    || (fingerprint.is_some() && settings.fingerprint != fingerprint);
                 settings.name = new_name;
                 settings.device_type = device_type;
                 if fingerprint.is_some() {
                     settings.fingerprint = fingerprint;
-                }
-                if before
-                    != (
-                        settings.name.clone(),
-                        settings.device_type,
-                        settings.fingerprint.clone(),
-                    )
-                {
-                    settings_changed = true;
                 }
             }
         }

@@ -169,7 +169,7 @@ pub(crate) fn build_fingerprint(
         hardware_desc,
         interface_name,
         clean_name,
-        custom_icon_path: None,
+        icon_path: None,
         mac_address,
         usb_vid_pid,
         usb_serial,
@@ -348,6 +348,11 @@ impl MigrationResult {
     pub fn has_migrations(&self) -> bool {
         !self.migrated_device_names.is_empty()
     }
+}
+
+/// The old endpoint property value, if it is worth writing to the new endpoint.
+fn value_to_restore<'a>(old: Option<&'a str>, new: Option<&str>) -> Option<&'a str> {
+    old.filter(|old| !old.is_empty() && Some(*old) != new)
 }
 
 fn is_device_active(backend: &impl AudioBackend, id: &DeviceId) -> bool {
@@ -588,27 +593,18 @@ pub fn migrate_device_ids(
                 // The last seen endpoint name and icon are always restored; there is no
                 // attempt to decide whether they were customized by the user.
                 let mut migrated_fingerprint = candidate.fingerprint;
-                let differs = |old: Option<&str>, new: Option<&str>| old.is_some() && old != new;
-                let endpoint_name = old_fingerprint
-                    .and_then(|fingerprint| fingerprint.hardware_desc.as_deref())
-                    .filter(|old| {
-                        differs(
-                            Some(old),
-                            migrated_fingerprint
-                                .as_ref()
-                                .and_then(|fp| fp.hardware_desc.as_deref()),
-                        )
-                    });
-                let icon_path = old_fingerprint
-                    .and_then(|fingerprint| fingerprint.custom_icon_path.as_deref())
-                    .filter(|old| {
-                        differs(
-                            Some(old),
-                            migrated_fingerprint
-                                .as_ref()
-                                .and_then(|fp| fp.custom_icon_path.as_deref()),
-                        )
-                    });
+                let endpoint_name = value_to_restore(
+                    old_fingerprint.and_then(|fp| fp.hardware_desc.as_deref()),
+                    migrated_fingerprint
+                        .as_ref()
+                        .and_then(|fp| fp.hardware_desc.as_deref()),
+                );
+                let icon_path = value_to_restore(
+                    old_fingerprint.and_then(|fp| fp.icon_path.as_deref()),
+                    migrated_fingerprint
+                        .as_ref()
+                        .and_then(|fp| fp.icon_path.as_deref()),
+                );
                 let properties_restored = if endpoint_name.is_some() || icon_path.is_some() {
                     match backend.restore_device_properties(
                         &new_device_id,
@@ -618,7 +614,7 @@ pub fn migrate_device_ids(
                         Ok(()) => true,
                         Err(e) => {
                             log::warn!(
-                                "Failed to restore custom properties from device {old_device_id} to {new_device_id}: {e:#}"
+                                "Failed to restore endpoint properties from device {old_device_id} to {new_device_id}: {e:#}"
                             );
                             false
                         }
@@ -636,7 +632,7 @@ pub fn migrate_device_ids(
                             fingerprint.hardware_desc = Some(name.to_string());
                         }
                         if let Some(path) = icon_path {
-                            fingerprint.custom_icon_path = Some(path.to_string());
+                            fingerprint.icon_path = Some(path.to_string());
                         }
                     }
                 }
@@ -841,7 +837,7 @@ mod tests {
             usb_vid_pid: Some((0x046d, 0x0a66)),
             usb_serial: Some("serial-123".to_string()),
             hardware_desc: Some("G544".to_string()),
-            custom_icon_path: Some("@C:\\icons\\headphones.dll,-101".to_string()),
+            icon_path: Some("@C:\\icons\\headphones.dll,-101".to_string()),
             ..Default::default()
         };
         let new_fingerprint = DeviceFingerprint {
@@ -870,7 +866,7 @@ mod tests {
         let fingerprint = migrated.fingerprint.as_ref().unwrap();
         assert_eq!(fingerprint.hardware_desc.as_deref(), Some("G544"));
         assert_eq!(
-            fingerprint.custom_icon_path.as_deref(),
+            fingerprint.icon_path.as_deref(),
             Some("@C:\\icons\\headphones.dll,-101")
         );
         assert_eq!(
@@ -884,7 +880,38 @@ mod tests {
     }
 
     #[test]
-    fn migration_continues_when_custom_property_restore_fails() {
+    fn migrate_renamed_usb_device_without_serial_restores_name() {
+        let usb_fingerprint = |desc: &str| DeviceFingerprint {
+            bus_type: Some(DeviceBusType::Usb),
+            usb_vid_pid: Some((0x046d, 0x0a66)),
+            interface_index: Some(0),
+            hardware_desc: Some(desc.to_string()),
+            ..Default::default()
+        };
+        let backend = MockAudioBackend::new(vec![
+            MockDevice::new("new_port", "Speakers (USB Audio)", true)
+                .with_fingerprint(usb_fingerprint("Speakers")),
+        ]);
+        let mut state = PersistentState::default();
+        let mut settings = make_device_settings("Desk Audio (USB Audio)", DeviceType::Output);
+        settings.fingerprint = Some(usb_fingerprint("Desk Audio"));
+        state.devices.insert("old_port".into(), settings);
+
+        migrate_device_ids(&backend, &mut state);
+
+        assert_eq!(state.devices["new_port"].name, "Desk Audio (USB Audio)");
+        assert_eq!(
+            backend.restored_properties.borrow().as_slice(),
+            &[(
+                DeviceId::from("new_port"),
+                Some("Desk Audio".to_string()),
+                None,
+            )]
+        );
+    }
+
+    #[test]
+    fn migration_continues_when_property_restore_fails() {
         let old_fingerprint = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
@@ -1421,7 +1448,7 @@ mod tests {
     }
 
     #[test]
-    fn tier6_rejects_cross_bus_false_match() {
+    fn tier5_rejects_cross_bus_false_match() {
         let old_hd_fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::HdAudio),
             clean_name: Some("Speakers (Realtek Audio)".to_string()),
@@ -1451,7 +1478,7 @@ mod tests {
     }
 
     #[test]
-    fn tier6_rejects_conflicting_vid_pid() {
+    fn tier5_rejects_conflicting_vid_pid() {
         let old_usb_fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x1234, 0x5678)),

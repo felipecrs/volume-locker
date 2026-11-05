@@ -364,7 +364,7 @@ impl AudioBackend for WindowsAudioBackend {
             && let Err(e) =
                 set_policy_config_string(&policy_config, &wide_id, &PKEY_ENDPOINT_ICON_PATH, path)
         {
-            errors.push(format!("logo path: {e:#}"));
+            errors.push(format!("icon path: {e:#}"));
         }
 
         if errors.is_empty() {
@@ -501,8 +501,9 @@ impl IMMNotificationClient_Impl for AudioDevicesChangedCallback_Impl {
         key: &PROPERTYKEY,
     ) -> windows_core::Result<()> {
         // Only react when an endpoint's name or icon changes (e.g. user edited the device in
-        // Windows Sound Settings; a rename edits PKEY_Device_DeviceDesc). Other property updates (internal routing, formats, volume,
-        // Bluetooth battery/telemetry) fire continuously and must be ignored.
+        // Windows Sound Settings; a rename edits PKEY_Device_DeviceDesc). Other property updates
+        // (internal routing, formats, volume, Bluetooth battery/telemetry) fire continuously and
+        // must be ignored.
         let source = if *key == PKEY_Device_DeviceDesc {
             DeviceChangeSource::DeviceRenamed
         } else if *key == PKEY_ENDPOINT_ICON_PATH {
@@ -598,7 +599,7 @@ fn get_device_fingerprint(device: &IMMDevice) -> Option<DeviceFingerprint> {
             form_factor,
             pnp_interface,
         );
-        fingerprint.custom_icon_path = icon_path;
+        fingerprint.icon_path = icon_path;
         Some(fingerprint)
     }
 }
