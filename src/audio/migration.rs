@@ -581,18 +581,25 @@ pub fn migrate_device_ids(
                 // The last seen endpoint name and icon are always restored; there is no
                 // attempt to decide whether they were customized by the user.
                 let mut migrated_fingerprint = candidate.fingerprint;
-                let endpoint_name = value_to_restore(
-                    old_fingerprint.and_then(|fp| fp.device_desc.as_deref()),
-                    migrated_fingerprint
-                        .as_ref()
-                        .and_then(|fp| fp.device_desc.as_deref()),
-                );
-                let icon_path = value_to_restore(
-                    old_fingerprint.and_then(|fp| fp.icon_path.as_deref()),
-                    migrated_fingerprint
-                        .as_ref()
-                        .and_then(|fp| fp.icon_path.as_deref()),
-                );
+                let (endpoint_name, icon_path) =
+                    if persistent_state.keep_name_and_icon_on_device_migration {
+                        (
+                            value_to_restore(
+                                old_fingerprint.and_then(|fp| fp.device_desc.as_deref()),
+                                migrated_fingerprint
+                                    .as_ref()
+                                    .and_then(|fp| fp.device_desc.as_deref()),
+                            ),
+                            value_to_restore(
+                                old_fingerprint.and_then(|fp| fp.icon_path.as_deref()),
+                                migrated_fingerprint
+                                    .as_ref()
+                                    .and_then(|fp| fp.icon_path.as_deref()),
+                            ),
+                        )
+                    } else {
+                        (None, None)
+                    };
                 let properties_restored = if endpoint_name.is_some() || icon_path.is_some() {
                     match backend.restore_device_properties(
                         &new_device_id,
@@ -860,7 +867,10 @@ mod tests {
             MockDevice::new("new_endpoint", "G5443 (Logitech G533 Gaming Headset)", true)
                 .with_fingerprint(new_fingerprint),
         ]);
-        let mut state = PersistentState::default();
+        let mut state = PersistentState {
+            keep_name_and_icon_on_device_migration: true,
+            ..Default::default()
+        };
         let mut settings =
             make_device_settings("G544 (Logitech G533 Gaming Headset)", DeviceType::Output);
         settings.fingerprint = Some(old_fingerprint);
@@ -906,7 +916,10 @@ mod tests {
             MockDevice::new("new_port", "Speakers (USB Audio)", true)
                 .with_fingerprint(usb_fingerprint("Speakers")),
         ]);
-        let mut state = PersistentState::default();
+        let mut state = PersistentState {
+            keep_name_and_icon_on_device_migration: true,
+            ..Default::default()
+        };
         let mut settings = make_device_settings("Desk Audio (USB Audio)", DeviceType::Output);
         settings.fingerprint = Some(usb_fingerprint("Desk Audio"));
         state.devices.insert("old_port".into(), settings);
@@ -955,6 +968,30 @@ mod tests {
     }
 
     #[test]
+    fn migrate_leaves_name_and_icon_alone_by_default() {
+        let fingerprint = |desc: &str| DeviceFingerprint {
+            bus_type: Some(DeviceBusType::Usb),
+            usb_vid_pid: Some((0x046d, 0x0a66)),
+            usb_serial: Some("serial-123".to_string()),
+            device_desc: Some(desc.to_string()),
+            ..Default::default()
+        };
+        let backend = MockAudioBackend::new(vec![
+            MockDevice::new("new", "Speakers (USB Audio)", true)
+                .with_fingerprint(fingerprint("Speakers")),
+        ]);
+        let mut state = PersistentState::default();
+        let mut settings = make_device_settings("Desk (USB Audio)", DeviceType::Output);
+        settings.fingerprint = Some(fingerprint("Desk"));
+        state.devices.insert("old".into(), settings);
+
+        migrate_device_ids(&backend, &mut state);
+
+        assert!(backend.restored_properties.borrow().is_empty());
+        assert_eq!(state.devices["new"].name, "Speakers (USB Audio)");
+    }
+
+    #[test]
     fn migration_continues_when_property_restore_fails() {
         let old_fingerprint = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
@@ -975,7 +1012,10 @@ mod tests {
                 .with_fingerprint(new_fingerprint),
         ]);
         backend.restore_properties_fails = true;
-        let mut state = PersistentState::default();
+        let mut state = PersistentState {
+            keep_name_and_icon_on_device_migration: true,
+            ..Default::default()
+        };
         let mut settings = make_device_settings("Studio Headphones", DeviceType::Output);
         settings.fingerprint = Some(old_fingerprint);
         state.devices.insert("old_endpoint".into(), settings);

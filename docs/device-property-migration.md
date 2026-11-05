@@ -1,55 +1,39 @@
-# Endpoint property migration
+# Keeping names and icons
 
-This document describes how Volume Locker carries a user's Windows-assigned audio endpoint name and icon across an endpoint ID migration. It complements [Device ID migration](./device-id-migration.md), which documents how the old and new endpoints are matched.
+To keep a device's Windows name and icon when it migrates, check **Keep name and icon on device migration** in **Preferences**. It is off by default.
 
-## Scope
+When Windows creates a new endpoint for a device, the endpoint gets a default name and icon. With this preference on, Volume Locker writes the device's last seen name and icon to the new endpoint.
 
-Windows associates endpoint properties with an audio endpoint ID. When Windows creates a replacement endpoint for the same physical device, the new endpoint may have a different ID and default properties. Once the device-ID migration matcher has made an unambiguous match, Volume Locker attempts to carry over:
+## Before you turn it on
 
-- The endpoint name from `PKEY_Device_DeviceDesc`. This is the property Windows edits when the user renames an endpoint in Sound settings. Volume Locker does not use `PKEY_Device_FriendlyName`; where a full name is needed it composes `"{DeviceDesc} ({cleaned interface name})"` itself.
-- The endpoint icon path from `PKEY_DeviceClass_IconPath` (`{259abffc-50a7-47ce-af08-68c9a7d73366},12`), which is what Sound settings edits. `PKEY_AudioEndpointLogo_IconPath` is never populated on endpoints inspected.
+1. It relies on an undocumented Windows interface. Microsoft's [Core Audio documentation](https://learn.microsoft.com/en-us/windows/win32/coreaudio/audio-endpoint-properties) says clients should read endpoint properties and not set them.
+2. It can replace older names. Windows may reuse an earlier endpoint when a device returns to a port it used before, and the last seen name and icon replace whatever that endpoint had.
+3. A copied icon only works while its file or resource still exists on the system.
 
-The icon path is either a `.ico` file path or a resource reference such as `%windir%\system32\mmres.dll,-3014`; Volume Locker migrates that reference, not the image bytes or the driver resource itself.
+## What gets copied
 
-## Data flow
+| Value | Property                    | Example                                                           |
+| ----- | --------------------------- | ----------------------------------------------------------------- |
+| Name  | `PKEY_Device_DeviceDesc`    | `Speakers`                                                        |
+| Icon  | `PKEY_DeviceClass_IconPath` | `C:\Icons\headset.ico` or `%windir%\system32\mmres.dll,-3014` |
+
+The icon value is a reference, so the image itself is not copied. Volume Locker does not copy driver descriptions, hardware identity, form factor, or any other property.
+
+Volume Locker does not try to detect custom names or icons. It stores the current values in the device's fingerprint each time it sees a tracked device, and restores them as they are. A value is only written when it differs from the new endpoint's value.
+
+## How a restore runs
 
 ```mermaid
 flowchart LR
-    OLD[Disconnected endpoint] -->|Stored DeviceFingerprint| CFG[Persistent device settings]
-    OLD -->|Recent fingerprint| CACHE[In-memory device cache]
-    CFG --> MATCH[Unambiguous ID migration match]
-    CACHE --> MATCH
-    MATCH -->|Name and icon path| NEW[New endpoint property store]
-    MATCH -->|Volume, mute, and priority settings| STATE[Persistent state under new ID]
+    OLD[Saved or cached fingerprint] --> MATCH[Accepted device migration]
+    MATCH -->|Preference on: name and icon| NEW[New endpoint]
+    MATCH -->|Always: locks and priorities| STATE[Settings under the new ID]
 ```
 
-Volume Locker does not decide whether a name or icon is custom. Whenever a tracked device is seen, its current `PKEY_Device_DeviceDesc` (`device_desc`) and icon path are stored in its `DeviceFingerprint`, so the last seen values are always available. On migration they are restored as-is; a value is only written when it differs from the new endpoint's current value.
+1. The [matching tiers](./device-id-migration.md#matching-tiers) accept a pair. Restoring does not affect matching.
+2. `IPolicyConfig::SetPropertyValue` writes each changed value as a `VT_LPWSTR` string.
+3. Volume locks, unmute locks, and priorities move to the new ID.
 
-`DeviceFingerprint` holds the raw endpoint name and icon path in addition to the hardware identity used by the matcher. It is saved with each device's settings and also included in the in-memory device cache. Thus the source properties are still available if Windows removes the old endpoint. The existing recovery order remains unchanged: saved fingerprint, in-memory cache, then a property-store lookup for the old endpoint.
+## If a write fails
 
-The endpoint name is kept in its raw Windows form for writing back; the existing cleaned `DeviceSettings.name` remains the user-facing name used by Volume Locker. Older state without a fingerprint, or without an icon path, remains valid because the fields are optional.
-
-## Migration sequence
-
-1. Device change handling runs the existing fingerprint and five-tier ID matcher.
-2. The matcher rejects ambiguous pairs and excludes devices already claimed by current settings or priority lists.
-3. For an accepted pair, migration asks the Windows audio backend to restore the last seen endpoint name and icon path that differ from the new endpoint's.
-4. The backend uses the existing Windows `IPolicyConfig` endpoint configuration interface to set `PKEY_Device_DeviceDesc` and/or `PKEY_DeviceClass_IconPath` as `VT_LPWSTR` values.
-5. The existing app-state migration moves device settings, persistent priorities, and temporary priorities to the new ID.
-
-This property restoration does not participate in matching and cannot cause an ambiguous migration to be accepted.
-
-Windows may reuse an earlier endpoint when a device returns to a port it used before. The last seen name and icon are restored there too, so they replace whatever that earlier endpoint had.
-
-A rename changes `PKEY_Device_DeviceDesc`, so the matcher cannot rely on it as identity. See [Renamed devices](./device-id-migration.md#renamed-devices) for which endpoints can still match after a rename.
-
-## Failure behavior and platform boundary
-
-Windows owns audio endpoint properties. Microsoft's Core Audio documentation says clients can read endpoint properties but should not set them; the existing `IPolicyConfig` COM interface used here is undocumented and Windows may reject a write or later replace a value. Restoration is best-effort: a property-write failure is logged with both endpoint IDs, while the independent Volume Locker settings and priority migration still completes. The app does not elevate privileges, edit the registry directly, or roll back a successful device-ID match because a property write failed.
-
-The backend operation is deliberately limited to the two properties above. Driver descriptions, hardware identity, form factor, and other endpoint metadata are not copied from the old endpoint, so the new endpoint keeps its own hardware properties. A copied icon path is only useful if its referenced resource remains available on the system.
-
-## References
-
-- [Audio Endpoint Properties (Microsoft Learn)](https://learn.microsoft.com/en-us/windows/win32/coreaudio/audio-endpoint-properties) — endpoint properties are system-managed and clients should read, not set, them.
-- Registry inspection of `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio` — shows `PKEY_DeviceClass_IconPath` holding built-in (`mmres.dll,N`) and custom (`.ico`) endpoint icons.
+Volume Locker logs a warning with both endpoint IDs, and the migration still finishes. It does not elevate privileges, edit the registry, or undo the match. Windows may also replace a written value later.

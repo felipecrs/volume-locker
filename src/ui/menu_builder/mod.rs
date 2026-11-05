@@ -218,6 +218,21 @@ fn append_preferences_section(
     );
     tray_menu.append(items.notify_on_device_migration)?;
 
+    let keep_name_and_icon_on_device_migration = CheckMenuItem::new(
+        "Keep name and icon on device migration",
+        true,
+        persistent_state.keep_name_and_icon_on_device_migration,
+        None,
+    );
+    map.insert(
+        keep_name_and_icon_on_device_migration.id().clone(),
+        MenuItemInfo {
+            name: "Keep name and icon on device migration".to_string(),
+            action: MenuAction::App(AppAction::ToggleKeepNameAndIconOnDeviceMigration),
+        },
+    );
+    tray_menu.append(&keep_name_and_icon_on_device_migration)?;
+
     let skip_disconnected_wireless_headsets = CheckMenuItem::new(
         "Skip disconnected wireless headsets",
         true,
