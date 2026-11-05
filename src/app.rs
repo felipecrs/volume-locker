@@ -496,6 +496,7 @@ impl AppState {
                 false
             }),
             update_info: &self.update_info,
+            update_download_in_progress: self.update_download_in_progress,
         };
         match rebuild_tray_menu(
             refs.tray_menu,

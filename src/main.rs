@@ -141,6 +141,7 @@ fn run() -> anyhow::Result<()> {
     ensure_writable_directory(&executable_directory)?;
     let _instance =
         SingleInstanceGuard::acquire(APP_UID).context("failed to acquire single instance lock")?;
+    update::remove_leftover_download();
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     wire_event_proxies(&event_loop);

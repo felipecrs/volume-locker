@@ -103,6 +103,7 @@ pub struct MenuContext<'a, B: AudioBackend> {
     pub temporary_priorities: &'a TemporaryPriorities,
     pub auto_launch_enabled: bool,
     pub update_info: &'a Option<UpdateInfo>,
+    pub update_download_in_progress: bool,
 }
 
 pub fn rebuild_tray_menu(
@@ -169,7 +170,13 @@ pub fn rebuild_tray_menu(
         &mut map,
     )?;
 
-    append_footer_section(tray_menu, &mut map, ctx.update_info.as_ref(), items)?;
+    append_footer_section(
+        tray_menu,
+        &mut map,
+        ctx.update_info.as_ref(),
+        ctx.update_download_in_progress,
+        items,
+    )?;
 
     Ok(map)
 }
@@ -258,6 +265,7 @@ fn append_footer_section(
     tray_menu: &Menu,
     map: &mut MenuIdMap,
     update_info: Option<&UpdateInfo>,
+    update_download_in_progress: bool,
     items: &TrayMenuItems,
 ) -> anyhow::Result<()> {
     tray_menu.append(&MenuItem::new("Troubleshooting", false, None))?;
@@ -278,15 +286,19 @@ fn append_footer_section(
         MenuAction::App(AppAction::OpenGitHubRepo),
     )?;
 
-    let (label, action) = match update_info {
-        Some(info) => (
-            format!("Update to {}...", info.latest_version),
-            AppAction::PerformUpdate,
-        ),
-        None => ("Check for updates".to_string(), AppAction::CheckForUpdates),
-    };
+    if update_download_in_progress {
+        tray_menu.append(&MenuItem::new("Downloading update...", false, None))?;
+    } else {
+        let (label, action) = match update_info {
+            Some(info) => (
+                format!("Update to {}...", info.latest_version),
+                AppAction::PerformUpdate,
+            ),
+            None => ("Check for updates".to_string(), AppAction::CheckForUpdates),
+        };
 
-    append_action_item(tray_menu, map, &label, MenuAction::App(action))?;
+        append_action_item(tray_menu, map, &label, MenuAction::App(action))?;
+    }
 
     tray_menu.append(&PredefinedMenuItem::separator())?;
     tray_menu.append(items.quit)?;

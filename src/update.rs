@@ -151,12 +151,28 @@ fn download_to_file(agent: &Agent, url: &str, path: &str) -> anyhow::Result<()> 
     let mut reader = response.body_mut().as_reader();
     if let Err(e) = io::copy(&mut reader, &mut file) {
         drop(file);
-        if let Err(remove_error) = std::fs::remove_file(path) {
-            log::warn!("Failed to remove partial download: {remove_error}");
-        }
+        remove_download(path);
         return Err(e.into());
     }
     Ok(())
+}
+
+fn remove_download(path: &str) {
+    if let Err(e) = std::fs::remove_file(path)
+        && e.kind() != io::ErrorKind::NotFound
+    {
+        log::warn!("Failed to remove partial download: {e}");
+    }
+}
+
+/// Removes a download left behind by quitting or crashing partway through. Only
+/// call this once holding the single-instance lock, or it could delete the file
+/// another instance is still downloading.
+pub fn remove_leftover_download() {
+    match get_executable_path_str() {
+        Ok(exe_str) => remove_download(&temp_download_path(&exe_str)),
+        Err(e) => log::warn!("Failed to look for a leftover download: {e:#}"),
+    }
 }
 
 /// Downloads the update next to the executable. Blocks, so call it off the event loop.
@@ -258,6 +274,17 @@ mod tests {
 
         assert!(download_to_file(&read_timeout_agent(500), &url, &path).is_err());
         assert!(!std::path::Path::new(&path).exists());
+    }
+
+    #[test]
+    fn remove_download_deletes_the_file_and_tolerates_a_missing_one() {
+        let (_dir, path) = temp_path();
+        std::fs::write(&path, "part").expect("should write file");
+
+        remove_download(&path);
+        assert!(!std::path::Path::new(&path).exists());
+
+        remove_download(&path);
     }
 
     // A truncated file must never reach the script that replaces the executable.
