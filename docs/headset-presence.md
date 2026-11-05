@@ -1,12 +1,12 @@
 # Headset availability
 
 Some wireless receivers keep their Windows audio endpoint active when the
-headset is unavailable. This opt-in detector uses a read-only status query when
+headset is unavailable. This detector uses a read-only status query when
 supported each time it connects to the device, then listens for device status
 events so the existing input/output priority lists can skip that endpoint.
-Enable **Wireless headset detection** in Preferences; supported
-devices are identified automatically by USB VID/PID. It is disabled by
-default. Configure a fallback device in the same priority list.
+Supported devices are identified automatically by USB VID/PID. It is enabled by
+default; turn off **Skip disconnected wireless headsets** in Preferences to
+disable it. Configure a fallback device in the same priority list.
 
 ## Supported devices
 

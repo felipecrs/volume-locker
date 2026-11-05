@@ -295,7 +295,7 @@ impl Default for PersistentState {
             },
             check_updates_on_launch: true,
             notify_on_device_migration: false,
-            wireless_headset_detection_enabled: false,
+            wireless_headset_detection_enabled: true,
         }
     }
 }
@@ -326,7 +326,7 @@ mod tests {
             vec![DeviceId::main_priority()]
         );
         assert!(state.check_updates_on_launch);
-        assert!(!state.wireless_headset_detection_enabled);
+        assert!(state.wireless_headset_detection_enabled);
     }
 
     #[test]
@@ -372,7 +372,7 @@ mod tests {
         assert!(state.output.priority_list.is_empty());
         assert!(state.check_updates_on_launch);
         assert!(!state.notify_on_device_migration);
-        assert!(!state.wireless_headset_detection_enabled);
+        assert!(state.wireless_headset_detection_enabled);
     }
 
     #[test]

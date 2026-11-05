@@ -219,7 +219,7 @@ fn append_preferences_section(
     tray_menu.append(items.notify_on_device_migration)?;
 
     let wireless_headset_detection = CheckMenuItem::new(
-        "Wireless headset detection",
+        "Skip disconnected wireless headsets",
         true,
         persistent_state.wireless_headset_detection_enabled,
         None,
@@ -227,7 +227,7 @@ fn append_preferences_section(
     map.insert(
         wireless_headset_detection.id().clone(),
         MenuItemInfo {
-            name: "Wireless headset detection".to_string(),
+            name: "Skip disconnected wireless headsets".to_string(),
             action: MenuAction::App(AppAction::ToggleWirelessHeadsetDetection),
         },
     );

@@ -16,7 +16,6 @@ fn setup(device_type: DeviceType) -> (MockAudioBackend, PersistentState) {
     let backend = MockAudioBackend::new(vec![headset, fallback]);
     let mut state = PersistentState::default();
     *state.priority_list_mut(device_type) = vec!["headset".into(), "fallback".into()];
-    state.wireless_headset_detection_enabled = true;
     (backend, state)
 }
 
@@ -117,7 +116,7 @@ fn independent_communication_priorities_follow_presence_without_a_main_list() {
 }
 
 #[test]
-fn radio_state_requires_opt_in_and_cannot_revive_disabled_windows_devices() {
+fn radio_state_requires_the_setting_and_cannot_revive_disabled_windows_devices() {
     let (mut backend, mut state) = setup(DeviceType::Output);
     state.wireless_headset_detection_enabled = false;
     *backend.presence.borrow_mut() = HeadsetPresence::Unavailable;
@@ -147,10 +146,11 @@ fn radio_state_requires_opt_in_and_cannot_revive_disabled_windows_devices() {
 }
 
 #[test]
-fn global_detection_setting_survives_serialization_without_per_device_settings() {
-    let (_, state) = setup(DeviceType::Output);
+fn turning_detection_off_survives_serialization_without_per_device_settings() {
+    let (_, mut state) = setup(DeviceType::Output);
+    state.wireless_headset_detection_enabled = false;
     let json = serde_json::to_string(&state).unwrap();
     let loaded: PersistentState = serde_json::from_str(&json).unwrap();
-    assert!(loaded.wireless_headset_detection_enabled);
+    assert!(!loaded.wireless_headset_detection_enabled);
     assert_eq!(loaded.device_count(), 0);
 }
