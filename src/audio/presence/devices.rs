@@ -23,7 +23,7 @@ pub const G533_PROFILE: HidPresenceProfile = HidPresenceProfile {
     usage_page: 0xff43,
     usage: 0x0202,
     report_length: HIDPP_LONG_REPORT_LENGTH,
-    decode: |report, discovered| decode_adc_measurement_report(report, discovered.unwrap_or(7)),
+    decode: decode_adc_measurement_report,
     initial_query: Some(InitialQuery::HidppAdcMeasurement {
         feature_id: 0x1f20,
         unavailable_error: 0x05,
@@ -38,7 +38,7 @@ pub const G733_PROFILE: HidPresenceProfile = HidPresenceProfile {
     usage_page: 0xff43,
     usage: 0x0202,
     report_length: HIDPP_LONG_REPORT_LENGTH,
-    decode: |report, discovered| decode_adc_measurement_report(report, discovered.unwrap_or(8)),
+    decode: decode_adc_measurement_report,
     initial_query: Some(InitialQuery::HidppAdcMeasurement {
         feature_id: 0x1f20,
         unavailable_error: 0x05,
@@ -60,9 +60,13 @@ fn decode_a50x_report(report: &[u8]) -> Option<HeadsetPresence> {
     }
 }
 
-/// Firmware assigns the feature index. Profiles fall back to the index observed
-/// for their model when no startup query has discovered the current one.
-fn decode_adc_measurement_report(report: &[u8], feature_index: u8) -> Option<HeadsetPresence> {
+/// Firmware assigns the feature index, so these events can only be read once a
+/// startup query has discovered it.
+fn decode_adc_measurement_report(
+    report: &[u8],
+    feature_index: Option<u8>,
+) -> Option<HeadsetPresence> {
+    let feature_index = feature_index?;
     (report.len() == HIDPP_LONG_REPORT_LENGTH
         && report[..4]
             == [
@@ -123,33 +127,33 @@ mod tests {
             report
         };
         assert_eq!(
-            (G533_PROFILE.decode)(&report(0x00, 0x00), None),
+            (G533_PROFILE.decode)(&report(0x00, 0x00), Some(7)),
             Some(HeadsetPresence::Unavailable)
         );
         for flags in [0x01, 0x03, 0x07] {
             assert_eq!(
-                (G533_PROFILE.decode)(&report(0x00, flags), None),
+                (G533_PROFILE.decode)(&report(0x00, flags), Some(7)),
                 Some(HeadsetPresence::Available)
             );
         }
         assert_eq!(
-            (G533_PROFILE.decode)(&report(0x00, 0x0f), None),
+            (G533_PROFILE.decode)(&report(0x00, 0x0f), Some(7)),
             Some(HeadsetPresence::Unknown)
         );
-        assert_eq!((G533_PROFILE.decode)(&report(0x01, 0x00), None), None);
+        assert_eq!((G533_PROFILE.decode)(&report(0x01, 0x00), Some(7)), None);
         let mut unrelated = report(0x00, 0);
         unrelated[2] = 0x06;
-        assert_eq!((G533_PROFILE.decode)(&unrelated, None), None);
+        assert_eq!((G533_PROFILE.decode)(&unrelated, Some(7)), None);
         for length in 0..20 {
             assert_eq!(
-                (G533_PROFILE.decode)(&report(0x00, 0x01)[..length], None),
+                (G533_PROFILE.decode)(&report(0x00, 0x01)[..length], Some(7)),
                 None
             );
         }
     }
 
     #[test]
-    fn a_discovered_feature_index_replaces_the_observed_one() {
+    fn status_events_need_a_discovered_feature_index() {
         let report = |index| {
             let mut report = [0; 20];
             report[..7].copy_from_slice(&[0x11, 0xff, index, 0x00, 0x0f, 0x14, 0x00]);
@@ -160,6 +164,7 @@ mod tests {
             Some(HeadsetPresence::Unavailable)
         );
         assert_eq!((G533_PROFILE.decode)(&report(7), Some(9)), None);
+        assert_eq!((G533_PROFILE.decode)(&report(7), None), None);
     }
 
     #[test]
@@ -171,24 +176,24 @@ mod tests {
             report
         };
         assert_eq!(
-            (G733_PROFILE.decode)(&report(0x00), None),
+            (G733_PROFILE.decode)(&report(0x00), Some(8)),
             Some(HeadsetPresence::Unavailable)
         );
         assert_eq!(
-            (G733_PROFILE.decode)(&report(0x01), None),
+            (G733_PROFILE.decode)(&report(0x01), Some(8)),
             Some(HeadsetPresence::Available)
         );
         assert_eq!(
-            (G733_PROFILE.decode)(&report(0x03), None),
+            (G733_PROFILE.decode)(&report(0x03), Some(8)),
             Some(HeadsetPresence::Available)
         );
         assert_eq!(
-            (G733_PROFILE.decode)(&report(0x0f), None),
+            (G733_PROFILE.decode)(&report(0x0f), Some(8)),
             Some(HeadsetPresence::Unknown)
         );
-        assert_eq!((G733_PROFILE.decode)(&report(0x01)[..19], None), None);
+        assert_eq!((G733_PROFILE.decode)(&report(0x01)[..19], Some(8)), None);
         assert_eq!(
-            (G733_PROFILE.decode)(&[0x11, 0xff, 0x07, 0x00, 0x0f, 0x41, 0x00], None),
+            (G733_PROFILE.decode)(&[0x11, 0xff, 0x07, 0x00, 0x0f, 0x41, 0x00], Some(8)),
             None
         );
     }

@@ -22,9 +22,9 @@ changes when a configured startup query succeeds or a valid status report
 arrives. Query failures do not imply Unavailable; if no status is known, the
 state remains Unknown. Monitor failures reset the state to Unknown. A link-loss
 report may not distinguish power-off from out-of-range or interference.
-Devices with a startup query read status events at the feature index it
-discovers, and otherwise at the index observed for that model. Detection may
-vary by firmware.
+Some devices assign status events a feature index that only the startup query
+can discover. If that lookup fails, their status events are ignored and the
+state stays Unknown until the monitor reconnects. Detection may vary by firmware.
 
 ## Adding a device
 
