@@ -215,6 +215,25 @@ fn matches_tier(missing: &MissingDevice, candidate: &ActiveCandidate, tier: Matc
         return false;
     }
 
+    // USB interface compatibility: separate interfaces are separate endpoints of a device, such
+    // as the game and chat channels of a headset.
+    if let (Some(m), Some(c)) = (
+        m_fp.and_then(|f| f.interface_index),
+        c_fp.and_then(|f| f.interface_index),
+    ) && m != c
+    {
+        return false;
+    }
+
+    // USB serial compatibility: different serial numbers are different units of the same model.
+    if let (Some(m), Some(c)) = (
+        m_fp.and_then(|f| f.usb_serial.as_deref()),
+        c_fp.and_then(|f| f.usb_serial.as_deref()),
+    ) && m != c
+    {
+        return false;
+    }
+
     match tier {
         MatchTier::ExactHardwareId => {
             // Bluetooth MAC match
@@ -248,21 +267,10 @@ fn matches_tier(missing: &MissingDevice, candidate: &ActiveCandidate, tier: Matc
                 return false;
             }
 
-            let vid_pid_matches = match (m.usb_vid_pid, c.usb_vid_pid) {
+            match (m.usb_vid_pid, c.usb_vid_pid) {
                 (Some(m_vp), Some(c_vp)) => m_vp == c_vp,
                 _ => false,
-            };
-            if !vid_pid_matches {
-                return false;
             }
-
-            if let (Some(m_mi), Some(c_mi)) = (m.interface_index, c.interface_index)
-                && m_mi != c_mi
-            {
-                return false;
-            }
-
-            true
         }
         MatchTier::InternalHardwareProfile => {
             let Some(m) = m_fp else { return false };
@@ -585,7 +593,7 @@ pub fn transfer_device_settings(
                 new_settings.name = candidate.name;
 
                 let old_fingerprint = missing.fingerprint.as_ref();
-                // The last seen endpoint name and icon are always restored; there is no
+                // The last seen endpoint name and icon are restored as they are; there is no
                 // attempt to decide whether they were customized by the user.
                 let mut transferred_fingerprint = candidate.fingerprint;
                 let (endpoint_name, icon_path) = if persistent_state.transfer_device_name_and_icon {
@@ -975,6 +983,34 @@ mod tests {
             monitor("Desk", &system),
             monitor("Default", &system)
         ));
+    }
+
+    #[test]
+    fn transfer_rejects_other_usb_interface_and_other_unit() {
+        let usb = |interface_index: Option<u8>, usb_serial: Option<&str>| DeviceFingerprint {
+            bus_type: Some(DeviceBusType::Usb),
+            usb_vid_pid: Some((0x1234, 0x5678)),
+            device_desc: Some("Default".to_string()),
+            interface_name: Some("USB Audio".to_string()),
+            container_id: Some("{A}".to_string()),
+            interface_index,
+            usb_serial: usb_serial.map(str::to_string),
+            ..Default::default()
+        };
+        let transferred = |old: DeviceFingerprint, new: DeviceFingerprint| {
+            let backend = MockAudioBackend::new(vec![
+                MockDevice::new("new", "Default (USB Audio)", true).with_fingerprint(new),
+            ]);
+            let mut state = PersistentState::default();
+            let mut settings = make_device_settings("Default (USB Audio)", DeviceType::Output);
+            settings.fingerprint = Some(old);
+            state.devices.insert("old".into(), settings);
+            transfer_device_settings(&backend, &mut state).has_transfers()
+        };
+
+        assert!(transferred(usb(Some(0), None), usb(Some(0), None)));
+        assert!(!transferred(usb(Some(0), None), usb(Some(1), None)));
+        assert!(!transferred(usb(None, Some("AAA")), usb(None, Some("BBB"))));
     }
 
     #[test]

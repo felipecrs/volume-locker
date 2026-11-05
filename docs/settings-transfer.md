@@ -52,15 +52,15 @@ Windows usually keeps a disconnected endpoint as `DEVICE_STATE_NOTPRESENT`, and 
 
 ## What a fingerprint holds
 
-| Field                         | Source                                                       |
-| ----------------------------- | ------------------------------------------------------------ |
-| `mac_address`                 | Bluetooth address in the PnP interface path                  |
-| `usb_vid_pid`, `usb_serial`   | USB identifiers in the PnP interface path                    |
-| `interface_index`             | USB `MI_xx` value in the PnP interface path                  |
-| `bus_type`, `container_id`    | Enumerator name and `PKEY_Device_ContainerId`                |
-| `form_factor`                 | `PKEY_AudioEndpoint_FormFactor`, for example speaker or headset |
-| `device_desc`, `icon_path`    | `PKEY_Device_DeviceDesc` and `PKEY_DeviceClass_IconPath`     |
-| `interface_name`, `clean_name` | `PKEY_DeviceInterface_FriendlyName` and the composed name   |
+| Field                          | Source                                                          |
+| ------------------------------ | --------------------------------------------------------------- |
+| `mac_address`                  | Bluetooth address in the PnP interface path                     |
+| `usb_vid_pid`, `usb_serial`    | USB identifiers in the PnP interface path                       |
+| `interface_index`              | USB `MI_xx` value in the PnP interface path                     |
+| `bus_type`, `container_id`     | Enumerator name and `PKEY_Device_ContainerId`                   |
+| `form_factor`                  | `PKEY_AudioEndpoint_FormFactor`, for example speaker or headset |
+| `device_desc`, `icon_path`     | `PKEY_Device_DeviceDesc` and `PKEY_DeviceClass_IconPath`        |
+| `interface_name`, `clean_name` | `PKEY_DeviceInterface_FriendlyName` and the composed name       |
 
 A rename changes `device_desc` and `clean_name`, so they can tell endpoints apart but cannot prove two endpoints are the same device. `usb_serial` is only set when the value is a real serial number, and not a port hash from Windows.
 
@@ -85,18 +85,18 @@ flowchart LR
 
 Volume Locker tries each tier in order, highest confidence first:
 
-| Tier | Name                      | A missing and an active device match when                                                                                                |
-| ---- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| 1    | Exact hardware ID         | They have the same Bluetooth MAC address, or the same USB serial number and VID/PID                                                      |
-| 2    | Hardware profile and interface | Both are USB, with the same VID/PID and `MI_xx`                                                                                     |
-| 3    | Internal hardware profile | They share a container other than the system container and have the same adapter name, or both are HD Audio or share a container and have the same `DeviceDesc` |
-| 4    | Normalized name           | They have the same `clean_name`                                                                                                          |
-| 5    | Heuristic fallback        | They have the same device name, or the same VID/PID                                                                                      |
+| Tier | Name                           | A missing and an active device match when                                                                                                                       |
+| ---- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | Exact hardware ID              | They have the same Bluetooth MAC address, or the same USB serial number and VID/PID                                                                             |
+| 2    | Hardware profile and interface | Both are USB, with the same VID/PID and `MI_xx`                                                                                                                 |
+| 3    | Internal hardware profile      | They share a container other than the system container and have the same adapter name, or both are HD Audio or share a container and have the same `DeviceDesc` |
+| 4    | Normalized name                | They have the same `clean_name`                                                                                                                                 |
+| 5    | Heuristic fallback             | They have the same device name, or the same VID/PID                                                                                                             |
 
 ### Rules for every tier
 
 1. Both devices must be the same type, output or input.
-2. If both have a form factor, a bus type, or a USB VID/PID, each of those must match. This keeps motherboard speakers named `Speakers` from matching a new USB speaker.
+2. If both have a form factor, a bus type, a USB VID/PID, an `MI_xx` value, or a USB serial number, each of those must match. This keeps motherboard speakers named `Speakers` from matching a new USB speaker, and one headset channel from matching another.
 3. Active devices already in tracked settings, a priority list, or a temporary priority are not candidates.
 4. A match must be one to one. If several devices qualify, that tier skips them and the next tier tries, so settings do not transfer between identical devices.
 

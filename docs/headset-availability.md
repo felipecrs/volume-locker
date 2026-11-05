@@ -6,19 +6,19 @@ Some wireless receivers keep their Windows audio endpoint active while the heads
 
 ## Supported headsets
 
-| Device        | USB VID:PID | Observed signal                    | Startup status query              |
-| ------------- | ----------- | ---------------------------------- | --------------------------------- |
-| Astro A50 X   | `046d:0b0b` | Power-state HID reports            | None                              |
+| Device        | USB VID:PID | Observed signal                    | Startup status query                |
+| ------------- | ----------- | ---------------------------------- | ----------------------------------- |
+| Astro A50 X   | `046d:0b0b` | Power-state HID reports            | None                                |
 | Logitech G533 | `046d:0a66` | ADC-measurement wireless-link flag | ADC; error `0x05` means Unavailable |
 | Logitech G733 | `046d:0ab5` | ADC-measurement wireless-link flag | ADC; error `0x05` means Unavailable |
 
 ## How the state changes
 
-| State       | What happens                                  |
-| ----------- | --------------------------------------------- |
+| State       | What happens                                   |
+| ----------- | ---------------------------------------------- |
 | Unknown     | Windows decides whether the endpoint is usable |
-| Available   | The endpoint must still be active in Windows  |
-| Unavailable | The endpoint is skipped                       |
+| Available   | The endpoint must still be active in Windows   |
+| Unavailable | The endpoint is skipped                        |
 
 The state starts as Unknown. It changes when a status query succeeds or a valid status report arrives.
 

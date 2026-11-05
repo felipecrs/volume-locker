@@ -12,9 +12,9 @@ When Windows creates a new endpoint for a device, the endpoint gets a default na
 
 ## What gets copied
 
-| Value | Property                    | Example                                                           |
-| ----- | --------------------------- | ----------------------------------------------------------------- |
-| Name  | `PKEY_Device_DeviceDesc`    | `Speakers`                                                        |
+| Value | Property                    | Example                                                       |
+| ----- | --------------------------- | ------------------------------------------------------------- |
+| Name  | `PKEY_Device_DeviceDesc`    | `Speakers`                                                    |
 | Icon  | `PKEY_DeviceClass_IconPath` | `C:\Icons\headset.ico` or `%windir%\system32\mmres.dll,-3014` |
 
 The icon value is a reference, so the image itself is not copied. Volume Locker does not copy driver descriptions, hardware identity, form factor, or any other property.

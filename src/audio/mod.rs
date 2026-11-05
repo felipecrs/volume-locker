@@ -29,7 +29,7 @@ pub trait AudioBackend {
         None
     }
 
-    /// Restores user-assigned Windows endpoint properties after a settings transfer.
+    /// Writes a device's last seen Windows endpoint name and icon to its new endpoint.
     fn restore_device_properties(
         &self,
         id: &DeviceId,
