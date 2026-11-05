@@ -28,13 +28,14 @@ macro_rules! t {
 pub(crate) use t;
 
 pub fn init() {
-    let requested: Vec<LanguageIdentifier> = preferred_ui_languages()
+    let languages = preferred_ui_languages();
+    let requested: Vec<LanguageIdentifier> = languages
         .iter()
         .filter_map(|tag| tag.parse().ok())
         .collect();
     apply_languages(&LOADER, &requested);
     log::info!(
-        "Windows languages: {requested:?}, using: {}",
+        "Windows languages: {languages:?}, using: {}",
         LOADER.current_language()
     );
 }
@@ -62,6 +63,14 @@ mod tests {
                 out.insert(id.name);
             }
             InlineExpression::Placeable { expression } => collect_expression(expression, out),
+            InlineExpression::FunctionReference { arguments, .. } => {
+                for argument in &arguments.positional {
+                    collect_inline(argument, out);
+                }
+                for argument in &arguments.named {
+                    collect_inline(&argument.value, out);
+                }
+            }
             _ => {}
         }
     }
@@ -134,6 +143,14 @@ mod tests {
         let english = embedded(english_path);
         assert!(!messages(&english).is_empty());
         for path in Localizations::iter().filter(|path| path != english_path) {
+            // The loader only finds `<language tag>/volume_locker.ftl`, so anything else would
+            // silently never be shown.
+            let language = path
+                .strip_suffix("/volume_locker.ftl")
+                .unwrap_or_else(|| panic!("{path}: expected <language tag>/volume_locker.ftl"));
+            language
+                .parse::<LanguageIdentifier>()
+                .unwrap_or_else(|e| panic!("{path}: invalid language tag: {e}"));
             let problems = translation_problems(&english, &embedded(&path));
             assert!(problems.is_empty(), "{path}: {problems:?}");
         }
@@ -149,6 +166,10 @@ mod tests {
                 "`known` uses unknown argument `nome`",
                 "`stale` does not exist in English",
             ]
+        );
+        assert_eq!(
+            translation_problems(english, "known = { NUMBER($nome) }\n"),
+            ["`known` uses unknown argument `nome`"]
         );
     }
 

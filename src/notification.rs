@@ -46,7 +46,7 @@ impl NotificationThrottler {
         if self.should_notify(key)
             && let Err(e) = send_notification(title, message, NotificationDuration::Short)
         {
-            log::error!("Failed to show notification for {title}: {e:#}");
+            log::error!("Failed to show notification {key}: {e:#}");
         }
     }
 }

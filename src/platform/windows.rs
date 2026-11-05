@@ -98,20 +98,15 @@ pub fn preferred_ui_languages() -> Vec<String> {
     let flags = MUI_LANGUAGE_NAME as u32;
     let mut count = 0;
     let mut length = 0;
-    // SAFETY: Without a buffer, this call only writes the required length to valid pointers.
-    if !unsafe { GetUserPreferredUILanguages(flags, &mut count, None, &mut length) }.as_bool() {
-        log::warn!(
-            "Failed to get Windows display languages: {}",
-            windows_core::Error::from_thread()
-        );
-        return Vec::new();
-    }
+    // SAFETY: Without a buffer, the first call only writes the required length to valid pointers.
+    let sized = unsafe { GetUserPreferredUILanguages(flags, &mut count, None, &mut length) };
     let mut buffer = vec![0_u16; length as usize];
     // SAFETY: The buffer holds the `length` characters that Windows just asked for.
-    if !unsafe {
-        GetUserPreferredUILanguages(flags, &mut count, Some(buffer.as_mut_ptr()), &mut length)
-    }
-    .as_bool()
+    if !sized.as_bool()
+        || !unsafe {
+            GetUserPreferredUILanguages(flags, &mut count, Some(buffer.as_mut_ptr()), &mut length)
+        }
+        .as_bool()
     {
         log::warn!(
             "Failed to get Windows display languages: {}",

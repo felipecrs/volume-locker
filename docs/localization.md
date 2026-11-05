@@ -1,20 +1,25 @@
 # Localization
 
-Volume Locker's interface text lives in [Fluent](https://projectfluent.org/) files under [`i18n/`](../i18n/), one folder per language. All languages are built into the executable, so it stays a single portable file.
+Volume Locker follows the Windows display language at startup and shows English for any text without a translation.
 
-The app follows the Windows display language at startup. Text that has no translation appears in English.
+Translations are [Fluent](https://projectfluent.org/) files in [`i18n/`](../i18n/), one folder per language. They are built into the executable, so it stays a single portable file.
 
-## Adding a language
+## Add a language
 
 1. Copy `i18n/en/volume_locker.ftl` to `i18n/<language tag>/volume_locker.ftl`, for example `i18n/pt-BR/volume_locker.ftl`.
-2. Translate the text to the right of each `=`. Keep the `{ $name }` arguments, moving them wherever the sentence needs them.
-3. Run `mise run test`. It reports messages that no longer exist in English and arguments that do not exist.
+2. Translate the text to the right of each `=`. You can leave out messages you have not translated yet.
+3. Keep each `{ $name }` argument, and move it wherever the sentence needs it.
+4. Run `mise run test`.
 
-You can leave out messages you have not translated yet.
+The test fails if the file is named wrong, a message no longer exists in English, or an argument does not exist.
 
-## Adding text to the app
+## Add text to the app
 
-Add the message to the English file, then use it with `t!("message-id", argument = value)`. The build fails if the ID or an argument name does not exist in the English file.
+1. Add the message to `i18n/en/volume_locker.ftl`.
+2. Use it in the code with `t!("message-id", argument = value)`.
 
-- Write whole sentences as one message, since word order differs between languages.
-- Keep log messages in English so bug reports stay readable. `log_and_notify_error` takes the log message separately for this reason.
+The build fails if the message ID or an argument name is not in the English file.
+
+Write each sentence as one whole message, because word order differs between languages.
+
+Keep log messages in English so bug reports stay readable. `log_and_notify_error` takes its log message separately for this reason.

@@ -8,7 +8,7 @@
 
 Tired of apps changing your microphone volume without your consent? Of Windows constantly switching to the wrong audio device? Or of losing your device names and icons every time you change USB ports?
 
-Volume Locker is a tray app that locks the volume of your audio devices and switches your audio and communication devices based on priority lists. When you change USB ports, re-pair a Bluetooth device, or update a driver, it transfers your settings, along with the device's name and icon, to the device's new Windows entry. It is a portable, ~1MB binary written in Rust for Windows.
+Volume Locker is a tray app that locks the volume of your audio devices and switches your audio and communication devices based on priority lists. When you change USB ports, re-pair a Bluetooth device, or update a driver, it transfers your settings, along with the device's name and icon, to the device's new Windows entry. It is a portable, ~2MB binary written in Rust for Windows.
 
 ## Demo
 
@@ -74,6 +74,10 @@ Windows sometimes treats your device as new when you change USB ports, re-pair i
 Volume Locker recognizes the device and transfers its volume lock, unmute lock, priority list entries, name, and icon.
 
 See [Settings transfer](docs/settings-transfer.md) and [Transferring names and icons](docs/device-names-and-icons.md).
+
+### Use your language
+
+Volume Locker follows the Windows display language, and English is the only language so far. To add yours, see [Localization](docs/localization.md).
 
 ### Preferences
 
