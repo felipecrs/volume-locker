@@ -1,5 +1,5 @@
 use crate::consts::{CURRENT_VERSION, GITHUB_RELEASE_ASSET, GITHUB_REPO_URL};
-use crate::i18n::t;
+use crate::i18n::{t, t_en};
 use crate::notification::notify_error;
 use crate::platform::{NotificationDuration, send_notification};
 use crate::utils::get_executable_path_str;
@@ -123,7 +123,7 @@ pub fn report_check_result(manual_request: bool, result: &Result<Option<UpdateIn
                     error = e.as_str()
                 );
             } else {
-                log::error!("Failed to check for updates: {e}");
+                log::error!("{}", t_en!("update-check-failed", error = e.as_str()));
             }
         }
     }
