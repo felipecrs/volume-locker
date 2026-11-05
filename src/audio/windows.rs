@@ -583,7 +583,7 @@ fn get_device_name(device: &IMMDevice) -> windows_core::Result<String> {
 fn get_device_fingerprint(device: &IMMDevice) -> Option<DeviceFingerprint> {
     unsafe {
         let prop_store = device.OpenPropertyStore(STGM_READ as u32).ok()?;
-        let hardware_desc = read_prop_string(&prop_store, &PKEY_Device_DeviceDesc);
+        let device_desc = read_prop_string(&prop_store, &PKEY_Device_DeviceDesc);
         let interface_name = read_prop_string(&prop_store, &PKEY_DeviceInterface_FriendlyName);
         let enumerator_name = read_prop_string(&prop_store, &PKEY_Device_EnumeratorName);
         let container_id = read_prop_string(&prop_store, &PKEY_Device_ContainerId);
@@ -592,7 +592,7 @@ fn get_device_fingerprint(device: &IMMDevice) -> Option<DeviceFingerprint> {
         let icon_path = read_prop_string(&prop_store, &PKEY_ENDPOINT_ICON_PATH);
 
         let mut fingerprint = build_fingerprint(
-            hardware_desc,
+            device_desc,
             interface_name,
             enumerator_name,
             container_id,
@@ -634,39 +634,4 @@ fn set_policy_config_string(
         )?;
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::audio::migration::clean_device_name;
-
-    #[test]
-    fn clean_device_name_standard_format() {
-        let result = clean_device_name("Speakers (Realtek High Definition Audio)");
-        assert_eq!(result, "Speakers (Realtek High Definition Audio)");
-    }
-
-    #[test]
-    fn clean_device_name_with_device_number() {
-        let result = clean_device_name("Speakers (2) (Realtek High Definition Audio)");
-        assert_eq!(result, "Speakers (Realtek High Definition Audio)");
-    }
-
-    #[test]
-    fn clean_device_name_with_numbered_prefix() {
-        let result = clean_device_name("2 - Speakers (Realtek Audio)");
-        assert_eq!(result, "Speakers (Realtek Audio)");
-    }
-
-    #[test]
-    fn clean_device_name_old_format_passthrough() {
-        let result = clean_device_name("My Audio Device");
-        assert_eq!(result, "My Audio Device");
-    }
-
-    #[test]
-    fn clean_device_name_with_port_numbers() {
-        let result = clean_device_name("Headphones (2- USB Audio Device)");
-        assert_eq!(result, "Headphones (USB Audio Device)");
-    }
 }

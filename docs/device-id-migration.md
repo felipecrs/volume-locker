@@ -87,15 +87,16 @@ Settings can therefore migrate across Bluetooth unpairing and USB port changes.
 
 ## 2. Hardware fingerprints
 
-`DeviceFingerprint` holds hardware descriptors extracted from the endpoint's `IPropertyStore`:
+`DeviceFingerprint` holds properties read from the endpoint's `IPropertyStore`:
 
 ```mermaid
 classDiagram
     class DeviceFingerprint {
         +DeviceBusType bus_type
-        +String hardware_desc
+        +String device_desc
         +String interface_name
         +String clean_name
+        +String icon_path
         +String mac_address
         +Option~(u16, u16)~ usb_vid_pid
         +String usb_serial
@@ -107,26 +108,30 @@ classDiagram
 
 - **Bluetooth (`BTHENUM`)**: 48-bit MAC address (`BD_ADDR`) from the PnP interface string. It persists across unpairing and re-pairing.
 - **USB (`USB`)**: Vendor ID, Product ID, sub-interface index (`MI_xx`), and serial number (distinguished from synthetic port topology hashes).
-- **Display / Motherboard (`HDAUDIO`, `PCI`)**: Driver subsystem ID, monitor description, and form factor.
+- **Display / Motherboard (`HDAUDIO`, `PCI`)**: Container ID, adapter name, and form factor.
 - **Form factor (`PKEY_AudioEndpoint_FormFactor`)**: Prevents migrating between different profiles (e.g. A2DP Stereo Headphones vs. HFP Hands-Free Headset, or Game vs. Chat audio channels).
+
+`device_desc` and `clean_name` follow renames in Sound Settings, so they help tell endpoints apart but do not prove two endpoints are the same device.
 
 ## 3. Name normalization
 
-Volume Locker never reads `PKEY_Device_FriendlyName`: Windows computes it as `"{DeviceDesc} ({DeviceInterface_FriendlyName})"`, it is not stored, and it is never notified on change. Instead the name is composed (`compose_device_name`) from two stored properties:
+Volume Locker never reads `PKEY_Device_FriendlyName`. Windows computes it as `"{DeviceDesc} ({DeviceInterface_FriendlyName})"`, so it is not in the endpoint's stored properties and no change notification arrives for it. A rename therefore has no separate "friendly" value to compare against a default, and Volume Locker cannot tell a custom name from a driver's name.
+
+The name is instead composed (`compose_device_name`) from two stored properties:
 
 - `PKEY_Device_DeviceDesc`: the endpoint name. Sound Settings edits this property on rename.
-- `PKEY_DeviceInterface_FriendlyName`: the adapter name, cleaned before use.
+- `PKEY_DeviceInterface_FriendlyName`: the adapter name. Despite the similar key name, this is a different property, and Sound Settings does not edit it.
 
-The composed name is `"{DeviceDesc} ({cleaned interface})"`. It is the user-facing name and the input for name matching, and it is not classified as custom or default; property restoration ([Endpoint property migration](./device-property-migration.md)) does not depend on it.
+The composed name is `"{DeviceDesc} ({interface})"`, with both parts cleaned. It is the user-facing name and the input for name matching, and it is not classified as custom or default; property restoration ([Endpoint property migration](./device-property-migration.md)) does not depend on it.
 
 ### Safety rules
 
-1. **Normalized names**: Windows PnP adds port prefixes (e.g. `"2- "`) and clone counters (e.g. `" (1)"`) into `DeviceInterface_FriendlyName` when devices are moved across USB ports. Normalization strips these before composing and matching:
+1. **Normalized names**: Windows PnP adds port prefixes (e.g. `"2- "`) and clone counters (e.g. `" (1)"`) to these properties when devices are moved across USB ports. Normalization strips these before composing and matching:
 
 ```mermaid
 flowchart LR
-    RAW["2- Logitech USB Headset (1)"] -->|Strip '^\d+\s*-\s*'| S1["Logitech USB Headset (1)"]
-    S1 -->|Strip '\s*\(\d+\)$'| CLEAN["Logitech USB Headset"]
+    RAW["2- USB Headset (1)"] -->|Strip '^\d+\s*-\s*'| S1["USB Headset (1)"]
+    S1 -->|Strip '\s*\(\d+\)$'| CLEAN["USB Headset"]
 ```
 
 2. **Bus type and VID/PID**: Endpoints on different hardware buses (e.g. motherboard `HDAUDIO` vs. `USB` or `Bluetooth`) or with conflicting USB VID/PIDs never match, in any tier.
@@ -142,7 +147,7 @@ Volume Locker compares missing registered devices against unclaimed active devic
 flowchart TD
     START([Unclaimed Active & Missing Devices]) --> T1
 
-    T1{"Tier 1: Exact Hardware ID<br/>• Bluetooth MAC OR USB Serial<br/>• DeviceType & FormFactor match"}
+    T1{"Tier 1: Exact Hardware ID<br/>• Bluetooth MAC OR USB Serial<br/>• DeviceType & FormFactor match<br/>• Unambiguous 1:1 match"}
     T1 -->|Match| MIGRATE[Migrate Device ID]
     T1 -->|No Match| T2
 
@@ -150,7 +155,7 @@ flowchart TD
     T2 -->|Match| MIGRATE
     T2 -->|No Match| T3
 
-    T3{"Tier 3: Internal Audio Profile<br/>• HDAUDIO Subsystem + Desc + FormFactor"}
+    T3{"Tier 3: Internal Audio Profile<br/>• Same container + adapter name + FormFactor<br/>• OR HDAUDIO/same container + Desc + FormFactor<br/>• Unambiguous 1:1 match"}
     T3 -->|Match| MIGRATE
     T3 -->|No Match| T4
 
@@ -165,7 +170,11 @@ flowchart TD
 
 ### Collision rejection
 
-USB devices without a serial, or devices sharing a name (e.g. two identical microphones or generic audio dongles), can look the same. If several missing or active candidates qualify for Tiers 2, 4, or 5, the migration is rejected, so settings are never swapped between identical devices.
+USB devices without a serial, or devices sharing a name (e.g. two identical microphones or generic audio dongles), can look the same. If several missing or active candidates qualify for a tier, that pair is rejected there and tried in the next tier, so settings are never swapped between identical devices.
+
+### Renamed devices
+
+Tiers 1 to 3 can match a renamed device, because they compare hardware identity, not the name. Tier 3 only ignores the name when the endpoints share a container ID other than the system container (`{00000000-0000-0000-FFFF-FFFFFFFFFFFF}`), which Windows gives to unrelated endpoints. A renamed endpoint in the system container therefore has no matching tier if Windows re-creates it with its default name, and it does not migrate.
 
 ## 5. Event triggers and power resume
 

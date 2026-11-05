@@ -23,7 +23,7 @@ flowchart LR
     MATCH -->|Volume, mute, and priority settings| STATE[Persistent state under new ID]
 ```
 
-Volume Locker does not decide whether a name or icon is custom. Whenever a tracked device is seen, its current `PKEY_Device_DeviceDesc` (`hardware_desc`) and icon path are stored in its `DeviceFingerprint`, so the last seen values are always available. On migration they are restored as-is; a value is only written when it differs from the new endpoint's current value.
+Volume Locker does not decide whether a name or icon is custom. Whenever a tracked device is seen, its current `PKEY_Device_DeviceDesc` (`device_desc`) and icon path are stored in its `DeviceFingerprint`, so the last seen values are always available. On migration they are restored as-is; a value is only written when it differs from the new endpoint's current value.
 
 `DeviceFingerprint` holds the raw endpoint name and icon path in addition to the hardware identity used by the matcher. It is saved with each device's settings and also included in the in-memory device cache. Thus the source properties can still be available after Windows has removed the old endpoint, including when a Bluetooth device is unpaired. The existing recovery order remains unchanged: saved fingerprint, in-memory cache, then a property-store lookup for the old endpoint.
 
@@ -39,7 +39,7 @@ The endpoint name is kept in its raw Windows form for writing back; the existing
 
 This property restoration does not participate in matching and cannot cause an ambiguous migration to be accepted.
 
-A rename changes `PKEY_Device_DeviceDesc`, and Tier 3 and the name tiers compare it. Bluetooth and USB endpoints still match through Tiers 1 and 2, but a renamed internal endpoint that Windows re-creates with its default name has no matching tier, so it is not migrated.
+A rename changes `PKEY_Device_DeviceDesc`, so the matcher cannot rely on it as identity. See [Renamed devices](./device-id-migration.md#renamed-devices) for which endpoints can still match after a rename.
 
 ## Failure behavior and platform boundary
 

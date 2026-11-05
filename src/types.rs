@@ -225,11 +225,15 @@ pub struct DeviceFingerprint {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bus_type: Option<DeviceBusType>,
 
-    /// Raw endpoint name from PKEY_Device_DeviceDesc (e.g. "Speakers", "LU28R55"). This is the
-    /// property Windows edits when the user renames an endpoint, and it is re-applied to the new
-    /// endpoint after a device ID migration.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hardware_desc: Option<String>,
+    /// Raw endpoint name from PKEY_Device_DeviceDesc (e.g. "Speakers", "LU28R55"). Windows edits
+    /// it when the user renames an endpoint, so it does not identify hardware. It is re-applied
+    /// to the new endpoint after a device ID migration.
+    #[serde(
+        default,
+        alias = "hardware_desc",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub device_desc: Option<String>,
 
     /// Raw audio adapter name from PKEY_DeviceInterface_FriendlyName. Windows may prefix it with a
     /// port number (e.g. "2- Logitech G533"), so use `clean_name` for comparisons.
@@ -502,7 +506,7 @@ mod tests {
         use super::{DeviceBusType, DeviceFingerprint};
         let fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
-            hardware_desc: Some("G533".into()),
+            device_desc: Some("G533".into()),
             usb_vid_pid: Some((0x046d, 0x0a66)),
             ..Default::default()
         };
@@ -516,9 +520,10 @@ mod tests {
     #[test]
     fn fingerprint_loads_state_saved_by_older_versions() {
         let fp: super::DeviceFingerprint = serde_json::from_str(
-            r#"{"clean_original_name":"Speakers (USB Audio)","is_custom_name":true}"#,
+            r#"{"hardware_desc":"Speakers","clean_original_name":"Speakers (USB Audio)","is_custom_name":true}"#,
         )
         .unwrap();
+        assert_eq!(fp.device_desc.as_deref(), Some("Speakers"));
         assert_eq!(fp.clean_name.as_deref(), Some("Speakers (USB Audio)"));
     }
 

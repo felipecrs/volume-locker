@@ -8,7 +8,7 @@ use std::sync::LazyLock;
 
 use super::AudioBackend;
 
-pub(crate) fn clean_name_component(s: &str) -> String {
+fn clean_name_component(s: &str) -> String {
     static PREFIX_RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"^\d+\s*-\s*").unwrap_or_else(|_| unreachable!("constant regex pattern"))
     });
@@ -18,29 +18,6 @@ pub(crate) fn clean_name_component(s: &str) -> String {
     let s = PREFIX_RE.replace(s, "");
     let s = CLONE_RE.replace(&s, "");
     s.trim().to_string()
-}
-
-pub(crate) fn clean_device_name(name: &str) -> String {
-    static NAME_SPLITTER: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?P<friendlyName>.+)\s\([\d\s\-|]*(?P<deviceName>.+)\)")
-            .unwrap_or_else(|_| unreachable!("constant regex pattern"))
-    });
-    static NAME_CLEANER: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"\s?\(\d\)|^\d+\s?-\s?")
-            .unwrap_or_else(|_| unreachable!("constant regex pattern"))
-    });
-
-    if let Some(captures) = NAME_SPLITTER.captures(name) {
-        let friendly_name = captures.name("friendlyName").map_or("", |m| m.as_str());
-        let device_name = captures.name("deviceName").map_or("", |m| m.as_str());
-
-        let cleaned_friendly = NAME_CLEANER.replace_all(friendly_name, "");
-        let cleaned_friendly = cleaned_friendly.trim();
-
-        format!("{cleaned_friendly} ({device_name})")
-    } else {
-        name.to_string()
-    }
 }
 
 pub(crate) fn parse_bus_type(
@@ -126,22 +103,22 @@ pub(crate) fn parse_usb_serial(bus_type: Option<DeviceBusType>, pnp_iface: &str)
     })
 }
 
-/// Builds the endpoint display name as Windows does ("{DeviceDesc} ({InterfaceName})"), without
-/// reading PKEY_Device_FriendlyName, and strips port prefixes/clone counters from it.
+/// Builds the device name from the stored `DeviceDesc` and adapter name as
+/// "{desc} ({interface})", without Windows' port prefixes and clone counters.
+///
+/// `PKEY_Device_FriendlyName` is deliberately not used: Windows computes it from these two
+/// properties, does not store it, and does not notify when it changes.
 pub(crate) fn compose_device_name(desc: Option<&str>, interface: Option<&str>) -> Option<String> {
-    let desc = desc.map(str::trim).filter(|d| !d.is_empty());
-    let interface = interface.map(str::trim).filter(|i| !i.is_empty());
-    let composed = match (desc, interface) {
-        (Some(d), Some(i)) => format!("{d} ({i})"),
-        (Some(d), None) => d.to_string(),
-        (None, Some(i)) => i.to_string(),
-        (None, None) => return None,
-    };
-    Some(clean_device_name(&composed))
+    let clean = |s: &str| Some(clean_name_component(s)).filter(|s| !s.is_empty());
+    match (desc.and_then(clean), interface.and_then(clean)) {
+        (Some(d), Some(i)) => Some(format!("{d} ({i})")),
+        (Some(name), None) | (None, Some(name)) => Some(name),
+        (None, None) => None,
+    }
 }
 
 pub(crate) fn build_fingerprint(
-    hardware_desc: Option<String>,
+    device_desc: Option<String>,
     interface_name: Option<String>,
     enumerator_name: Option<String>,
     container_id: Option<String>,
@@ -154,19 +131,11 @@ pub(crate) fn build_fingerprint(
     let interface_index = pnp_interface.as_deref().and_then(parse_interface_index);
     let usb_serial = parse_usb_serial(bus_type, pnp_interface.as_deref().unwrap_or(""));
 
-    let clean_desc = hardware_desc.as_deref().map(clean_name_component);
-    let clean_iface = interface_name.as_deref().map(clean_name_component);
-
-    let clean_name = match (clean_desc, clean_iface) {
-        (Some(d), Some(i)) if !d.is_empty() && !i.is_empty() => Some(format!("{d} ({i})")),
-        (Some(d), _) if !d.is_empty() => Some(d),
-        (_, Some(i)) if !i.is_empty() => Some(i),
-        _ => None,
-    };
+    let clean_name = compose_device_name(device_desc.as_deref(), interface_name.as_deref());
 
     DeviceFingerprint {
         bus_type,
-        hardware_desc,
+        device_desc,
         interface_name,
         clean_name,
         icon_path: None,
@@ -213,6 +182,9 @@ struct ActiveCandidate {
     name: String,
     fingerprint: Option<DeviceFingerprint>,
 }
+
+/// PKEY_Device_ContainerId of endpoints Windows groups under the computer itself.
+const SYSTEM_CONTAINER_ID: &str = "{00000000-0000-0000-FFFF-FFFFFFFFFFFF}";
 
 fn matches_tier(missing: &MissingDevice, candidate: &ActiveCandidate, tier: MatchTier) -> bool {
     let m_fp = missing.fingerprint.as_ref();
@@ -303,11 +275,27 @@ fn matches_tier(missing: &MissingDevice, candidate: &ActiveCandidate, tier: Matc
                 _ => false,
             };
 
+            // A rename changes DeviceDesc, so a shared container and adapter must match without it.
+            // The system container is shared by unrelated endpoints and proves nothing.
+            let same_physical_device = container_match
+                && m.container_id
+                    .as_deref()
+                    .is_some_and(|id| !id.eq_ignore_ascii_case(SYSTEM_CONTAINER_ID));
+            let same_adapter = match (m.interface_name.as_deref(), c.interface_name.as_deref()) {
+                (Some(mi), Some(ci)) => {
+                    !mi.is_empty() && clean_name_component(mi) == clean_name_component(ci)
+                }
+                _ => false,
+            };
+            if same_physical_device && same_adapter {
+                return true;
+            }
+
             if !hd_audio_match && !container_match {
                 return false;
             }
 
-            match (m.hardware_desc.as_deref(), c.hardware_desc.as_deref()) {
+            match (m.device_desc.as_deref(), c.device_desc.as_deref()) {
                 (Some(m_desc), Some(c_desc)) if !m_desc.is_empty() => m_desc == c_desc,
                 _ => false,
             }
@@ -322,7 +310,7 @@ fn matches_tier(missing: &MissingDevice, candidate: &ActiveCandidate, tier: Matc
             }
         }
         MatchTier::HeuristicFallback => {
-            if clean_device_name(&missing.settings.name) == clean_device_name(&candidate.name) {
+            if missing.settings.name == candidate.name {
                 return true;
             }
 
@@ -447,7 +435,7 @@ pub fn migrate_device_ids(
                     let name = cached
                         .map(|(n, _, _)| n.clone())
                         .or_else(|| recovered_fp.as_ref().and_then(|f| f.clean_name.clone()))
-                        .or_else(|| recovered_fp.as_ref().and_then(|f| f.hardware_desc.clone()))
+                        .or_else(|| recovered_fp.as_ref().and_then(|f| f.device_desc.clone()))
                         .unwrap_or_else(|| "Priority Device".to_string());
 
                     missing_by_type.push(MissingDevice {
@@ -474,7 +462,7 @@ pub fn migrate_device_ids(
                 let name = cached
                     .map(|(n, _, _)| n.clone())
                     .or_else(|| recovered_fp.as_ref().and_then(|f| f.clean_name.clone()))
-                    .or_else(|| recovered_fp.as_ref().and_then(|f| f.hardware_desc.clone()))
+                    .or_else(|| recovered_fp.as_ref().and_then(|f| f.device_desc.clone()))
                     .unwrap_or_else(|| "Temporary Device".to_string());
 
                 missing_by_type.push(MissingDevice {
@@ -594,10 +582,10 @@ pub fn migrate_device_ids(
                 // attempt to decide whether they were customized by the user.
                 let mut migrated_fingerprint = candidate.fingerprint;
                 let endpoint_name = value_to_restore(
-                    old_fingerprint.and_then(|fp| fp.hardware_desc.as_deref()),
+                    old_fingerprint.and_then(|fp| fp.device_desc.as_deref()),
                     migrated_fingerprint
                         .as_ref()
-                        .and_then(|fp| fp.hardware_desc.as_deref()),
+                        .and_then(|fp| fp.device_desc.as_deref()),
                 );
                 let icon_path = value_to_restore(
                     old_fingerprint.and_then(|fp| fp.icon_path.as_deref()),
@@ -629,7 +617,7 @@ pub fn migrate_device_ids(
                     }
                     if let Some(fingerprint) = migrated_fingerprint.as_mut() {
                         if let Some(name) = endpoint_name {
-                            fingerprint.hardware_desc = Some(name.to_string());
+                            fingerprint.device_desc = Some(name.to_string());
                         }
                         if let Some(path) = icon_path {
                             fingerprint.icon_path = Some(path.to_string());
@@ -750,7 +738,7 @@ mod tests {
             Some(4),
             Some(r"{1}.USB\VID_046D&PID_0A66&MI_00\9&11C46CCD&0&0000".to_string()),
         );
-        assert_eq!(fp.hardware_desc.as_deref(), Some("Microphone CUSTOM"));
+        assert_eq!(fp.device_desc.as_deref(), Some("Microphone CUSTOM"));
         assert_eq!(
             fp.interface_name.as_deref(),
             Some("2- Logitech G533 Gaming Headset")
@@ -783,6 +771,18 @@ mod tests {
             compose_device_name(None, Some("Buds2 Pro")).as_deref(),
             Some("Buds2 Pro")
         );
+        assert_eq!(
+            compose_device_name(Some("Speakers (2)"), Some("Realtek Audio")).as_deref(),
+            Some("Speakers (Realtek Audio)")
+        );
+        assert_eq!(
+            compose_device_name(Some("2 - Speakers"), Some("Realtek Audio")).as_deref(),
+            Some("Speakers (Realtek Audio)")
+        );
+        assert_eq!(
+            compose_device_name(Some("Desk (Left)"), Some("USB Audio (1)")).as_deref(),
+            Some("Desk (Left) (USB Audio)")
+        );
         assert_eq!(compose_device_name(None, None), None);
         assert_eq!(compose_device_name(Some(" "), Some("")), None);
     }
@@ -813,7 +813,7 @@ mod tests {
     fn migrate_updates_name_and_fingerprint_when_device_renamed() {
         let fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
-            hardware_desc: Some("Headphones".to_string()),
+            device_desc: Some("Headphones".to_string()),
             ..Default::default()
         };
         let dev = MockDevice::new("id1", "New Speaker Name", true).with_fingerprint(fp.clone());
@@ -836,7 +836,7 @@ mod tests {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
             usb_serial: Some("serial-123".to_string()),
-            hardware_desc: Some("G544".to_string()),
+            device_desc: Some("G544".to_string()),
             icon_path: Some("@C:\\icons\\headphones.dll,-101".to_string()),
             ..Default::default()
         };
@@ -844,7 +844,7 @@ mod tests {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
             usb_serial: Some("serial-123".to_string()),
-            hardware_desc: Some("G5443".to_string()),
+            device_desc: Some("G5443".to_string()),
             ..Default::default()
         };
         let backend = MockAudioBackend::new(vec![
@@ -864,7 +864,7 @@ mod tests {
         let migrated = state.devices.get("new_endpoint").unwrap();
         assert_eq!(migrated.name, "G544 (Logitech G533 Gaming Headset)");
         let fingerprint = migrated.fingerprint.as_ref().unwrap();
-        assert_eq!(fingerprint.hardware_desc.as_deref(), Some("G544"));
+        assert_eq!(fingerprint.device_desc.as_deref(), Some("G544"));
         assert_eq!(
             fingerprint.icon_path.as_deref(),
             Some("@C:\\icons\\headphones.dll,-101")
@@ -885,7 +885,7 @@ mod tests {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
             interface_index: Some(0),
-            hardware_desc: Some(desc.to_string()),
+            device_desc: Some(desc.to_string()),
             ..Default::default()
         };
         let backend = MockAudioBackend::new(vec![
@@ -911,19 +911,49 @@ mod tests {
     }
 
     #[test]
+    fn tier3_matches_renamed_endpoint_only_on_its_own_container() {
+        let monitor = |desc: &str, container: &str| DeviceFingerprint {
+            bus_type: Some(DeviceBusType::HdAudio),
+            device_desc: Some(desc.to_string()),
+            interface_name: Some("HD Audio Adapter".to_string()),
+            container_id: Some(container.to_string()),
+            form_factor: Some(9),
+            ..Default::default()
+        };
+        let migrated = |old: DeviceFingerprint, new: DeviceFingerprint| {
+            let backend = MockAudioBackend::new(vec![
+                MockDevice::new("new", "Default (HD Audio Adapter)", true).with_fingerprint(new),
+            ]);
+            let mut state = PersistentState::default();
+            let mut settings = make_device_settings("Desk (HD Audio Adapter)", DeviceType::Output);
+            settings.fingerprint = Some(old);
+            state.devices.insert("old".into(), settings);
+            migrate_device_ids(&backend, &mut state).has_migrations()
+        };
+
+        assert!(migrated(monitor("Desk", "{A}"), monitor("Default", "{A}")));
+        assert!(!migrated(monitor("Desk", "{A}"), monitor("Default", "{B}")));
+        let system = SYSTEM_CONTAINER_ID.to_lowercase();
+        assert!(!migrated(
+            monitor("Desk", &system),
+            monitor("Default", &system)
+        ));
+    }
+
+    #[test]
     fn migration_continues_when_property_restore_fails() {
         let old_fingerprint = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
             usb_serial: Some("serial-123".to_string()),
-            hardware_desc: Some("Studio Headphones".to_string()),
+            device_desc: Some("Studio Headphones".to_string()),
             ..Default::default()
         };
         let new_fingerprint = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
             usb_serial: Some("serial-123".to_string()),
-            hardware_desc: Some("Headphones".to_string()),
+            device_desc: Some("Headphones".to_string()),
             ..Default::default()
         };
         let mut backend = MockAudioBackend::new(vec![
@@ -1043,7 +1073,7 @@ mod tests {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
             interface_index: Some(0), // Game output
-            hardware_desc: Some("Logitech G533".to_string()),
+            device_desc: Some("Logitech G533".to_string()),
             form_factor: Some(1),
             ..Default::default()
         };
@@ -1051,7 +1081,7 @@ mod tests {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
             interface_index: Some(0), // Game output
-            hardware_desc: Some("Logitech G533".to_string()),
+            device_desc: Some("Logitech G533".to_string()),
             form_factor: Some(1),
             ..Default::default()
         };
@@ -1076,7 +1106,7 @@ mod tests {
     fn migrate_tier4_normalized_name_with_port_prefix() {
         let old_fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
-            hardware_desc: Some("Logitech C930e".to_string()),
+            device_desc: Some("Logitech C930e".to_string()),
             interface_name: Some("Logitech Webcam C930e".to_string()),
             clean_name: Some("Logitech C930e (Logitech Webcam C930e)".to_string()),
             form_factor: Some(4),
@@ -1085,7 +1115,7 @@ mod tests {
         // On new port, Windows injected "2- " into interface name, but clean_name is normalized
         let new_fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
-            hardware_desc: Some("Logitech C930e".to_string()),
+            device_desc: Some("Logitech C930e".to_string()),
             interface_name: Some("2- Logitech Webcam C930e".to_string()),
             clean_name: Some("Logitech C930e (Logitech Webcam C930e)".to_string()),
             form_factor: Some(4),
@@ -1149,7 +1179,7 @@ mod tests {
         let old_mic_fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x1234, 0x5678)),
-            hardware_desc: Some("Generic Mic".to_string()),
+            device_desc: Some("Generic Mic".to_string()),
             clean_name: Some("Generic Mic".to_string()),
             ..Default::default()
         };
@@ -1305,7 +1335,7 @@ mod tests {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
             interface_index: Some(0),
-            hardware_desc: Some("Logitech G533".to_string()),
+            device_desc: Some("Logitech G533".to_string()),
             ..Default::default()
         };
         let new_dev =
@@ -1402,7 +1432,7 @@ mod tests {
             bus_type: Some(DeviceBusType::Bluetooth),
             mac_address: Some(mac.clone()),
             form_factor: Some(3),
-            hardware_desc: Some("Headphones".to_string()),
+            device_desc: Some("Headphones".to_string()),
             clean_name: Some("Headphones (Buds2 Pro de Felipe)".to_string()),
             ..Default::default()
         };
@@ -1411,7 +1441,7 @@ mod tests {
             bus_type: Some(DeviceBusType::Bluetooth),
             mac_address: Some(mac),
             form_factor: Some(3),
-            hardware_desc: Some("Headphones".to_string()),
+            device_desc: Some("Headphones".to_string()),
             clean_name: Some("Headphones (Buds2 Pro de Felipe)".to_string()),
             ..Default::default()
         };
