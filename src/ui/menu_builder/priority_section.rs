@@ -348,8 +348,6 @@ pub fn append_temporary_priority_section(
 
 #[cfg(test)]
 mod tests {
-    #![expect(clippy::expect_used, reason = "tests may panic")]
-
     use super::*;
     use crate::audio::tests::{MockAudioBackend, MockDevice};
 

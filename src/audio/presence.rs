@@ -60,7 +60,6 @@ fn decode_adc_flags(flags: u8) -> HeadsetPresence {
     }
 }
 
-#[cfg(target_os = "windows")]
 mod windows {
     use super::{
         HIDPP_DIRECT_DEVICE_INDEX, HIDPP_LONG_REPORT_ID, HIDPP_LONG_REPORT_LENGTH, HeadsetPresence,
@@ -81,6 +80,7 @@ mod windows {
     const INITIAL_QUERY_WAIT: Duration = Duration::from_millis(500);
     const RETRY_DELAY: Duration = Duration::from_secs(2);
 
+    #[derive(Debug)]
     enum HidppReply {
         Response([u8; HIDPP_LONG_REPORT_LENGTH]),
         Error(u8),
@@ -433,6 +433,7 @@ mod windows {
     mod tests {
         use super::super::devices::{A50X_PROFILE, G533_PROFILE};
         use super::*;
+        use std::assert_matches;
         use std::cell::RefCell;
         use std::collections::VecDeque;
         use std::sync::Mutex;
@@ -707,17 +708,14 @@ mod windows {
 
             let mut response = [0; HIDPP_LONG_REPORT_LENGTH];
             response[..7].copy_from_slice(&[0x11, 0xff, 7, HIDPP_SOFTWARE_ID, 0x01, 0, 0x01]);
-            assert!(matches!(
+            assert_matches!(
                 parse_hidpp_reply(&response, 7),
                 Some(HidppReply::Response(_))
-            ));
+            );
 
             let mut error = [0; HIDPP_LONG_REPORT_LENGTH];
             error[..6].copy_from_slice(&[0x11, 0xff, 0xff, 7, HIDPP_SOFTWARE_ID, 0x05]);
-            assert!(matches!(
-                parse_hidpp_reply(&error, 7),
-                Some(HidppReply::Error(0x05))
-            ));
+            assert_matches!(parse_hidpp_reply(&error, 7), Some(HidppReply::Error(0x05)));
             assert!(parse_hidpp_reply(&error[..19], 7).is_none());
             assert!(parse_hidpp_reply(&response, 8).is_none());
         }
@@ -818,5 +816,4 @@ mod windows {
     }
 }
 
-#[cfg(target_os = "windows")]
 pub use windows::HidPresenceMonitor;

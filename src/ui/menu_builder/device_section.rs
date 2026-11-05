@@ -135,8 +135,6 @@ pub fn append_device_list_to_menu(
 
 #[cfg(test)]
 mod tests {
-    #![expect(clippy::expect_used, reason = "tests may panic")]
-
     use super::*;
     use crate::audio::tests::MockDevice;
 

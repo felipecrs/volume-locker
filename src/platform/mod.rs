@@ -4,23 +4,13 @@ pub enum NotificationDuration {
     Long,
 }
 
-#[cfg(target_os = "windows")]
 mod windows;
 
-#[cfg(target_os = "windows")]
 pub use self::windows::{
     ComToken, SingleInstanceGuard, init_platform, is_directory_writable, open_device_properties,
     open_device_settings, open_sound_control_panel, open_sound_settings, open_volume_mixer,
     preferred_ui_languages,
 };
-
-#[cfg(not(target_os = "windows"))]
-pub struct ComToken(());
-
-#[cfg(not(target_os = "windows"))]
-pub fn init_platform(_executable_directory: &std::path::Path) -> anyhow::Result<ComToken> {
-    Ok(ComToken(()))
-}
 
 pub fn send_notification(
     title: &str,
@@ -40,7 +30,6 @@ pub fn send_notification(
     let mut notification = notify_rust::Notification::new();
     notification.summary(title).body(message).timeout(timeout);
 
-    #[cfg(target_os = "windows")]
     notification.app_id(crate::consts::APP_AUMID);
 
     notification

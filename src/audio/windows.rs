@@ -3,24 +3,24 @@ use super::transfer::{build_fingerprint, compose_device_name};
 use super::{AudioBackend, AudioDevice, windows_com_policy_config};
 use crate::bindings::{
     AUDIO_VOLUME_NOTIFICATION_DATA, CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree,
-    DEVICE_STATE_ACTIVE, EDataFlow, ERole, IAudioEndpointVolume, IAudioEndpointVolumeCallback,
+    DEVICE_NOTIFY_CALLBACK, DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS, DEVICE_STATE_ACTIVE, EDataFlow,
+    ERole, HANDLE, HPOWERNOTIFY, IAudioEndpointVolume, IAudioEndpointVolumeCallback,
     IAudioEndpointVolumeCallback_Impl, IMMDevice, IMMDeviceEnumerator, IMMNotificationClient,
-    IMMNotificationClient_Impl, MMDeviceEnumerator, PKEY_AudioEndpoint_FormFactor,
-    PKEY_Device_ContainerId, PKEY_Device_DeviceDesc, PKEY_Device_EnumeratorName,
-    PKEY_DeviceInterface_FriendlyName, PROPERTYKEY, PROPVAR_PAD1, PROPVAR_PAD2, PROPVAR_PAD3,
-    PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0, PropVariantClear,
-    PropVariantToStringAlloc, PropVariantToUInt32, STGM_READ, VARTYPE, VT_LPWSTR, eCapture,
-    eCommunications, eConsole, eMultimedia, eRender,
+    IMMNotificationClient_Impl, MMDeviceEnumerator, PBT_APMRESUMEAUTOMATIC, PBT_APMRESUMESUSPEND,
+    PKEY_AudioEndpoint_FormFactor, PKEY_Device_ContainerId, PKEY_Device_DeviceDesc,
+    PKEY_Device_EnumeratorName, PKEY_DeviceInterface_FriendlyName, PROPERTYKEY, PROPVAR_PAD1,
+    PROPVAR_PAD2, PROPVAR_PAD3, PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0,
+    PropVariantClear, PropVariantToStringAlloc, PropVariantToUInt32,
+    RegisterSuspendResumeNotification, STGM_READ, UnregisterSuspendResumeNotification, VARTYPE,
+    VT_LPWSTR, eCapture, eCommunications, eConsole, eMultimedia, eRender,
 };
 use crate::types::{
     DeviceChangeSource, DeviceFingerprint, DeviceId, DeviceRole, DeviceType, VolumeScalar,
 };
 use std::collections::HashMap;
-use std::ffi::OsStr;
 use std::mem::ManuallyDrop;
-use std::os::windows::ffi::OsStrExt;
 use std::sync::{Arc, Mutex};
-use windows_core::{PCWSTR, implement};
+use windows_core::{HSTRING, PCWSTR, implement};
 
 const PKEY_DEVICE_INTERFACE_PATH: PROPERTYKEY = PROPERTYKEY {
     fmtid: windows_core::GUID::from_u128(0xb3f8fa53_0004_438e_9003_51a46e139bfc),
@@ -34,14 +34,6 @@ const PKEY_ENDPOINT_ICON_PATH: PROPERTYKEY = PROPERTYKEY {
     pid: 12,
 };
 
-/// Encodes a string slice as a null-terminated UTF-16 wide string for Win32 APIs.
-fn encode_wide_null(s: &str) -> Vec<u16> {
-    OsStr::new(s)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect()
-}
-
 fn to_erole(role: DeviceRole) -> ERole {
     match role {
         DeviceRole::Console => eConsole,
@@ -52,37 +44,22 @@ fn to_erole(role: DeviceRole) -> ERole {
 
 type DeviceChangeCallback = Arc<dyn Fn(DeviceChangeSource) + Send + Sync>;
 
-#[repr(C)]
-struct DeviceNotifySubscribeParameters {
-    callback: unsafe extern "system" fn(*mut std::ffi::c_void, u32, *mut std::ffi::c_void) -> u32,
-    context: *mut std::ffi::c_void,
-}
-
-const DEVICE_NOTIFY_CALLBACK: u32 = 2;
-// In Win32, PBT_APMRESUMEAUTOMATIC (0x0012) is automatic resume, and PBT_APMRESUMESUSPEND (0x0007)
-// is user-initiated resume. We ignore PBT_APMSUSPEND (0x0004) since the system is suspending anyway.
-const PBT_APMRESUMEAUTOMATIC: u32 = 0x0012;
-const PBT_APMRESUMESUSPEND: u32 = 0x0007;
-
 unsafe extern "system" fn power_suspend_resume_callback(
-    context: *mut std::ffi::c_void,
+    context: *const std::ffi::c_void,
     event_type: u32,
-    _setting: *mut std::ffi::c_void,
+    _setting: *const std::ffi::c_void,
 ) -> u32 {
     // Only react on resume from sleep, never on suspend
-    if event_type == PBT_APMRESUMEAUTOMATIC || event_type == PBT_APMRESUMESUSPEND {
-        let callback = unsafe { &*(context as *const DeviceChangeCallback) };
+    if event_type == PBT_APMRESUMEAUTOMATIC as u32 || event_type == PBT_APMRESUMESUSPEND as u32 {
+        let callback = unsafe { &*context.cast::<DeviceChangeCallback>() };
         callback(DeviceChangeSource::PowerResume);
     }
     0
 }
 
-windows_core::link!("user32.dll" "system" fn RegisterSuspendResumeNotification(hrecipient: *const DeviceNotifySubscribeParameters, flags: u32) -> *mut std::ffi::c_void);
-windows_core::link!("user32.dll" "system" fn UnregisterSuspendResumeNotification(handle: *mut std::ffi::c_void) -> windows_core::BOOL);
-
 struct PowerNotifyGuard {
-    handle: *mut std::ffi::c_void,
-    _params: Box<DeviceNotifySubscribeParameters>,
+    handle: HPOWERNOTIFY,
+    _params: Box<DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS>,
     _context: Box<DeviceChangeCallback>,
 }
 
@@ -92,7 +69,7 @@ unsafe impl Sync for PowerNotifyGuard {}
 
 impl Drop for PowerNotifyGuard {
     fn drop(&mut self) {
-        if !self.handle.is_null() {
+        if !self.handle.0.is_null() {
             // SAFETY: handle was obtained from RegisterSuspendResumeNotification.
             // Unregister before _params and _context are freed.
             unsafe {
@@ -229,9 +206,8 @@ impl AudioBackend for WindowsAudioBackend {
     }
 
     fn device_by_id(&self, id: &DeviceId) -> anyhow::Result<Box<dyn AudioDevice>> {
-        let wide = encode_wide_null(id);
-        // SAFETY: wide is a null-terminated UTF-16 string on the stack, valid for this call.
-        let device = unsafe { self.enumerator.GetDevice(PCWSTR(wide.as_ptr()))? };
+        // SAFETY: the temporary HSTRING is null-terminated and outlives this call.
+        let device = unsafe { self.enumerator.GetDevice(&HSTRING::from(&**id))? };
         Ok(Box::new(WindowsAudioDevice::new(device)?))
     }
 
@@ -262,8 +238,8 @@ impl AudioBackend for WindowsAudioBackend {
                 CLSCTX_INPROC_SERVER,
             )?
         };
-        let wide = encode_wide_null(device_id);
-        // SAFETY: wide is a null-terminated UTF-16 string on the stack, valid for this call.
+        let wide = HSTRING::from(&**device_id);
+        // SAFETY: wide is null-terminated and outlives this call.
         unsafe {
             policy_config
                 .SetDefaultEndpoint(PCWSTR(wide.as_ptr()), role)
@@ -297,13 +273,18 @@ impl AudioBackend for WindowsAudioBackend {
 
         // Register for Windows system resume (sleep/wake) events
         let context = Box::new(callback);
-        let params = Box::new(DeviceNotifySubscribeParameters {
-            callback: power_suspend_resume_callback,
-            context: &*context as *const DeviceChangeCallback as *mut std::ffi::c_void,
+        let params = Box::new(DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS {
+            Callback: Some(power_suspend_resume_callback),
+            Context: (&raw const *context).cast_mut().cast(),
         });
         // SAFETY: params is heap-allocated and kept alive in PowerNotifyGuard until UnregisterSuspendResumeNotification.
-        let handle = unsafe { RegisterSuspendResumeNotification(&*params, DEVICE_NOTIFY_CALLBACK) };
-        let power_guard = if !handle.is_null() {
+        let handle = unsafe {
+            RegisterSuspendResumeNotification(
+                HANDLE((&raw const *params).cast_mut().cast()),
+                DEVICE_NOTIFY_CALLBACK as u32,
+            )
+        };
+        let power_guard = if !handle.0.is_null() {
             Some(PowerNotifyGuard {
                 handle,
                 _params: params,
@@ -331,9 +312,8 @@ impl AudioBackend for WindowsAudioBackend {
     }
 
     fn device_fingerprint(&self, id: &DeviceId) -> Option<DeviceFingerprint> {
-        let wide = encode_wide_null(id);
-        // SAFETY: wide is a null-terminated UTF-16 string on the stack, valid for this call.
-        let device = unsafe { self.enumerator.GetDevice(PCWSTR(wide.as_ptr())).ok()? };
+        // SAFETY: the temporary HSTRING is null-terminated and outlives this call.
+        let device = unsafe { self.enumerator.GetDevice(&HSTRING::from(&**id)).ok()? };
         get_device_fingerprint(&device)
     }
 
@@ -355,7 +335,7 @@ impl AudioBackend for WindowsAudioBackend {
                 CLSCTX_INPROC_SERVER,
             )?
         };
-        let wide_id = encode_wide_null(id);
+        let wide_id = HSTRING::from(&**id);
         let mut errors = Vec::new();
 
         if let Some(name) = endpoint_name
@@ -542,7 +522,7 @@ impl IAudioEndpointVolumeCallback_Impl for VolumeChangeCallback_Impl {
     }
 }
 
-unsafe fn read_prop_string(
+pub(super) unsafe fn read_prop_string(
     prop_store: &crate::bindings::IPropertyStore,
     key: &PROPERTYKEY,
 ) -> Option<String> {
@@ -610,11 +590,11 @@ fn get_device_fingerprint(device: &IMMDevice) -> Option<DeviceFingerprint> {
 
 fn set_policy_config_string(
     policy_config: &windows_com_policy_config::IPolicyConfig,
-    device_id: &[u16],
+    device_id: &HSTRING,
     key: &PROPERTYKEY,
     value: &str,
 ) -> anyhow::Result<()> {
-    let wide_value = encode_wide_null(value);
+    let wide_value = HSTRING::from(value);
     let mut prop = PROPVARIANT {
         Anonymous: PROPVARIANT_0 {
             Anonymous: ManuallyDrop::new(PROPVARIANT_0_0 {

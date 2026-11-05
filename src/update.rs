@@ -1,3 +1,4 @@
+use crate::bindings::CREATE_NO_WINDOW;
 use crate::consts::{CURRENT_VERSION, GITHUB_RELEASE_ASSET, GITHUB_REPO_URL};
 use crate::i18n::{t, t_en};
 use crate::notification::notify_error;
@@ -75,10 +76,14 @@ fn is_newer_version(latest: &str, current: &str) -> bool {
 }
 
 pub fn fetch_update_info() -> anyhow::Result<Option<UpdateInfo>> {
+    fetch_update_info_from(GITHUB_REPO_URL)
+}
+
+fn fetch_update_info_from(repo_url: &str) -> anyhow::Result<Option<UpdateInfo>> {
     log::info!("Checking for updates...");
 
     let agent = create_check_agent();
-    let latest_releases_url = format!("{GITHUB_REPO_URL}/releases/latest");
+    let latest_releases_url = format!("{repo_url}/releases/latest");
     let response = agent.head(&latest_releases_url).call()?;
     let release_url = response.get_uri().to_string();
 
@@ -90,7 +95,7 @@ pub fn fetch_update_info() -> anyhow::Result<Option<UpdateInfo>> {
         Ok(Some(UpdateInfo {
             latest_version: latest_version.to_string(),
             download_url: format!(
-                "{GITHUB_REPO_URL}/releases/download/{latest_tag}/{GITHUB_RELEASE_ASSET}"
+                "{repo_url}/releases/download/{latest_tag}/{GITHUB_RELEASE_ASSET}"
             ),
             release_url,
         }))
@@ -201,21 +206,26 @@ pub fn launch_post_update_script() -> anyhow::Result<()> {
 
     log::info!("Download complete, launching post-update script");
 
-    // Spawns a detached process that waits for this app to exit, then replaces
-    // the executable and relaunches it.
-    Command::new("powershell.exe")
+    post_update_command(&temp_download, &exe_str).spawn()?;
+
+    log::info!("Post-update script launched, exiting application...");
+    Ok(())
+}
+
+/// A detached process that waits for this app to exit, then replaces the executable and
+/// relaunches it.
+fn post_update_command(temp_download: &str, exe: &str) -> Command {
+    let mut command = Command::new("powershell.exe");
+    command
         .args([
             "-NoProfile",
             "-Command",
             "Start-Sleep -Seconds 2; Move-Item -Path $env:VL_TEMP_PATH -Destination $env:VL_EXE_PATH -Force; Start-Process $env:VL_EXE_PATH",
         ])
-        .env("VL_TEMP_PATH", &temp_download)
-        .env("VL_EXE_PATH", exe_str)
-        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
-        .spawn()?;
-
-    log::info!("Post-update script launched, exiting application...");
-    Ok(())
+        .env("VL_TEMP_PATH", temp_download)
+        .env("VL_EXE_PATH", exe)
+        .creation_flags(CREATE_NO_WINDOW as u32);
+    command
 }
 
 #[cfg(test)]
@@ -295,6 +305,81 @@ mod tests {
 
         assert!(download_to_file(&read_timeout_agent(10_000), &url, &path).is_err());
         assert!(!std::path::Path::new(&path).exists());
+    }
+
+    /// Redirects `/releases/latest` to the release page of `tag`, as GitHub does.
+    fn serve_latest_release(tag: &str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("should bind");
+        let url = format!(
+            "http://{}",
+            listener.local_addr().expect("should have addr")
+        );
+        let location = format!("{url}/releases/tag/{tag}");
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let mut stream = stream.expect("should accept");
+                let mut request = [0; 1024];
+                let count = stream.read(&mut request).unwrap_or(0);
+                let response = if request[..count].starts_with(b"HEAD /releases/latest ") {
+                    format!(
+                        "HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    )
+                } else {
+                    "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_owned()
+                };
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        url
+    }
+
+    #[test]
+    fn newer_release_is_reported_with_its_urls() {
+        let url = serve_latest_release("v99.0.0");
+
+        let info = fetch_update_info_from(&url)
+            .expect("should check")
+            .expect("should find an update");
+
+        assert_eq!(info.latest_version, "99.0.0");
+        assert_eq!(info.release_url, format!("{url}/releases/tag/v99.0.0"));
+        assert_eq!(
+            info.download_url,
+            format!("{url}/releases/download/v99.0.0/{GITHUB_RELEASE_ASSET}")
+        );
+    }
+
+    #[test]
+    fn current_release_is_not_an_update() {
+        let url = serve_latest_release(&format!("v{CURRENT_VERSION}"));
+
+        assert!(
+            fetch_update_info_from(&url)
+                .expect("should check")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn post_update_script_replaces_the_executable() {
+        let dir = tempfile::tempdir().expect("should create temp dir");
+        let folder = dir.path().join("folder with spaces");
+        std::fs::create_dir(&folder).expect("should create folder");
+        let exe = folder.join("app.exe");
+        let download = folder.join("app.exe.download");
+        std::fs::write(&exe, "old").expect("should write file");
+        std::fs::write(&download, "new").expect("should write file");
+
+        // Relaunching this fake executable fails, so the exit code is not checked.
+        post_update_command(
+            download.to_str().expect("path should be UTF-8"),
+            exe.to_str().expect("path should be UTF-8"),
+        )
+        .status()
+        .expect("should run the script");
+
+        assert_eq!(std::fs::read(&exe).expect("should read file"), b"new");
+        assert!(!download.exists());
     }
 
     #[test]

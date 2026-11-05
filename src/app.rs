@@ -475,7 +475,6 @@ impl AppState {
             .build()
         {
             Ok(icon) => {
-                #[cfg(target_os = "windows")]
                 self.tray_hwnd
                     .store(icon.window_handle() as isize, Ordering::SeqCst);
                 self.tray_icon = Some(icon);

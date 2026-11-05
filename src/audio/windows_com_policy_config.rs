@@ -49,3 +49,74 @@ pub unsafe trait IPolicyConfig: IUnknown {
     ) -> HRESULT;
     pub fn SetDefaultEndpoint(&self, device: PCWSTR, role: ERole) -> HRESULT;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio::windows::read_prop_string;
+    use crate::bindings::{
+        CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree, IMMDeviceEnumerator,
+        MMDeviceEnumerator, PKEY_Device_DeviceDesc, PropVariantClear, PropVariantToStringAlloc,
+        STGM_READ, eConsole, eRender,
+    };
+    use std::mem::{offset_of, size_of};
+    use windows_core::HSTRING;
+
+    #[test]
+    fn called_methods_sit_at_their_com_vtable_slots() {
+        let slot = |offset: usize| offset / size_of::<usize>();
+        assert_eq!(slot(offset_of!(IPolicyConfig_Vtbl, GetPropertyValue)), 11);
+        assert_eq!(slot(offset_of!(IPolicyConfig_Vtbl, SetPropertyValue)), 12);
+        assert_eq!(slot(offset_of!(IPolicyConfig_Vtbl, SetDefaultEndpoint)), 13);
+    }
+
+    fn policy_config() -> IPolicyConfig {
+        windows_core::init_mta().expect("should initialize COM");
+        // SAFETY: COM was just initialized on this thread.
+        unsafe { CoCreateInstance(&POLICY_CONFIG_CLIENT, None, CLSCTX_INPROC_SERVER) }
+            .expect("Windows should provide the class with this interface")
+    }
+
+    #[test]
+    fn setting_the_default_of_an_unknown_device_fails_without_changing_anything() {
+        let device = HSTRING::from("not-a-device");
+        // SAFETY: the HSTRING is null-terminated and outlives this call.
+        let result =
+            unsafe { policy_config().SetDefaultEndpoint(PCWSTR(device.as_ptr()), eConsole) };
+        assert!(result.is_err());
+    }
+
+    // Read-only, so it is safe on any machine. Machines without audio devices skip it.
+    #[test]
+    fn reads_the_same_endpoint_name_as_the_property_store() {
+        let policy_config = policy_config();
+        // SAFETY: COM was initialized by policy_config() and every pointer outlives its call.
+        unsafe {
+            let enumerator: IMMDeviceEnumerator =
+                CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_INPROC_SERVER)
+                    .expect("should create enumerator");
+            let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eConsole) else {
+                return;
+            };
+            let raw_id = device.GetId().expect("should read device ID");
+            let store = device
+                .OpenPropertyStore(STGM_READ as u32)
+                .expect("should open property store");
+            let expected = read_prop_string(&store, &PKEY_Device_DeviceDesc);
+
+            let mut value = PROPVARIANT::default();
+            policy_config
+                .GetPropertyValue(PCWSTR(raw_id.0), 0, &PKEY_Device_DeviceDesc, &mut value)
+                .ok()
+                .expect("should read the property");
+            CoTaskMemFree(raw_id.0.cast());
+            let text = PropVariantToStringAlloc(&raw const value).expect("should be a string");
+            let actual = text.to_string().ok();
+            CoTaskMemFree(text.0.cast());
+            let _ = PropVariantClear(&mut value);
+
+            assert!(expected.is_some());
+            assert_eq!(actual, expected);
+        }
+    }
+}

@@ -20,10 +20,6 @@ pub(crate) struct PerTypeSettings {
 }
 
 /// Flat serde representation for backward-compatible JSON serialization.
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "independent user preferences"
-)]
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
 struct PersistentStateFlat {
