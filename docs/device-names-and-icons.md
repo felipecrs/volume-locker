@@ -30,7 +30,7 @@ flowchart LR
     MATCH -->|Always: locks and priorities| STATE[Settings under the new ID]
 ```
 
-1. The [matching tiers](./device-id-migration.md#matching-tiers) accept a pair. Restoring does not affect matching.
+1. The [matching tiers](./device-migration.md#matching-tiers) accept a pair. Restoring does not affect matching.
 2. `IPolicyConfig::SetPropertyValue` writes each changed value as a `VT_LPWSTR` string.
 3. Volume locks, unmute locks, and priorities move to the new ID.
 

@@ -2,7 +2,7 @@
 
 When Windows gives an audio device a new endpoint ID, Volume Locker finds the same physical device and moves its volume lock, unmute lock, and priority list entries to the new ID. To turn on notifications for this, check **Notify on device migration** in **Preferences**.
 
-To also keep the device's Windows name and icon, see [Keeping names and icons](./device-property-migration.md).
+To also keep the device's Windows name and icon, see [Keeping names and icons](./device-names-and-icons.md).
 
 ## When endpoint IDs change
 
