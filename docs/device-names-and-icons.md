@@ -1,6 +1,6 @@
 # Keeping names and icons
 
-To keep a device's Windows name and icon when it migrates, check **Keep name and icon on device migration** in **Preferences**. It is off by default.
+To keep a device's Windows name and icon when it migrates, check **Keep device name and icon on migration** in **Preferences**. It is off by default.
 
 When Windows creates a new endpoint for a device, the endpoint gets a default name and icon. With this preference on, Volume Locker writes the device's last seen name and icon to the new endpoint.
 

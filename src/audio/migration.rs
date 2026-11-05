@@ -582,7 +582,7 @@ pub fn migrate_device_ids(
                 // attempt to decide whether they were customized by the user.
                 let mut migrated_fingerprint = candidate.fingerprint;
                 let (endpoint_name, icon_path) =
-                    if persistent_state.keep_name_and_icon_on_device_migration {
+                    if persistent_state.keep_device_name_and_icon_on_migration {
                         (
                             value_to_restore(
                                 old_fingerprint.and_then(|fp| fp.device_desc.as_deref()),
@@ -868,7 +868,7 @@ mod tests {
                 .with_fingerprint(new_fingerprint),
         ]);
         let mut state = PersistentState {
-            keep_name_and_icon_on_device_migration: true,
+            keep_device_name_and_icon_on_migration: true,
             ..Default::default()
         };
         let mut settings =
@@ -917,7 +917,7 @@ mod tests {
                 .with_fingerprint(usb_fingerprint("Speakers")),
         ]);
         let mut state = PersistentState {
-            keep_name_and_icon_on_device_migration: true,
+            keep_device_name_and_icon_on_migration: true,
             ..Default::default()
         };
         let mut settings = make_device_settings("Desk Audio (USB Audio)", DeviceType::Output);
@@ -1013,7 +1013,7 @@ mod tests {
         ]);
         backend.restore_properties_fails = true;
         let mut state = PersistentState {
-            keep_name_and_icon_on_device_migration: true,
+            keep_device_name_and_icon_on_migration: true,
             ..Default::default()
         };
         let mut settings = make_device_settings("Studio Headphones", DeviceType::Output);

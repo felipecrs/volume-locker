@@ -37,7 +37,7 @@ struct PersistentStateFlat {
     switch_communication_device_input: bool,
     check_updates_on_launch: bool,
     notify_on_device_migration: bool,
-    keep_name_and_icon_on_device_migration: bool,
+    keep_device_name_and_icon_on_migration: bool,
     skip_disconnected_wireless_headsets: bool,
 }
 
@@ -84,7 +84,7 @@ impl From<PersistentStateFlat> for PersistentState {
             },
             check_updates_on_launch: flat.check_updates_on_launch,
             notify_on_device_migration: flat.notify_on_device_migration,
-            keep_name_and_icon_on_device_migration: flat.keep_name_and_icon_on_device_migration,
+            keep_device_name_and_icon_on_migration: flat.keep_device_name_and_icon_on_migration,
             skip_disconnected_wireless_headsets: flat.skip_disconnected_wireless_headsets,
         }
     }
@@ -121,7 +121,7 @@ impl From<PersistentState> for PersistentStateFlat {
             switch_communication_device_input: switch_comm_in,
             check_updates_on_launch: state.check_updates_on_launch,
             notify_on_device_migration: state.notify_on_device_migration,
-            keep_name_and_icon_on_device_migration: state.keep_name_and_icon_on_device_migration,
+            keep_device_name_and_icon_on_migration: state.keep_device_name_and_icon_on_migration,
             skip_disconnected_wireless_headsets: state.skip_disconnected_wireless_headsets,
         }
     }
@@ -135,7 +135,7 @@ pub struct PersistentState {
     pub(crate) input: PerTypeSettings,
     pub check_updates_on_launch: bool,
     pub notify_on_device_migration: bool,
-    pub keep_name_and_icon_on_device_migration: bool,
+    pub keep_device_name_and_icon_on_migration: bool,
     pub skip_disconnected_wireless_headsets: bool,
 }
 
@@ -299,7 +299,7 @@ impl Default for PersistentState {
             },
             check_updates_on_launch: true,
             notify_on_device_migration: false,
-            keep_name_and_icon_on_device_migration: false,
+            keep_device_name_and_icon_on_migration: false,
             skip_disconnected_wireless_headsets: true,
         }
     }
@@ -377,7 +377,7 @@ mod tests {
         assert!(state.output.priority_list.is_empty());
         assert!(state.check_updates_on_launch);
         assert!(!state.notify_on_device_migration);
-        assert!(!state.keep_name_and_icon_on_device_migration);
+        assert!(!state.keep_device_name_and_icon_on_migration);
         assert!(state.skip_disconnected_wireless_headsets);
     }
 
@@ -536,7 +536,7 @@ mod tests {
             },
             check_updates_on_launch: false,
             notify_on_device_migration: true,
-            keep_name_and_icon_on_device_migration: true,
+            keep_device_name_and_icon_on_migration: true,
             skip_disconnected_wireless_headsets: false,
             devices: HashMap::from([(
                 "dev_a".into(),
@@ -571,7 +571,7 @@ mod tests {
         assert!(loaded.input.communication_priority_list.is_empty());
         assert!(!loaded.check_updates_on_launch);
         assert!(loaded.notify_on_device_migration);
-        assert!(loaded.keep_name_and_icon_on_device_migration);
+        assert!(loaded.keep_device_name_and_icon_on_migration);
 
         let dev = loaded.devices.get("dev_a").unwrap();
         assert!(dev.volume_lock.is_locked);

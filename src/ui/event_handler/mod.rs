@@ -412,10 +412,10 @@ fn handle_app_event(
                 ctx.persistent_state.notify_on_device_migration = checked;
             })
         }
-        AppAction::ToggleKeepNameAndIconOnDeviceMigration => {
+        AppAction::ToggleKeepDeviceNameAndIconOnMigration => {
             with_check_state(ctx.tray_menu, &event.id, |checked| {
-                log::info!("User toggled 'Keep name and icon on device migration' to {checked}");
-                ctx.persistent_state.keep_name_and_icon_on_device_migration = checked;
+                log::info!("User toggled 'Keep device name and icon on migration' to {checked}");
+                ctx.persistent_state.keep_device_name_and_icon_on_migration = checked;
             })
         }
         AppAction::ToggleSkipDisconnectedWirelessHeadsets => {

@@ -65,7 +65,7 @@ It stays active until you uncheck it or restart the app.
 
 ### Skip wireless headsets that are off
 
-Some wireless receivers stay connected while the headset is off or out of range. Volume Locker skips supported headsets in that state, so put a fallback device below the headset in your priority list. See [Headset availability](docs/headset-presence.md).
+Some wireless receivers stay connected while the headset is off or out of range. Volume Locker skips supported headsets in that state, so put a fallback device below the headset in your priority list. See [Headset availability](docs/headset-availability.md).
 
 ### Device migration
 
@@ -78,7 +78,7 @@ Windows can create a new audio endpoint when you change USB ports, re-pair a Blu
 | Auto-launch on startup                 | Off     | Starts Volume Locker when you sign in to Windows                                                   |
 | Check for updates on launch            | On      | Checks for a new release when the app starts                                                       |
 | Notify on device migration             | Off     | Shows a notification when settings move to a new endpoint                                          |
-| Keep name and icon on device migration | Off     | Copies the device's Windows name and icon to the new endpoint ([details](docs/device-names-and-icons.md)) |
+| Keep device name and icon on migration | Off     | Copies the device's Windows name and icon to the new endpoint ([details](docs/device-names-and-icons.md)) |
 | Skip disconnected wireless headsets    | On      | Skips supported headsets that are off or out of range                                              |
 
 ## Credits
