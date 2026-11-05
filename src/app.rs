@@ -118,10 +118,10 @@ impl AppState {
             if let Err(e) = save_state(&self.persistent_state) {
                 log_and_notify_error(
                     "Failed to Save State",
-                    &format!("Failed to save state after device migration: {e:#}"),
+                    &format!("Failed to save state after device update: {e:#}"),
                 );
             } else {
-                log::info!("Saved state after device migration");
+                log::info!("Saved state after device update");
             }
         }
 
@@ -278,28 +278,17 @@ impl AppState {
         self.backend
             .configure_presence_monitoring(&presence_devices);
 
-        let mut settings_changed = false;
         for (device_id, new_name, device_type, fingerprint) in device_info {
             self.device_cache.insert(
                 device_id.clone(),
                 (new_name.clone(), device_type, fingerprint.clone()),
             );
             if let Some(settings) = self.persistent_state.device_settings_mut(&device_id) {
-                settings_changed |= settings.name != new_name
-                    || settings.device_type != device_type
-                    || (fingerprint.is_some() && settings.fingerprint != fingerprint);
                 settings.name = new_name;
                 settings.device_type = device_type;
                 if fingerprint.is_some() {
                     settings.fingerprint = fingerprint;
                 }
-            }
-        }
-        if settings_changed {
-            if let Err(e) = save_state(&self.persistent_state) {
-                log::error!("Failed to save state after device info update: {e:#}");
-            } else {
-                log::info!("Saved state after device info update");
             }
         }
 

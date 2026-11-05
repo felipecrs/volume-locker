@@ -57,7 +57,7 @@ graph TB
 
 When a USB device is unplugged or re-enumerated, Windows moves the old endpoint to `DEVICE_STATE_NOTPRESENT` (`4`). Audio streams can no longer be activated on it, but Windows keeps the complete COM property store in the registry.
 
-When a Bluetooth device is unpaired in Windows Settings, Windows deletes the endpoint (`0x80070490 Element not found`). To cover this, Volume Locker keeps an in-memory `device_cache` of all active endpoints:
+Windows can also delete an endpoint outright (`0x80070490 Element not found`), which can happen when a Bluetooth device is unpaired, although the endpoint may instead remain as `DEVICE_STATE_NOTPRESENT`. To cover this, Volume Locker keeps an in-memory `device_cache` of all active endpoints:
 
 ```mermaid
 sequenceDiagram
@@ -73,7 +73,7 @@ sequenceDiagram
         MM->>REG: OpenPropertyStore(STGM_READ)
         REG-->>APP: Return PKEY properties (Hardware ID, Names, FormFactor)
         Note over APP: Fingerprint recovered on the fly!
-    else Unpaired Bluetooth endpoint (Element not found)
+    else Deleted endpoint (Element not found)
         APP->>MEM: Query in-memory device cache
         MEM-->>APP: Return cached fingerprint (Bluetooth MAC address)
         Note over APP: Fingerprint recovered from memory cache!
@@ -117,10 +117,10 @@ classDiagram
 
 Volume Locker never reads `PKEY_Device_FriendlyName`. Windows computes it as `"{DeviceDesc} ({DeviceInterface_FriendlyName})"`, so it is not in the endpoint's stored properties and no change notification arrives for it. A rename therefore has no separate "friendly" value to compare against a default, and Volume Locker cannot tell a custom name from a driver's name.
 
-The name is instead composed (`compose_device_name`) from two stored properties:
+The name is instead composed (`compose_device_name`) from these two properties:
 
 - `PKEY_Device_DeviceDesc`: the endpoint name. Sound Settings edits this property on rename.
-- `PKEY_DeviceInterface_FriendlyName`: the adapter name. Despite the similar key name, this is a different property, and Sound Settings does not edit it.
+- `PKEY_DeviceInterface_FriendlyName`: the adapter name. Despite the similar key name, this is a different property. Sound Settings does not edit it, and Windows includes the port prefix in its value.
 
 The composed name is `"{DeviceDesc} ({interface})"`, with both parts cleaned. It is the user-facing name and the input for name matching, and it is not classified as custom or default; property restoration ([Endpoint property migration](./device-property-migration.md)) does not depend on it.
 
@@ -199,7 +199,7 @@ flowchart LR
     MIG --> LOCK
 ```
 
-- **`OnPropertyValueChanged`**: Filtered to `PKEY_Device_DeviceDesc` (what Sound Settings edits on rename) and `PKEY_DeviceClass_IconPath`, so it only acts when a user renames an endpoint or changes its icon. Driver telemetry (volume, battery, routing, peak meters) is ignored. Device info refreshes save state when a tracked device's name or fingerprint changed.
+- **`OnPropertyValueChanged`**: Filtered to `PKEY_Device_DeviceDesc` (what Sound Settings edits on rename) and `PKEY_DeviceClass_IconPath`, so it only acts when a user renames an endpoint or changes its icon. Driver telemetry (volume, battery, routing, peak meters) is ignored. Each event then saves any change to a tracked device's name or fingerprint.
 - **Event coalescing**: Bursts of hardware events while a device connects (e.g. `OnDeviceAdded`, `OnDeviceStateChanged`, `OnDefaultDeviceChanged`) become a single event loop dispatch.
 - **Event attribution**: Windows callbacks pass the affected `DeviceId` and state transition to the event loop, so logs can name them without blocking COM threads.
 - **Power resume**: On wake from modern standby or system sleep, volume levels are enforced synchronously, in case audio drivers reset endpoint volumes.

@@ -612,16 +612,23 @@ pub fn migrate_device_ids(
                 };
 
                 if properties_restored {
-                    if endpoint_name.is_some() {
-                        new_settings.name = missing.settings.name.clone();
-                    }
                     if let Some(fingerprint) = migrated_fingerprint.as_mut() {
                         if let Some(name) = endpoint_name {
                             fingerprint.device_desc = Some(name.to_string());
+                            fingerprint.clean_name = compose_device_name(
+                                Some(name),
+                                fingerprint.interface_name.as_deref(),
+                            );
                         }
                         if let Some(path) = icon_path {
                             fingerprint.icon_path = Some(path.to_string());
                         }
+                    }
+                    if endpoint_name.is_some() {
+                        new_settings.name = migrated_fingerprint
+                            .as_ref()
+                            .and_then(|fingerprint| fingerprint.clean_name.clone())
+                            .unwrap_or_else(|| missing.settings.name.clone());
                     }
                 }
                 if migrated_fingerprint.is_some() {
@@ -845,6 +852,8 @@ mod tests {
             usb_vid_pid: Some((0x046d, 0x0a66)),
             usb_serial: Some("serial-123".to_string()),
             device_desc: Some("G5443".to_string()),
+            interface_name: Some("2- Logitech G533 Gaming Headset".to_string()),
+            clean_name: Some("G5443 (Logitech G533 Gaming Headset)".to_string()),
             ..Default::default()
         };
         let backend = MockAudioBackend::new(vec![
@@ -866,6 +875,10 @@ mod tests {
         let fingerprint = migrated.fingerprint.as_ref().unwrap();
         assert_eq!(fingerprint.device_desc.as_deref(), Some("G544"));
         assert_eq!(
+            fingerprint.clean_name.as_deref(),
+            Some("G544 (Logitech G533 Gaming Headset)")
+        );
+        assert_eq!(
             fingerprint.icon_path.as_deref(),
             Some("@C:\\icons\\headphones.dll,-101")
         );
@@ -886,6 +899,7 @@ mod tests {
             usb_vid_pid: Some((0x046d, 0x0a66)),
             interface_index: Some(0),
             device_desc: Some(desc.to_string()),
+            interface_name: Some("USB Audio".to_string()),
             ..Default::default()
         };
         let backend = MockAudioBackend::new(vec![
