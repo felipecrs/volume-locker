@@ -29,7 +29,7 @@ use crate::audio::AudioBackend;
 use crate::audio::AudioBackendImpl;
 use crate::config::load_state;
 use crate::consts::{APP_NAME, APP_UID, LOG_FILE_NAME};
-use crate::i18n::t;
+use crate::i18n::{t, t_en};
 use crate::notification::NotificationThrottler;
 use crate::platform::{
     NotificationDuration, SingleInstanceGuard, init_platform, is_directory_writable,
@@ -103,7 +103,11 @@ fn ensure_writable_directory(executable_directory: &std::path::Path) -> anyhow::
             &t!("directory-not-writable", path = path.as_str()),
             NotificationDuration::Long,
         );
-        anyhow::bail!("Volume Locker directory is not writable: '{path}'");
+        anyhow::bail!(
+            "{}: {}",
+            t_en!("directory-not-writable-title"),
+            t_en!("directory-not-writable", path = path.as_str())
+        );
     }
     Ok(())
 }

@@ -12,11 +12,16 @@ use std::sync::LazyLock;
 struct Localizations;
 
 /// Starts in English until [`init`] selects the Windows display language.
-pub static LOADER: LazyLock<FluentLanguageLoader> = LazyLock::new(|| {
+pub static LOADER: LazyLock<FluentLanguageLoader> = LazyLock::new(english_loader);
+
+/// Always English, for logs, so bug reports stay readable.
+pub static ENGLISH: LazyLock<FluentLanguageLoader> = LazyLock::new(english_loader);
+
+fn english_loader() -> FluentLanguageLoader {
     let loader = fluent_language_loader!();
     apply_languages(&loader, &[]);
     loader
-});
+}
 
 /// Returns a translated string. Message IDs and argument names are checked at compile time against
 /// the English file.
@@ -26,6 +31,14 @@ macro_rules! t {
     };
 }
 pub(crate) use t;
+
+/// Like [`t!`], but always returns English. Use it for text that goes to the logs.
+macro_rules! t_en {
+    ($($args:tt)*) => {
+        i18n_embed_fl::fl!($crate::i18n::ENGLISH, $($args)*)
+    };
+}
+pub(crate) use t_en;
 
 pub fn init() {
     let languages = preferred_ui_languages();
@@ -196,6 +209,14 @@ mod tests {
                 to = "100"
             ),
             "The volume of Speakers has been restored from 50% to 100%."
+        );
+    }
+
+    #[test]
+    fn english_macro_formats_full_sentences() {
+        assert_eq!(
+            t_en!("current-device", device = "Speakers"),
+            "Current: Speakers"
         );
     }
 

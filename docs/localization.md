@@ -22,4 +22,7 @@ The build fails if the message ID or an argument name is not in the English file
 
 Write each sentence as one whole message, because word order differs between languages.
 
-Keep log messages in English so bug reports stay readable. `log_and_notify_error` takes its log message separately for this reason.
+Logs stay in English so bug reports are readable:
+
+- Use `t_en!` instead of `t!` for translated text that also goes to the logs.
+- Use `notify_error!("title-id", "message-id", argument = value)` for errors. It shows the notification in the user's language and logs the message in English.

@@ -2,8 +2,18 @@ use crate::platform::{NotificationDuration, send_notification};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-/// `log_message` stays in English so bug reports are readable, while `title` and `message` are
-/// shown to the user in their language.
+/// Shows an error notification in the user's language and logs the same message in English.
+macro_rules! notify_error {
+    ($title:tt, $($message:tt)*) => {
+        $crate::notification::log_and_notify_error(
+            &$crate::i18n::t_en!($($message)*),
+            &$crate::i18n::t!($title),
+            &$crate::i18n::t!($($message)*),
+        )
+    };
+}
+pub(crate) use notify_error;
+
 pub fn log_and_notify_error(log_message: &str, title: &str, message: &str) {
     log::error!("{log_message}");
     if let Err(e) = send_notification(title, message, NotificationDuration::Long) {

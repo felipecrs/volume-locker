@@ -2,8 +2,7 @@ use super::{AppAction, DeviceAction, MenuAction, MenuItemInfo, PreferenceAction}
 use crate::audio::AudioBackend;
 use crate::config::PersistentState;
 use crate::consts::GITHUB_REPO_URL;
-use crate::i18n::t;
-use crate::notification::log_and_notify_error;
+use crate::notification::notify_error;
 use crate::platform::{
     open_device_properties, open_device_settings, open_sound_control_panel, open_sound_settings,
     open_volume_mixer,
@@ -87,10 +86,10 @@ fn apply_device_lock_toggle(
                     device_settings.volume_lock.target_percent = percent;
                     device_settings.volume_lock.is_locked = true;
                 } else {
-                    log_and_notify_error(
-                        &format!("Failed to get volume for device {device_name}, cannot lock."),
-                        &t!("lock-volume-failed-title"),
-                        &t!("lock-volume-failed", device = device_name),
+                    notify_error!(
+                        "lock-volume-failed-title",
+                        "lock-volume-failed",
+                        device = device_name
                     );
                     device_settings.volume_lock.is_locked = false;
                 }

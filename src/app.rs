@@ -5,7 +5,7 @@ use crate::audio::{
 use crate::config::{PersistentState, save_state};
 use crate::consts::{APP_NAME, APP_UID, CURRENT_VERSION};
 use crate::i18n::t;
-use crate::notification::{NotificationThrottler, log_and_notify_error};
+use crate::notification::{NotificationThrottler, notify_error};
 use crate::types::{
     DeviceChangeSource, DeviceFingerprint, DeviceId, DeviceType, TemporaryPriorities, UserEvent,
     VolumeChangedEvent, VolumeScalar,
@@ -116,11 +116,10 @@ impl AppState {
 
         if result.persistent_changed {
             if let Err(e) = save_state(&self.persistent_state) {
-                let error = format!("{e:#}");
-                log_and_notify_error(
-                    &format!("Failed to save state after device update: {error}"),
-                    &t!("save-state-failed-title"),
-                    &t!("save-state-after-update-failed", error = error.as_str()),
+                notify_error!(
+                    "save-state-failed-title",
+                    "save-state-after-update-failed",
+                    error = format!("{e:#}")
                 );
             } else {
                 log::info!("Saved state after device update");
@@ -341,11 +340,10 @@ impl AppState {
 
     pub fn handle_configuration_changed(&mut self, proxy: &EventLoopProxy<UserEvent>) {
         if let Err(e) = save_state(&self.persistent_state) {
-            let error = format!("{e:#}");
-            log_and_notify_error(
-                &format!("Failed to save state: {error}"),
-                &t!("save-state-failed-title"),
-                &t!("save-state-failed", error = error.as_str()),
+            notify_error!(
+                "save-state-failed-title",
+                "save-state-failed",
+                error = format!("{e:#}")
             );
             return;
         }
@@ -401,11 +399,10 @@ impl AppState {
                         *control_flow = ControlFlow::Exit;
                     }
                     Err(e) => {
-                        let error = format!("{e:#}");
-                        log_and_notify_error(
-                            &format!("Update failed: {error}"),
-                            &t!("update-failed-title"),
-                            &t!("update-failed", error = error.as_str()),
+                        notify_error!(
+                            "update-failed-title",
+                            "update-failed",
+                            error = format!("{e:#}")
                         );
                     }
                 },
@@ -419,11 +416,10 @@ impl AppState {
                         refs.auto_launch.disable()
                     };
                     if let Err(e) = result {
-                        let error = format!("{e:#}");
-                        log_and_notify_error(
-                            &format!("Failed to toggle auto-launch: {error}"),
-                            &t!("auto-launch-failed-title"),
-                            &t!("auto-launch-failed", error = error.as_str()),
+                        notify_error!(
+                            "auto-launch-failed-title",
+                            "auto-launch-failed",
+                            error = format!("{e:#}")
                         );
                     }
                 }
@@ -492,11 +488,10 @@ impl AppState {
                 self.menu_id_map = map;
             }
             Err(e) => {
-                let error = format!("{e:#}");
-                log_and_notify_error(
-                    &format!("Failed to rebuild tray menu: {error}"),
-                    &t!("rebuild-menu-failed-title"),
-                    &t!("rebuild-menu-failed", error = error.as_str()),
+                notify_error!(
+                    "rebuild-menu-failed-title",
+                    "rebuild-menu-failed",
+                    error = format!("{e:#}")
                 );
             }
         }

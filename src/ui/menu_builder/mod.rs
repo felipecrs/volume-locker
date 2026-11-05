@@ -4,7 +4,7 @@ mod priority_section;
 use super::{AppAction, DeviceAction, MenuAction, MenuItemInfo};
 use crate::audio::AudioBackend;
 use crate::config::PersistentState;
-use crate::i18n::t;
+use crate::i18n::{t, t_en};
 use crate::types::{DeviceId, DeviceType, TemporaryPriorities, VolumePercent};
 use crate::update::UpdateInfo;
 use std::collections::HashMap;
@@ -63,16 +63,16 @@ fn register_menu_item(
     // English name, unlike real devices, whose names come from Windows.
     let name = if device_id.is_main_priority() {
         match device_type {
-            DeviceType::Output => "Follow output device priority",
-            DeviceType::Input => "Follow input device priority",
+            DeviceType::Output => t_en!("follow-output-device-priority"),
+            DeviceType::Input => t_en!("follow-input-device-priority"),
         }
     } else {
-        name
+        name.to_string()
     };
     map.insert(
         menu_id,
         MenuItemInfo {
-            name: name.to_string(),
+            name,
             action: MenuAction::Device {
                 device_id: device_id.clone(),
                 device_type,
