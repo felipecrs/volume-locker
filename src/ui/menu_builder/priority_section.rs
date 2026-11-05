@@ -1,6 +1,7 @@
 use super::{lookup_device_name, register_menu_item};
 use crate::audio::AudioBackend;
 use crate::config::PersistentState;
+use crate::i18n::t;
 use crate::types::{DeviceId, DeviceRole, DeviceType, PriorityKind, TemporaryPriorities};
 use crate::ui::{DeviceAction, MenuAction, MenuIdMap, MenuItemInfo, PreferenceAction};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -12,7 +13,7 @@ fn current_default_device_name(
 ) -> String {
     backend
         .default_device(device_type, role)
-        .map_or_else(|_| "None".to_string(), |d| d.name())
+        .map_or_else(|_| t!("no-current-device"), |d| d.name())
 }
 
 fn build_priority_item_submenu(
@@ -27,20 +28,20 @@ fn build_priority_item_submenu(
     let label = format!("{}. {}", index + 1, device_name);
     let submenu = Submenu::new(&label, true);
 
-    let move_items: [(&str, bool, DeviceAction); 4] = [
-        ("Move up", index > 0, DeviceAction::MovePriorityUp(kind)),
+    let move_items: [(String, bool, DeviceAction); 4] = [
+        (t!("move-up"), index > 0, DeviceAction::MovePriorityUp(kind)),
         (
-            "Move down",
+            t!("move-down"),
             index < list_len - 1,
             DeviceAction::MovePriorityDown(kind),
         ),
         (
-            "Move to top",
+            t!("move-to-top"),
             index > 0,
             DeviceAction::MovePriorityToTop(kind),
         ),
         (
-            "Move to bottom",
+            t!("move-to-bottom"),
             index < list_len - 1,
             DeviceAction::MovePriorityToBottom(kind),
         ),
@@ -62,7 +63,7 @@ fn build_priority_item_submenu(
     }
     submenu.append(&PredefinedMenuItem::separator())?;
 
-    let remove_item = MenuItem::new("Remove device", true, None);
+    let remove_item = MenuItem::new(t!("remove-device"), true, None);
     register_menu_item(
         map,
         remove_item.id().clone(),
@@ -84,17 +85,17 @@ fn append_priority_list_and_add_entries(
     persistent_state: &PersistentState,
     map: &mut MenuIdMap,
 ) -> anyhow::Result<()> {
-    submenu.append(&MenuItem::new("Priority list", false, None))?;
+    submenu.append(&MenuItem::new(t!("priority-list"), false, None))?;
 
     let priority_list = persistent_state.priority_list_of(device_type, kind);
     if priority_list.is_empty() {
-        submenu.append(&MenuItem::new("No devices configured", false, None))?;
+        submenu.append(&MenuItem::new(t!("no-devices-configured"), false, None))?;
     } else {
         for (index, device_id) in priority_list.iter().enumerate() {
             let device_name = if device_id.is_main_priority() {
                 match device_type {
-                    DeviceType::Output => "Follow output device priority".to_string(),
-                    DeviceType::Input => "Follow input device priority".to_string(),
+                    DeviceType::Output => t!("follow-output-device-priority"),
+                    DeviceType::Input => t!("follow-input-device-priority"),
                 }
             } else {
                 lookup_device_name(device_id, persistent_state, backend)
@@ -112,15 +113,15 @@ fn append_priority_list_and_add_entries(
         }
     }
 
-    submenu.append(&MenuItem::new("Add device", false, None))?;
+    submenu.append(&MenuItem::new(t!("add-device"), false, None))?;
 
     let mut devices_to_add: Vec<(DeviceId, String)> = Vec::new();
 
     if kind == PriorityKind::Communication && !priority_list.iter().any(|id| id.is_main_priority())
     {
         let label = match device_type {
-            DeviceType::Output => "Follow output device priority".to_string(),
-            DeviceType::Input => "Follow input device priority".to_string(),
+            DeviceType::Output => t!("follow-output-device-priority"),
+            DeviceType::Input => t!("follow-input-device-priority"),
         };
         devices_to_add.push((DeviceId::main_priority(), label));
     }
@@ -137,12 +138,12 @@ fn append_priority_list_and_add_entries(
     );
 
     if devices_to_add.is_empty() {
-        submenu.append(&MenuItem::new("No devices available", false, None))?;
+        submenu.append(&MenuItem::new(t!("no-devices-available"), false, None))?;
     } else {
         for (id, name) in &devices_to_add {
             let device_submenu = Submenu::new(name, true);
 
-            let add_top = MenuItem::new("Add to top", true, None);
+            let add_top = MenuItem::new(t!("add-to-top"), true, None);
             register_menu_item(
                 map,
                 add_top.id().clone(),
@@ -153,7 +154,7 @@ fn append_priority_list_and_add_entries(
             );
             device_submenu.append(&add_top)?;
 
-            let add_bottom = MenuItem::new("Add to bottom", true, None);
+            let add_bottom = MenuItem::new(t!("add-to-bottom"), true, None);
             register_menu_item(
                 map,
                 add_bottom.id().clone(),
@@ -179,10 +180,10 @@ fn build_priority_submenu(
     map: &mut MenuIdMap,
 ) -> anyhow::Result<Submenu> {
     let title = match kind {
-        PriorityKind::Main => "Device priority settings",
-        PriorityKind::Communication => "Communication priority settings",
+        PriorityKind::Main => t!("device-priority-settings"),
+        PriorityKind::Communication => t!("communication-priority-settings"),
     };
-    let submenu = Submenu::new(title, true);
+    let submenu = Submenu::new(&title, true);
 
     append_priority_list_and_add_entries(
         &submenu,
@@ -196,7 +197,7 @@ fn build_priority_submenu(
     submenu.append(&PredefinedMenuItem::separator())?;
 
     let notify = persistent_state.notify_on_priority_restore_of(device_type, kind);
-    let notify_item = CheckMenuItem::new("Notify on restore", true, notify, None);
+    let notify_item = CheckMenuItem::new(t!("notify-on-restore"), true, notify, None);
     let notify_name = match kind {
         PriorityKind::Main => "Priority Restore Notify",
         PriorityKind::Communication => "Communication Priority Restore Notify",
@@ -224,8 +225,8 @@ pub fn append_priority_list_to_menu(
     map: &mut MenuIdMap,
 ) -> anyhow::Result<()> {
     let header_label = match device_type {
-        DeviceType::Output => "Output device priority",
-        DeviceType::Input => "Input device priority",
+        DeviceType::Output => t!("output-device-priority"),
+        DeviceType::Input => t!("input-device-priority"),
     };
     let header = MenuItem::new(header_label, false, None);
     tray_menu.append(&header)?;
@@ -240,7 +241,11 @@ pub fn append_priority_list_to_menu(
     tray_menu.append(&main_submenu)?;
 
     let current_name = current_default_device_name(backend, device_type, DeviceRole::Console);
-    let current_info = MenuItem::new(format!("Current: {current_name}"), false, None);
+    let current_info = MenuItem::new(
+        t!("current-device", device = current_name.as_str()),
+        false,
+        None,
+    );
     tray_menu.append(&current_info)?;
 
     let comm_submenu = build_priority_submenu(
@@ -254,7 +259,11 @@ pub fn append_priority_list_to_menu(
 
     let current_comm_name =
         current_default_device_name(backend, device_type, DeviceRole::Communications);
-    let current_comm_info = MenuItem::new(format!("Current: {current_comm_name}"), false, None);
+    let current_comm_info = MenuItem::new(
+        t!("current-device", device = current_comm_name.as_str()),
+        false,
+        None,
+    );
     tray_menu.append(&current_comm_info)?;
 
     tray_menu.append(&PredefinedMenuItem::separator())?;
@@ -269,20 +278,24 @@ pub fn append_temporary_priority_section(
     temporary_priorities: &TemporaryPriorities,
     map: &mut MenuIdMap,
 ) -> anyhow::Result<()> {
-    tray_menu.append(&MenuItem::new("Temporary priority", false, None))?;
+    tray_menu.append(&MenuItem::new(t!("temporary-priority"), false, None))?;
 
     let targets = [
-        (DeviceType::Output, PriorityKind::Main, "Output"),
+        (
+            DeviceType::Output,
+            PriorityKind::Main,
+            t!("temporary-output"),
+        ),
         (
             DeviceType::Output,
             PriorityKind::Communication,
-            "Communication",
+            t!("temporary-communication"),
         ),
-        (DeviceType::Input, PriorityKind::Main, "Input"),
+        (DeviceType::Input, PriorityKind::Main, t!("temporary-input")),
         (
             DeviceType::Input,
             PriorityKind::Communication,
-            "Communication",
+            t!("temporary-communication"),
         ),
     ];
 
@@ -296,15 +309,19 @@ pub fn append_temporary_priority_section(
 
         let submenu_label = if let Some(temp_id) = temp_id_opt {
             let device_name = lookup_device_name(temp_id, persistent_state, backend);
-            format!("{label_prefix}: {device_name}")
+            t!(
+                "temporary-with-device",
+                target = label_prefix.as_str(),
+                device = device_name.as_str()
+            )
         } else {
-            label_prefix.to_string()
+            label_prefix
         };
 
         let submenu = Submenu::new(&submenu_label, true);
 
         if devices.is_empty() {
-            submenu.append(&MenuItem::new("No devices available", false, None))?;
+            submenu.append(&MenuItem::new(t!("no-devices-available"), false, None))?;
         } else {
             for device in &devices {
                 let id = device.id();

@@ -2,8 +2,10 @@ use crate::platform::{NotificationDuration, send_notification};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-pub fn log_and_notify_error(title: &str, message: &str) {
-    log::error!("{message}");
+/// `log_message` stays in English so bug reports are readable, while `title` and `message` are
+/// shown to the user in their language.
+pub fn log_and_notify_error(log_message: &str, title: &str, message: &str) {
+    log::error!("{log_message}");
     if let Err(e) = send_notification(title, message, NotificationDuration::Long) {
         log::error!("Failed to send error notification: {e:#}");
     }

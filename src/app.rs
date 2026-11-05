@@ -4,6 +4,7 @@ use crate::audio::{
 };
 use crate::config::{PersistentState, save_state};
 use crate::consts::{APP_NAME, APP_UID, CURRENT_VERSION};
+use crate::i18n::t;
 use crate::notification::{NotificationThrottler, log_and_notify_error};
 use crate::types::{
     DeviceChangeSource, DeviceFingerprint, DeviceId, DeviceType, TemporaryPriorities, UserEvent,
@@ -115,9 +116,11 @@ impl AppState {
 
         if result.persistent_changed {
             if let Err(e) = save_state(&self.persistent_state) {
+                let error = format!("{e:#}");
                 log_and_notify_error(
-                    "Failed to Save State",
-                    &format!("Failed to save state after device update: {e:#}"),
+                    &format!("Failed to save state after device update: {error}"),
+                    &t!("save-state-failed-title"),
+                    &t!("save-state-after-update-failed", error = error.as_str()),
                 );
             } else {
                 log::info!("Saved state after device update");
@@ -128,8 +131,8 @@ impl AppState {
             for name in result.transferred_device_names {
                 self.notification_throttler.send_if_not_throttled(
                     &format!("transfer_{name}"),
-                    "Device Settings Transferred",
-                    &format!("Settings for '{name}' were transferred to its new connection."),
+                    &t!("settings-transferred-title"),
+                    &t!("settings-transferred", device = name.as_str()),
                 );
             }
         }
@@ -338,9 +341,11 @@ impl AppState {
 
     pub fn handle_configuration_changed(&mut self, proxy: &EventLoopProxy<UserEvent>) {
         if let Err(e) = save_state(&self.persistent_state) {
+            let error = format!("{e:#}");
             log_and_notify_error(
-                "Failed to Save State",
-                &format!("Failed to save state: {e:#}"),
+                &format!("Failed to save state: {error}"),
+                &t!("save-state-failed-title"),
+                &t!("save-state-failed", error = error.as_str()),
             );
             return;
         }
@@ -396,7 +401,12 @@ impl AppState {
                         *control_flow = ControlFlow::Exit;
                     }
                     Err(e) => {
-                        log_and_notify_error("Update Failed", &format!("Update failed: {e:#}"));
+                        let error = format!("{e:#}");
+                        log_and_notify_error(
+                            &format!("Update failed: {error}"),
+                            &t!("update-failed-title"),
+                            &t!("update-failed", error = error.as_str()),
+                        );
                     }
                 },
                 MenuEventResult::UpdateCheck => {
@@ -409,9 +419,11 @@ impl AppState {
                         refs.auto_launch.disable()
                     };
                     if let Err(e) = result {
+                        let error = format!("{e:#}");
                         log_and_notify_error(
-                            "Failed to Toggle Auto-Launch",
-                            &format!("Failed to toggle auto-launch: {e:#}"),
+                            &format!("Failed to toggle auto-launch: {error}"),
+                            &t!("auto-launch-failed-title"),
+                            &t!("auto-launch-failed", error = error.as_str()),
                         );
                     }
                 }
@@ -480,9 +492,11 @@ impl AppState {
                 self.menu_id_map = map;
             }
             Err(e) => {
+                let error = format!("{e:#}");
                 log_and_notify_error(
-                    "Failed to Rebuild Tray Menu",
-                    &format!("Failed to rebuild tray menu: {e:#}"),
+                    &format!("Failed to rebuild tray menu: {error}"),
+                    &t!("rebuild-menu-failed-title"),
+                    &t!("rebuild-menu-failed", error = error.as_str()),
                 );
             }
         }

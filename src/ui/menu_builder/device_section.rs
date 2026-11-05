@@ -1,6 +1,7 @@
 use super::{DeviceDisplayInfo, append_action_item, format_device_menu_label, register_menu_item};
 use crate::audio::{AudioBackend, AudioDevice};
 use crate::config::PersistentState;
+use crate::i18n::t;
 use crate::types::DeviceType;
 use crate::ui::{DeviceAction, MenuAction, MenuIdMap, PreferenceAction};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -45,16 +46,17 @@ pub fn build_device_submenu(
 
     let submenu = Submenu::new(&label, true);
 
-    let volume_lock_item = CheckMenuItem::new("Keep volume locked", true, is_volume_locked, None);
+    let volume_lock_item =
+        CheckMenuItem::new(t!("keep-volume-locked"), true, is_volume_locked, None);
     let volume_notify_item = CheckMenuItem::new(
-        "Notify on volume restore",
+        t!("notify-on-volume-restore"),
         is_volume_locked,
         notify_on_volume_lock,
         None,
     );
-    let unmute_lock_item = CheckMenuItem::new("Keep unmuted", true, is_unmute_locked, None);
+    let unmute_lock_item = CheckMenuItem::new(t!("keep-unmuted"), true, is_unmute_locked, None);
     let unmute_notify_item = CheckMenuItem::new(
-        "Notify on unmute",
+        t!("notify-on-unmute"),
         is_unmute_locked,
         notify_on_unmute_lock,
         None,
@@ -81,11 +83,11 @@ pub fn build_device_submenu(
     submenu.append(&unmute_notify_item)?;
     submenu.append(&PredefinedMenuItem::separator())?;
 
-    let properties_item = MenuItem::new("Properties...", true, None);
+    let properties_item = MenuItem::new(t!("device-properties"), true, None);
     register(properties_item.id().clone(), DeviceAction::OpenProperties);
     submenu.append(&properties_item)?;
 
-    let settings_item = MenuItem::new("Settings...", true, None);
+    let settings_item = MenuItem::new(t!("device-settings"), true, None);
     register(settings_item.id().clone(), DeviceAction::OpenSettings);
     submenu.append(&settings_item)?;
 
@@ -113,13 +115,13 @@ pub fn append_device_list_to_menu(
     }
 
     let properties_label = match device_type {
-        DeviceType::Output => "Playback devices...",
-        DeviceType::Input => "Recording devices...",
+        DeviceType::Output => t!("playback-devices"),
+        DeviceType::Input => t!("recording-devices"),
     };
     append_action_item(
         tray_menu,
         map,
-        properties_label,
+        &properties_label,
         MenuAction::Preference {
             device_type,
             action: PreferenceAction::OpenDevicesList,

@@ -16,6 +16,7 @@ mod audio;
 mod bindings;
 mod config;
 mod consts;
+mod i18n;
 mod notification;
 mod platform;
 mod types;
@@ -28,6 +29,7 @@ use crate::audio::AudioBackend;
 use crate::audio::AudioBackendImpl;
 use crate::config::load_state;
 use crate::consts::{APP_NAME, APP_UID, LOG_FILE_NAME};
+use crate::i18n::t;
 use crate::notification::NotificationThrottler;
 use crate::platform::{
     NotificationDuration, SingleInstanceGuard, init_platform, is_directory_writable,
@@ -95,13 +97,13 @@ fn setup_logging(executable_directory: &std::path::Path) -> anyhow::Result<()> {
 
 fn ensure_writable_directory(executable_directory: &std::path::Path) -> anyhow::Result<()> {
     if !is_directory_writable(executable_directory) {
-        let error_title = "Volume Locker Directory Not Writable";
-        let error_message = format!(
-            "Please move Volume Locker to a directory that is writable or fix the permissions of '{}'.",
-            executable_directory.display(),
+        let path = executable_directory.display().to_string();
+        let _ = send_notification(
+            &t!("directory-not-writable-title"),
+            &t!("directory-not-writable", path = path.as_str()),
+            NotificationDuration::Long,
         );
-        let _ = send_notification(error_title, &error_message, NotificationDuration::Long);
-        anyhow::bail!("{error_title}: {error_message}");
+        anyhow::bail!("Volume Locker directory is not writable: '{path}'");
     }
     Ok(())
 }
@@ -136,6 +138,7 @@ fn create_auto_launch() -> anyhow::Result<AutoLaunch> {
 fn run() -> anyhow::Result<()> {
     let executable_directory = get_executable_directory()?;
     setup_logging(&executable_directory)?;
+    i18n::init();
 
     let com_token = init_platform(&executable_directory)?;
     ensure_writable_directory(&executable_directory)?;
@@ -147,13 +150,13 @@ fn run() -> anyhow::Result<()> {
 
     let auto_launch = create_auto_launch()?;
 
-    let output_devices_heading_item = MenuItem::new("Output devices", false, None);
-    let input_devices_heading_item = MenuItem::new("Input devices", false, None);
+    let output_devices_heading_item = MenuItem::new(t!("output-devices"), false, None);
+    let input_devices_heading_item = MenuItem::new(t!("input-devices"), false, None);
     let auto_launch_check_item: CheckMenuItem =
-        CheckMenuItem::new("Auto-launch on startup", true, false, None);
+        CheckMenuItem::new(t!("auto-launch"), true, false, None);
     let check_updates_on_launch_item: CheckMenuItem =
-        CheckMenuItem::new("Check for updates on launch", true, false, None);
-    let quit_item = MenuItem::new("Quit", true, None);
+        CheckMenuItem::new(t!("check-updates-on-launch"), true, false, None);
+    let quit_item = MenuItem::new(t!("quit"), true, None);
 
     let tray_menu = Menu::new();
     // At least one item must be added to the menu on initialization, otherwise

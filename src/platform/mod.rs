@@ -11,6 +11,7 @@ mod windows;
 pub use self::windows::{
     ComToken, SingleInstanceGuard, init_platform, is_directory_writable, open_device_properties,
     open_device_settings, open_sound_control_panel, open_sound_settings, open_volume_mixer,
+    preferred_ui_languages,
 };
 
 #[cfg(not(target_os = "windows"))]

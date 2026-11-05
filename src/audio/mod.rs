@@ -1,3 +1,4 @@
+use crate::i18n::t;
 use crate::types::{DeviceChangeSource, DeviceId, DeviceRole, DeviceType, VolumeScalar};
 
 pub mod presence;
@@ -97,12 +98,10 @@ pub fn check_and_unmute_device(
     }
     log::info!("Unmuted '{device_name}' due to lock settings");
     if notify {
-        let (notification_title, notification_suffix) =
-            get_unmute_notification_details(device_type);
-        let message = format!("{device_name} {notification_suffix}");
+        let (title, message) = get_unmute_notification_details(device_type, &device_name);
         throttler.send_if_not_throttled(
             &format!("unmute_{id}", id = device.id()),
-            notification_title,
+            &title,
             &message,
         );
     }
@@ -134,20 +133,23 @@ pub fn enforce_volume_lock(
     if lock.notify {
         throttler.send_if_not_throttled(
             &format!("volume_restore_{device_id}"),
-            "Volume Restored",
-            &format!(
-                "The volume of {device_name} has been restored from {new_volume_percent}% to {target_volume_percent}%."
+            &t!("volume-restored-title"),
+            &t!(
+                "volume-restored",
+                device = device_name,
+                from = new_volume_percent.to_string(),
+                to = target_volume_percent.to_string()
             ),
         );
     }
 }
 
-fn get_unmute_notification_details(device_type: DeviceType) -> (&'static str, &'static str) {
+fn get_unmute_notification_details(device_type: DeviceType, device_name: &str) -> (String, String) {
     let title = match device_type {
-        DeviceType::Input => "Input Device Unmuted",
-        DeviceType::Output => "Output Device Unmuted",
+        DeviceType::Input => t!("input-unmuted-title"),
+        DeviceType::Output => t!("output-unmuted-title"),
     };
-    (title, "was unmuted due to Keep unmuted setting.")
+    (title, t!("device-unmuted", device = device_name))
 }
 
 /// Returns a list of `(device_id, new_name, device_type, Option<DeviceFingerprint>)` tuples for all
@@ -453,9 +455,9 @@ pub(crate) mod tests {
 
     #[test]
     fn unmute_notification_details_output() {
-        let (title, suffix) = get_unmute_notification_details(DeviceType::Output);
+        let (title, message) = get_unmute_notification_details(DeviceType::Output, "Speakers");
         assert_eq!(title, "Output Device Unmuted");
-        assert!(suffix.contains("unmuted"));
+        assert_eq!(message, "Speakers was unmuted due to Keep unmuted setting.");
     }
 
     #[test]
@@ -470,9 +472,9 @@ pub(crate) mod tests {
 
     #[test]
     fn unmute_notification_details_input() {
-        let (title, suffix) = get_unmute_notification_details(DeviceType::Input);
+        let (title, message) = get_unmute_notification_details(DeviceType::Input, "Mic");
         assert_eq!(title, "Input Device Unmuted");
-        assert!(suffix.contains("unmuted"));
+        assert_eq!(message, "Mic was unmuted due to Keep unmuted setting.");
     }
 
     // --- Error path tests ---
