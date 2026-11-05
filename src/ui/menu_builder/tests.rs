@@ -2,8 +2,60 @@
 
 use super::{
     CheckMenuItem, DeviceDisplayInfo, HashMap, Menu, MenuItem, PersistentState, TrayMenuItems,
-    VolumePercent, append_preferences_section, format_device_menu_label,
+    UpdateInfo, VolumePercent, append_footer_section, append_preferences_section,
+    format_device_menu_label,
 };
+
+fn footer_update_item(update_download_in_progress: bool) -> (String, bool, usize) {
+    let menu = Menu::new();
+    let auto_launch = CheckMenuItem::new("Auto-launch on startup", true, false, None);
+    let check_updates = CheckMenuItem::new("Check for updates on launch", true, false, None);
+    let quit = MenuItem::new("Quit", true, None);
+    let output_heading = MenuItem::new("Output devices", false, None);
+    let input_heading = MenuItem::new("Input devices", false, None);
+    let items = TrayMenuItems {
+        auto_launch_check: &auto_launch,
+        check_updates_on_launch: &check_updates,
+        quit: &quit,
+        output_devices_heading: &output_heading,
+        input_devices_heading: &input_heading,
+    };
+    let update_info = UpdateInfo {
+        latest_version: "1.2.3".to_string(),
+        download_url: String::new(),
+        release_url: String::new(),
+    };
+    let mut map = HashMap::new();
+
+    append_footer_section(
+        &menu,
+        &mut map,
+        Some(&update_info),
+        update_download_in_progress,
+        &items,
+    )
+    .unwrap();
+
+    let top_level = menu.items();
+    let item = top_level[top_level.len() - 3].as_menuitem().unwrap();
+    (item.text(), item.is_enabled(), map.len())
+}
+
+#[test]
+fn footer_offers_available_update() {
+    let (label, enabled, actions) = footer_update_item(false);
+    assert_eq!(label, "Update to 1.2.3...");
+    assert!(enabled);
+    assert_eq!(actions, 3);
+}
+
+#[test]
+fn footer_greys_out_update_while_downloading() {
+    let (label, enabled, actions) = footer_update_item(true);
+    assert_eq!(label, "Downloading update...");
+    assert!(!enabled);
+    assert_eq!(actions, 2);
+}
 
 #[test]
 fn to_label_basic() {

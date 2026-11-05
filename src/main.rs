@@ -141,6 +141,7 @@ fn run() -> anyhow::Result<()> {
     ensure_writable_directory(&executable_directory)?;
     let _instance =
         SingleInstanceGuard::acquire(APP_UID).context("failed to acquire single instance lock")?;
+    update::remove_leftover_download();
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     wire_event_proxies(&event_loop);
@@ -217,6 +218,7 @@ fn run() -> anyhow::Result<()> {
         temporary_priorities: TemporaryPriorities::default(),
         update_info: None,
         update_check_in_progress: false,
+        update_download_in_progress: false,
         tray_icon: None,
         backend,
         device_cache: std::collections::HashMap::new(),
@@ -282,6 +284,10 @@ fn run() -> anyhow::Result<()> {
                 result,
             }) => {
                 app.handle_update_check_completed(manual_request, result);
+            }
+
+            Event::UserEvent(UserEvent::UpdateDownloadCompleted(result)) => {
+                app.handle_update_download_completed(result, control_flow);
             }
 
             _ => {}
