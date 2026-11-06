@@ -1,4 +1,5 @@
 /target/
+/e2e/target/
 
 # mise
 mise.local.toml
