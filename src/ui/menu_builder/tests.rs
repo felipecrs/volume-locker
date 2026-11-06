@@ -1,5 +1,3 @@
-#![allow(clippy::expect_used)]
-
 use super::{
     CheckMenuItem, DeviceAction, DeviceDisplayInfo, DeviceId, DeviceType, HashMap, Menu, MenuId,
     MenuIdMap, MenuItem, PersistentState, TrayMenuItems, UpdateInfo, VolumePercent,

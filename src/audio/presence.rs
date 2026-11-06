@@ -20,9 +20,7 @@ pub enum InitialQuery {
 /// One verified HID interface and its device-specific status interpretation.
 #[derive(Clone, Copy)]
 pub struct HidPresenceProfile {
-    #[allow(dead_code)]
     pub model: &'static str,
-    pub name: &'static str,
     pub vendor_id: u16,
     pub product_id: u16,
     pub usage_page: u16,
@@ -57,7 +55,6 @@ fn decode_adc_flags(flags: u8) -> HeadsetPresence {
     }
 }
 
-#[cfg(target_os = "windows")]
 mod windows {
     use super::{
         HIDPP_DIRECT_DEVICE_INDEX, HIDPP_LONG_REPORT_ID, HIDPP_LONG_REPORT_LENGTH, HeadsetPresence,
@@ -78,6 +75,7 @@ mod windows {
     const INITIAL_QUERY_WAIT: Duration = Duration::from_millis(500);
     const RETRY_DELAY: Duration = Duration::from_secs(2);
 
+    #[derive(Debug)]
     enum HidppReply {
         Response([u8; HIDPP_LONG_REPORT_LENGTH]),
         Error(u8),
@@ -146,9 +144,9 @@ mod windows {
                     continue;
                 }
                 let bytes = &report[..count];
-                log::trace!("{}: {bytes:02x?}", self.profile.name);
+                log::trace!("{}: {bytes:02x?}", self.profile.model);
                 if let Some(next) = (self.profile.decode)(bytes, self.discovered_index.get()) {
-                    publish(self.profile.name, self.state, next, self.on_change);
+                    publish(self.profile.model, self.state, next, self.on_change);
                 }
                 if let Some(reply) = parse_hidpp_reply(bytes, feature_index) {
                     return Ok(reply);
@@ -229,7 +227,7 @@ mod windows {
                 move || listen(profile, &stop, &state, &on_change, &query_done)
             };
             let worker = smol::spawn(supervise(
-                profile.name,
+                profile.model,
                 Arc::clone(&stop),
                 stopped,
                 Arc::clone(&state),
@@ -286,7 +284,7 @@ mod windows {
     /// Runs `listen_once` off the executor, since it holds a blocking HID read for as
     /// long as the connection lasts, and retries until stopped.
     async fn supervise(
-        name: &'static str,
+        model: &'static str,
         stop: Arc<AtomicBool>,
         stopped: Receiver<()>,
         state: Arc<AtomicU8>,
@@ -303,12 +301,12 @@ mod windows {
             let _ = query_done.try_send(());
             // Losing the provider is not proof that the headset turned off.
             if !stop.load(Ordering::Relaxed) {
-                publish(name, &state, HeadsetPresence::Unknown, &on_change);
+                publish(model, &state, HeadsetPresence::Unknown, &on_change);
             }
             if let Err(error) = result
                 && is_new_error(&mut last_error, &error)
             {
-                log::warn!("{name} presence unavailable: {error}");
+                log::warn!("{model} presence unavailable: {error}");
             }
             signal_or_timeout(&stopped, RETRY_DELAY).await;
         }
@@ -324,13 +322,13 @@ mod windows {
     }
 
     fn publish(
-        name: &str,
+        model: &str,
         state: &AtomicU8,
         next: HeadsetPresence,
         on_change: &Arc<dyn Fn() + Send + Sync>,
     ) {
         if state.swap(next as u8, Ordering::AcqRel) != next as u8 {
-            log::info!("{name} radio presence: {next:?}");
+            log::info!("{model} radio presence: {next:?}");
             on_change();
         }
     }
@@ -353,11 +351,11 @@ mod windows {
         });
         let candidate = candidates
             .next()
-            .ok_or_else(|| anyhow::anyhow!("{} vendor HID interface not found", profile.name))?;
+            .ok_or_else(|| anyhow::anyhow!("{} vendor HID interface not found", profile.model))?;
         anyhow::ensure!(
             candidates.next().is_none(),
             "Multiple {} HID interfaces; automatic association is ambiguous",
-            profile.name
+            profile.model
         );
         let device = candidate.open_device(&api)?;
         let write = |request: &[u8]| -> anyhow::Result<usize> { Ok(device.write(request)?) };
@@ -375,15 +373,15 @@ mod windows {
                 discovered_index: Cell::new(None),
             };
             match query_initial_state(query, &reader) {
-                Ok(initial_state) => publish(profile.name, state, initial_state, on_change),
+                Ok(initial_state) => publish(profile.model, state, initial_state, on_change),
                 Err(error) => {
-                    log::warn!("Cannot query initial {} state: {error:#}", profile.name);
+                    log::warn!("Cannot query initial {} state: {error:#}", profile.model);
                 }
             }
             feature_index = reader.discovered_index.get();
             let _ = query_done.try_send(());
         }
-        log::info!("Listening for {} status events", profile.name);
+        log::info!("Listening for {} status events", profile.model);
         // After the status query on connect, monitoring only reads input reports.
         observe_reports(profile, read, stop, state, on_change, feature_index)
     }
@@ -407,7 +405,7 @@ mod windows {
             let count = match read(&mut report) {
                 Ok(count) => count,
                 Err(error) => {
-                    publish(profile.name, state, HeadsetPresence::Unknown, on_change);
+                    publish(profile.model, state, HeadsetPresence::Unknown, on_change);
                     return Err(error);
                 }
             };
@@ -415,12 +413,12 @@ mod windows {
                 continue;
             }
             let Some(bytes) = report.get(..count) else {
-                publish(profile.name, state, HeadsetPresence::Unknown, on_change);
+                publish(profile.model, state, HeadsetPresence::Unknown, on_change);
                 anyhow::bail!("HID input report exceeds read buffer");
             };
-            log::trace!("{}: {bytes:02x?}", profile.name);
+            log::trace!("{}: {bytes:02x?}", profile.model);
             if let Some(next) = (profile.decode)(bytes, feature_index) {
-                publish(profile.name, state, next, on_change);
+                publish(profile.model, state, next, on_change);
             }
         }
         Ok(())
@@ -430,6 +428,7 @@ mod windows {
     mod tests {
         use super::super::devices::{A50X_PROFILE, G533_PROFILE};
         use super::*;
+        use std::assert_matches;
         use std::cell::RefCell;
         use std::collections::VecDeque;
         use std::sync::Mutex;
@@ -659,7 +658,6 @@ mod windows {
             }
             let profile = HidPresenceProfile {
                 model: "synthetic",
-                name: "Synthetic test device",
                 vendor_id: 1,
                 product_id: 2,
                 usage_page: 3,
@@ -704,17 +702,14 @@ mod windows {
 
             let mut response = [0; HIDPP_LONG_REPORT_LENGTH];
             response[..7].copy_from_slice(&[0x11, 0xff, 7, HIDPP_SOFTWARE_ID, 0x01, 0, 0x01]);
-            assert!(matches!(
+            assert_matches!(
                 parse_hidpp_reply(&response, 7),
                 Some(HidppReply::Response(_))
-            ));
+            );
 
             let mut error = [0; HIDPP_LONG_REPORT_LENGTH];
             error[..6].copy_from_slice(&[0x11, 0xff, 0xff, 7, HIDPP_SOFTWARE_ID, 0x05]);
-            assert!(matches!(
-                parse_hidpp_reply(&error, 7),
-                Some(HidppReply::Error(0x05))
-            ));
+            assert_matches!(parse_hidpp_reply(&error, 7), Some(HidppReply::Error(0x05)));
             assert!(parse_hidpp_reply(&error[..19], 7).is_none());
             assert!(parse_hidpp_reply(&response, 8).is_none());
         }
@@ -815,5 +810,4 @@ mod windows {
     }
 }
 
-#[cfg(target_os = "windows")]
 pub use windows::HidPresenceMonitor;

@@ -2,7 +2,6 @@
 //! cargo run --example headset_presence -- g533 watch 30
 //! cargo run --example headset_presence -- g733 capture 30
 //! cargo run --example headset_presence -- a50x list
-#[allow(dead_code)]
 #[path = "../src/audio/presence.rs"]
 mod presence;
 
@@ -50,7 +49,7 @@ fn main() -> anyhow::Result<()> {
             );
         }
         if !found {
-            println!("No present {} HID collections found.", profile.name);
+            println!("No present {} HID collections found.", profile.model);
         }
         return Ok(());
     }
@@ -67,7 +66,7 @@ fn main() -> anyhow::Result<()> {
     let monitor = presence::HidPresenceMonitor::start(profile, Arc::new(|| {}))?;
     println!(
         "Read-only {} {action} for {seconds}s. Toggle headset power to observe status transitions.",
-        profile.name
+        profile.model
     );
     let mut previous = None;
     while started.elapsed() < Duration::from_secs(seconds) {

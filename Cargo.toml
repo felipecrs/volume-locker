@@ -43,17 +43,15 @@ tray-icon = "0.26.1"
 ureq = { version = "3.5.1", default-features = false, features = [
 	"native-tls",
 ] }
-
-[target.'cfg(target_os = "windows")'.dependencies]
 hidapi = { version = "2.6.7", default-features = false, features = ["windows-native"] }
 windows-registry = "0.100.0"
 windows-core = "0.100.0"
 
-[target.'cfg(target_os = "windows")'.build-dependencies]
+[build-dependencies]
 winresource = "0.1.34"
 
 [profile.release]
-opt-level = 3
+opt-level = "z"
 lto = true
 codegen-units = 1
 strip = true

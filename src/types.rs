@@ -64,7 +64,6 @@ impl From<f32> for VolumePercent {
 // Test-only: production compares VolumePercent to VolumePercent.
 #[cfg(test)]
 impl PartialEq<f32> for VolumePercent {
-    #[allow(clippy::float_cmp)]
     fn eq(&self, other: &f32) -> bool {
         self.0 == *other
     }
@@ -443,7 +442,6 @@ pub enum UserEvent {
 }
 
 #[cfg(test)]
-#[allow(clippy::float_cmp)]
 mod tests {
     use super::{DeviceSettings, DeviceType, VolumePercent, VolumeScalar};
 

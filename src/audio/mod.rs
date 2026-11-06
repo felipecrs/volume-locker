@@ -4,7 +4,6 @@ use crate::types::{DeviceChangeSource, DeviceId, DeviceRole, DeviceType, VolumeS
 pub mod presence;
 use presence::HeadsetPresence;
 
-#[cfg(target_os = "windows")]
 mod windows_com_policy_config;
 
 pub trait AudioBackend {
@@ -58,9 +57,7 @@ pub trait AudioDevice {
     }
 }
 
-#[cfg(target_os = "windows")]
 mod windows;
-#[cfg(target_os = "windows")]
 pub use self::windows::WindowsAudioBackend as AudioBackendImpl;
 
 #[cfg(test)]

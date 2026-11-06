@@ -64,8 +64,6 @@ fn apply_languages(loader: &FluentLanguageLoader, requested: &[LanguageIdentifie
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::expect_used)]
-
     use super::*;
     use fluent_syntax::ast::{Entry, Expression, InlineExpression, Pattern, PatternElement};
     use std::collections::{BTreeMap, BTreeSet, HashMap};
