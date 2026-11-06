@@ -119,7 +119,7 @@ impl WindowsAudioBackend {
         match HidPresenceMonitor::start(profile, on_presence_change) {
             Ok(started) => Some(started),
             Err(error) => {
-                log::error!("Cannot start {} presence monitor: {error}", profile.name);
+                log::error!("Cannot start {} presence monitor: {error}", profile.model);
                 None
             }
         }
