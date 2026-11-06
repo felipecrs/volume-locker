@@ -4,16 +4,19 @@ mr-boxington = "v1.29.2"
 
 [tasks.fmt]
 description = "Check code formatting"
-run = "cargo fmt --check"
+run = ["cargo fmt --check", "cargo fmt --check --manifest-path e2e/Cargo.toml"]
 
 [tasks."fmt:fix"]
 description = "Format code"
 alias = ["format"]
-run = "cargo fmt"
+run = ["cargo fmt", "cargo fmt --manifest-path e2e/Cargo.toml"]
 
 [tasks.lint]
 description = "Run Clippy linter"
-run = "cargo clippy --locked"
+run = [
+  "cargo clippy --locked",
+  "cargo clippy --locked --all-targets --manifest-path e2e/Cargo.toml",
+]
 
 [tasks.test]
 description = "Run tests"
@@ -26,3 +29,11 @@ depends = ["fmt", "lint", "test"]
 [tasks.build]
 description = "Build release binary"
 run = "cargo build --release --frozen"
+
+[tasks.e2e]
+description = "Run the end-to-end tests in a Windows VM"
+run = "powershell -NoProfile -ExecutionPolicy Bypass -File e2e/run.ps1"
+
+[tasks."e2e:provision"]
+description = "Build the Windows VM image for the end-to-end tests"
+run = "wsl.exe bash e2e/provision.sh"
