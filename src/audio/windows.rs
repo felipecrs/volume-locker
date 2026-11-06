@@ -69,14 +69,37 @@ unsafe impl Sync for PowerNotifyGuard {}
 
 impl Drop for PowerNotifyGuard {
     fn drop(&mut self) {
-        if !self.handle.0.is_null() {
-            // SAFETY: handle was obtained from RegisterSuspendResumeNotification.
-            // Unregister before _params and _context are freed.
-            unsafe {
-                let _ = UnregisterSuspendResumeNotification(self.handle);
-            }
+        // SAFETY: handle was obtained from RegisterSuspendResumeNotification.
+        // Unregister before _params and _context are freed.
+        unsafe {
+            let _ = UnregisterSuspendResumeNotification(self.handle);
         }
     }
+}
+
+/// Registers for Windows system resume (sleep/wake) events.
+fn register_power_notification(callback: DeviceChangeCallback) -> Option<PowerNotifyGuard> {
+    let context = Box::new(callback);
+    let params = Box::new(DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS {
+        Callback: Some(power_suspend_resume_callback),
+        Context: (&raw const *context).cast_mut().cast(),
+    });
+    // SAFETY: params is heap-allocated and kept alive in PowerNotifyGuard until UnregisterSuspendResumeNotification.
+    let handle = unsafe {
+        RegisterSuspendResumeNotification(
+            HANDLE((&raw const *params).cast_mut().cast()),
+            DEVICE_NOTIFY_CALLBACK as u32,
+        )
+    };
+    if handle.0.is_null() {
+        log::warn!("Failed to register suspend/resume notification");
+        return None;
+    }
+    Some(PowerNotifyGuard {
+        handle,
+        _params: params,
+        _context: context,
+    })
 }
 
 pub struct WindowsAudioBackend {
@@ -271,29 +294,7 @@ impl AudioBackend for WindowsAudioBackend {
                 .ok()?
         };
 
-        // Register for Windows system resume (sleep/wake) events
-        let context = Box::new(callback);
-        let params = Box::new(DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS {
-            Callback: Some(power_suspend_resume_callback),
-            Context: (&raw const *context).cast_mut().cast(),
-        });
-        // SAFETY: params is heap-allocated and kept alive in PowerNotifyGuard until UnregisterSuspendResumeNotification.
-        let handle = unsafe {
-            RegisterSuspendResumeNotification(
-                HANDLE((&raw const *params).cast_mut().cast()),
-                DEVICE_NOTIFY_CALLBACK as u32,
-            )
-        };
-        let power_guard = if !handle.0.is_null() {
-            Some(PowerNotifyGuard {
-                handle,
-                _params: params,
-                _context: context,
-            })
-        } else {
-            log::warn!("Failed to register suspend/resume notification");
-            None
-        };
+        let power_guard = register_power_notification(callback);
 
         // Recover from mutex poisoning — the callback must be stored regardless.
         let mut guard = match self.device_change_callback.lock() {
@@ -528,7 +529,12 @@ pub(super) unsafe fn read_prop_string(
 ) -> Option<String> {
     // SAFETY: prop_store is a valid COM interface pointer; key is a valid PROPERTYKEY.
     let mut prop = unsafe { prop_store.GetValue(key).ok()? };
-    let str_result = match unsafe { PropVariantToStringAlloc(&raw const prop) } {
+    unsafe { take_prop_string(&mut prop) }
+}
+
+/// Converts `prop` to a string and clears it.
+pub(super) unsafe fn take_prop_string(prop: &mut PROPVARIANT) -> Option<String> {
+    let str_result = match unsafe { PropVariantToStringAlloc(&raw const *prop) } {
         Ok(pwstr) => {
             let s = unsafe { pwstr.to_string().ok() };
             unsafe { CoTaskMemFree(pwstr.0 as _) };
@@ -536,7 +542,7 @@ pub(super) unsafe fn read_prop_string(
         }
         Err(_) => None,
     };
-    let _ = unsafe { PropVariantClear(&mut prop) };
+    let _ = unsafe { PropVariantClear(prop) };
     str_result
 }
 
@@ -620,4 +626,44 @@ fn set_policy_config_string(
             .ok()?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn counting_callback() -> (Arc<AtomicUsize>, DeviceChangeCallback) {
+        let count = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&count);
+        let callback: DeviceChangeCallback = Arc::new(move |source| {
+            if matches!(source, DeviceChangeSource::PowerResume) {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        (count, callback)
+    }
+
+    #[test]
+    fn power_callback_fires_only_on_resume() {
+        const PBT_APMSUSPEND: u32 = 0x0004;
+        let (count, callback) = counting_callback();
+        let context = (&raw const callback).cast();
+
+        for (event, expected) in [
+            (PBT_APMSUSPEND, 0),
+            (PBT_APMRESUMEAUTOMATIC as u32, 1),
+            (PBT_APMRESUMESUSPEND as u32, 2),
+        ] {
+            // SAFETY: context points to `callback`, which outlives this call.
+            unsafe { power_suspend_resume_callback(context, event, std::ptr::null()) };
+            assert_eq!(count.load(Ordering::SeqCst), expected);
+        }
+    }
+
+    #[test]
+    fn power_notification_registers_and_unregisters() {
+        let (_count, callback) = counting_callback();
+        assert!(register_power_notification(callback).is_some());
+    }
 }

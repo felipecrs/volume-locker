@@ -44,6 +44,7 @@ fn gen_bindings() {
             "Windows.Win32.PBT_APMRESUMEAUTOMATIC",
             "Windows.Win32.PBT_APMRESUMESUSPEND",
             "Windows.Win32.PKEY_Device_DeviceDesc",
+            "Windows.Win32.PostMessageW",
             "Windows.Win32.PKEY_DeviceInterface_FriendlyName",
             "Windows.Win32.PKEY_Device_EnumeratorName",
             "Windows.Win32.PKEY_Device_ContainerId",
@@ -59,6 +60,7 @@ fn gen_bindings() {
             "Windows.Win32.UnregisterSuspendResumeNotification",
             "Windows.Win32.VT_LPWSTR",
             "Windows.Win32.WAVEFORMATEX",
+            "Windows.Win32.WM_CANCELMODE",
         ])
         .implements([
             "Windows.Win32.IMMNotificationClient",

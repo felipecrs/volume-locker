@@ -66,10 +66,15 @@ pub enum MenuAction {
 }
 
 pub fn dismiss_tray_menu(hwnd: isize) {
-    const WM_CANCELMODE: u32 = 0x001F;
-    windows_core::link!("user32.dll" "system" fn PostMessageW(hwnd: *mut std::ffi::c_void, msg: u32, wparam: usize, lparam: isize) -> windows_core::BOOL);
+    use crate::bindings::{HWND, LPARAM, PostMessageW, WM_CANCELMODE, WPARAM};
+    // SAFETY: PostMessageW takes the handle by value and reports an invalid one as an error.
     unsafe {
-        let _ = PostMessageW(hwnd as *mut std::ffi::c_void, WM_CANCELMODE, 0, 0);
+        let _ = PostMessageW(
+            Some(HWND(hwnd as *mut std::ffi::c_void)),
+            WM_CANCELMODE as u32,
+            WPARAM(0),
+            LPARAM(0),
+        );
     }
 }
 

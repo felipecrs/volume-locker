@@ -53,11 +53,10 @@ pub unsafe trait IPolicyConfig: IUnknown {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audio::windows::read_prop_string;
+    use crate::audio::windows::{read_prop_string, take_prop_string};
     use crate::bindings::{
         CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree, IMMDeviceEnumerator,
-        MMDeviceEnumerator, PKEY_Device_DeviceDesc, PropVariantClear, PropVariantToStringAlloc,
-        STGM_READ, eConsole, eRender,
+        MMDeviceEnumerator, PKEY_Device_DeviceDesc, STGM_READ, eConsole, eRender,
     };
     use std::mem::{offset_of, size_of};
     use windows_core::HSTRING;
@@ -110,13 +109,9 @@ mod tests {
                 .ok()
                 .expect("should read the property");
             CoTaskMemFree(raw_id.0.cast());
-            let text = PropVariantToStringAlloc(&raw const value).expect("should be a string");
-            let actual = text.to_string().ok();
-            CoTaskMemFree(text.0.cast());
-            let _ = PropVariantClear(&mut value);
 
             assert!(expected.is_some());
-            assert_eq!(actual, expected);
+            assert_eq!(take_prop_string(&mut value), expected);
         }
     }
 }

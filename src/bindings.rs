@@ -80,6 +80,23 @@ pub unsafe fn GetUserPreferredUILanguages(
     }
 }
 #[inline]
+pub unsafe fn PostMessageW(
+    hwnd: Option<HWND>,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> windows_core::BOOL {
+    windows_core::link!("user32.dll" "system" fn PostMessageW(hwnd : HWND, msg : u32, wparam : WPARAM, lparam : LPARAM) -> windows_core::BOOL);
+    unsafe {
+        PostMessageW(
+            hwnd.unwrap_or(core::mem::zeroed()) as _,
+            msg,
+            wparam,
+            lparam,
+        )
+    }
+}
+#[inline]
 pub unsafe fn PropVariantClear(pvar: *mut PROPVARIANT) -> windows_core::HRESULT {
     windows_core::link!("ole32.dll" "system" fn PropVariantClear(pvar : *mut PROPVARIANT) -> windows_core::HRESULT);
     unsafe { PropVariantClear(pvar) }
@@ -381,6 +398,9 @@ pub struct HANDLE(pub *mut core::ffi::c_void);
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct HPOWERNOTIFY(pub *mut core::ffi::c_void);
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct HWND(pub *mut core::ffi::c_void);
 windows_core::imp::define_interface!(
     IAudioEndpointVolume,
     IAudioEndpointVolume_Vtbl,
@@ -1363,6 +1383,9 @@ pub struct IStream_Vtbl {
     Stat: usize,
     Clone: usize,
 }
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct LPARAM(pub isize);
 pub type LPSAFEARRAY = *mut SAFEARRAY;
 pub type LPVERSIONEDSTREAM = *mut VERSIONEDSTREAM;
 pub const MMDeviceEnumerator: windows_core::GUID =
@@ -1602,6 +1625,10 @@ pub struct WAVEFORMATEX {
     pub wBitsPerSample: u16,
     pub cbSize: u16,
 }
+pub const WM_CANCELMODE: i32 = 31;
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct WPARAM(pub usize);
 pub const eAll: EDataFlow = 2;
 pub const eCapture: EDataFlow = 1;
 pub const eCommunications: ERole = 2;

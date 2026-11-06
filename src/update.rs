@@ -206,24 +206,25 @@ pub fn launch_post_update_script() -> anyhow::Result<()> {
 
     log::info!("Download complete, launching post-update script");
 
-    post_update_command(&temp_download, &exe_str).spawn()?;
+    post_update_command(&temp_download, &exe_str, std::process::id()).spawn()?;
 
     log::info!("Post-update script launched, exiting application...");
     Ok(())
 }
 
-/// A detached process that waits for this app to exit, then replaces the executable and
+/// A detached process that waits for process `app_pid` to exit, then replaces the executable and
 /// relaunches it.
-fn post_update_command(temp_download: &str, exe: &str) -> Command {
+fn post_update_command(temp_download: &str, exe: &str, app_pid: u32) -> Command {
     let mut command = Command::new("powershell.exe");
     command
         .args([
             "-NoProfile",
             "-Command",
-            "Start-Sleep -Seconds 2; Move-Item -Path $env:VL_TEMP_PATH -Destination $env:VL_EXE_PATH -Force; Start-Process $env:VL_EXE_PATH",
+            "Wait-Process -Id $env:VL_APP_PID -Timeout 30 -ErrorAction SilentlyContinue; Move-Item -Path $env:VL_TEMP_PATH -Destination $env:VL_EXE_PATH -Force; Start-Process $env:VL_EXE_PATH",
         ])
         .env("VL_TEMP_PATH", temp_download)
         .env("VL_EXE_PATH", exe)
+        .env("VL_APP_PID", app_pid.to_string())
         .creation_flags(CREATE_NO_WINDOW as u32);
     command
 }
@@ -361,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    fn post_update_script_replaces_the_executable() {
+    fn post_update_script_waits_for_the_app_then_replaces_the_executable() {
         let dir = tempfile::tempdir().expect("should create temp dir");
         let folder = dir.path().join("folder with spaces");
         std::fs::create_dir(&folder).expect("should create folder");
@@ -370,14 +371,23 @@ mod tests {
         std::fs::write(&exe, "old").expect("should write file");
         std::fs::write(&download, "new").expect("should write file");
 
+        let mut app = Command::new("ping.exe")
+            .args(["-n", "2", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW as u32)
+            .spawn()
+            .expect("should start a stand-in for the app");
+
         // Relaunching this fake executable fails, so the exit code is not checked.
         post_update_command(
             download.to_str().expect("path should be UTF-8"),
             exe.to_str().expect("path should be UTF-8"),
+            app.id(),
         )
         .status()
         .expect("should run the script");
 
+        assert!(app.try_wait().expect("should query the app").is_some());
         assert_eq!(std::fs::read(&exe).expect("should read file"), b"new");
         assert!(!download.exists());
     }
