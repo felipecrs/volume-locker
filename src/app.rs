@@ -318,7 +318,7 @@ impl AppState {
 
         self.update_check_in_progress = true;
         let proxy = proxy.clone();
-        smol::unblock(move || {
+        std::thread::spawn(move || {
             let result = update::fetch_update_info().map_err(|e| format!("{e:#}"));
             if let Err(e) = proxy.send_event(UserEvent::UpdateCheckCompleted {
                 manual_request,
@@ -326,8 +326,7 @@ impl AppState {
             }) {
                 log::warn!("Failed to send update check result: {e:#}");
             }
-        })
-        .detach();
+        });
     }
 
     pub fn handle_update_check_completed(
@@ -348,13 +347,12 @@ impl AppState {
 
         self.update_download_in_progress = true;
         let proxy = proxy.clone();
-        smol::unblock(move || {
+        std::thread::spawn(move || {
             let result = update::download_update(&info).map_err(|e| format!("{e:#}"));
             if let Err(e) = proxy.send_event(UserEvent::UpdateDownloadCompleted(result)) {
                 log::warn!("Failed to send update download result: {e:#}");
             }
-        })
-        .detach();
+        });
     }
 
     pub fn handle_update_download_completed(

@@ -60,13 +60,13 @@ mod windows {
         HIDPP_DIRECT_DEVICE_INDEX, HIDPP_LONG_REPORT_ID, HIDPP_LONG_REPORT_LENGTH, HeadsetPresence,
         HidPresenceProfile, InitialQuery,
     };
-    use smol::channel::{self, Receiver, Sender};
-    use smol::{Task, Timer, future};
     use std::cell::Cell;
     use std::sync::{
         Arc,
         atomic::{AtomicBool, AtomicU8, Ordering},
+        mpsc::{self, Receiver, Sender, SyncSender},
     };
+    use std::thread::{self, JoinHandle};
     use std::time::{Duration, Instant};
 
     // Replies echo this ID; avoid the low IDs other HID++ clients are likeliest to use.
@@ -198,10 +198,11 @@ mod windows {
 
     pub struct HidPresenceMonitor {
         stop: Arc<AtomicBool>,
-        /// Closed on drop, to end a retry wait early. The flag above stops the reads.
-        stop_signal: Sender<()>,
+        /// Taken on drop to close the channel, ending a retry wait early. The flag above
+        /// stops the reads.
+        stop_signal: Option<Sender<()>>,
         state: Arc<AtomicU8>,
-        worker: Option<Task<()>>,
+        worker: Option<JoinHandle<()>>,
     }
 
     impl HidPresenceMonitor {
@@ -217,8 +218,8 @@ mod windows {
             }
             let stop = Arc::new(AtomicBool::new(false));
             let state = Arc::new(AtomicU8::new(HeadsetPresence::Unknown as u8));
-            let (stop_signal, stopped) = channel::bounded(1);
-            let (query_done, query_finished) = channel::bounded(1);
+            let (stop_signal, stopped) = mpsc::channel();
+            let (query_done, query_finished) = mpsc::sync_channel(1);
             let listen_once = {
                 let stop = Arc::clone(&stop);
                 let state = Arc::clone(&state);
@@ -226,23 +227,29 @@ mod windows {
                 let query_done = query_done.clone();
                 move || listen(profile, &stop, &state, &on_change, &query_done)
             };
-            let worker = smol::spawn(supervise(
-                profile.model,
-                Arc::clone(&stop),
-                stopped,
-                Arc::clone(&state),
-                on_change,
-                query_done,
-                listen_once,
-            ));
+            let worker = {
+                let stop = Arc::clone(&stop);
+                let state = Arc::clone(&state);
+                thread::Builder::new().spawn(move || {
+                    supervise(
+                        profile.model,
+                        &stop,
+                        &stopped,
+                        &state,
+                        &on_change,
+                        &query_done,
+                        listen_once,
+                    );
+                })?
+            };
             // Callers apply priorities right after this, so give the query a chance
             // to answer first rather than routing to a headset that is off.
             if profile.initial_query.is_some() {
-                smol::block_on(signal_or_timeout(&query_finished, INITIAL_QUERY_WAIT));
+                let _ = query_finished.recv_timeout(INITIAL_QUERY_WAIT);
             }
             Ok(Self {
                 stop,
-                stop_signal,
+                stop_signal: Some(stop_signal),
                 state,
                 worker: Some(worker),
             })
@@ -260,55 +267,41 @@ mod windows {
     impl Drop for HidPresenceMonitor {
         fn drop(&mut self) {
             self.stop.store(true, Ordering::Relaxed);
-            self.stop_signal.close();
-            // Awaited rather than cancelled: cancelling would leave the blocking read running.
+            self.stop_signal.take();
+            // Joined rather than detached: detaching would leave the blocking read running.
             if let Some(worker) = self.worker.take() {
-                smol::block_on(worker);
+                let _ = worker.join();
             }
         }
     }
 
-    /// Returns on the first message, when the channel closes, or after `timeout`.
-    async fn signal_or_timeout(signal: &Receiver<()>, timeout: Duration) {
-        future::or(
-            async {
-                let _ = signal.recv().await;
-            },
-            async {
-                Timer::after(timeout).await;
-            },
-        )
-        .await;
-    }
-
-    /// Runs `listen_once` off the executor, since it holds a blocking HID read for as
-    /// long as the connection lasts, and retries until stopped.
-    async fn supervise(
+    /// Retries `listen_once`, which holds a blocking HID read for as long as the
+    /// connection lasts, until stopped.
+    fn supervise(
         model: &'static str,
-        stop: Arc<AtomicBool>,
-        stopped: Receiver<()>,
-        state: Arc<AtomicU8>,
-        on_change: Arc<dyn Fn() + Send + Sync>,
-        query_done: Sender<()>,
-        listen_once: impl Fn() -> anyhow::Result<()> + Send + Sync + 'static,
+        stop: &AtomicBool,
+        stopped: &Receiver<()>,
+        state: &AtomicU8,
+        on_change: &Arc<dyn Fn() + Send + Sync>,
+        query_done: &SyncSender<()>,
+        listen_once: impl Fn() -> anyhow::Result<()>,
     ) {
-        let listen_once = Arc::new(listen_once);
         let mut last_error = None;
         while !stop.load(Ordering::Relaxed) {
-            let attempt = Arc::clone(&listen_once);
-            let result = smol::unblock(move || attempt()).await;
+            let result = listen_once();
             // Don't make the caller wait if listen failed before querying.
             let _ = query_done.try_send(());
             // Losing the provider is not proof that the headset turned off.
             if !stop.load(Ordering::Relaxed) {
-                publish(model, &state, HeadsetPresence::Unknown, &on_change);
+                publish(model, state, HeadsetPresence::Unknown, on_change);
             }
             if let Err(error) = result
                 && is_new_error(&mut last_error, &error)
             {
                 log::warn!("{model} presence unavailable: {error}");
             }
-            signal_or_timeout(&stopped, RETRY_DELAY).await;
+            // Nothing is ever sent, so this ends early only when the monitor closes the channel.
+            let _ = stopped.recv_timeout(RETRY_DELAY);
         }
     }
 
@@ -338,7 +331,7 @@ mod windows {
         stop: &AtomicBool,
         state: &AtomicU8,
         on_change: &Arc<dyn Fn() + Send + Sync>,
-        query_done: &Sender<()>,
+        query_done: &SyncSender<()>,
     ) -> anyhow::Result<()> {
         let api = hidapi::HidApi::new()?;
         let mut candidates = api.device_list().filter(|device| {
@@ -436,24 +429,31 @@ mod windows {
 
         /// A monitor around `listen_once`, so stopping goes through the real `Drop`.
         fn monitor_around(
-            listen_once: impl Fn() -> anyhow::Result<()> + Send + Sync + 'static,
+            listen_once: impl Fn() -> anyhow::Result<()> + Send + 'static,
         ) -> (HidPresenceMonitor, Receiver<()>) {
             let stop = Arc::new(AtomicBool::new(false));
             let state = Arc::new(AtomicU8::new(HeadsetPresence::Available as u8));
-            let (stop_signal, stopped) = channel::bounded(1);
-            let (query_done, query_finished) = channel::bounded(1);
-            let worker = smol::spawn(supervise(
-                "Synthetic test device",
-                Arc::clone(&stop),
-                stopped,
-                Arc::clone(&state),
-                Arc::new(|| {}),
-                query_done,
-                listen_once,
-            ));
+            let (stop_signal, stopped) = mpsc::channel();
+            let (query_done, query_finished) = mpsc::sync_channel(1);
+            let worker = {
+                let stop = Arc::clone(&stop);
+                let state = Arc::clone(&state);
+                let on_change: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+                thread::spawn(move || {
+                    supervise(
+                        "Synthetic test device",
+                        &stop,
+                        &stopped,
+                        &state,
+                        &on_change,
+                        &query_done,
+                        listen_once,
+                    );
+                })
+            };
             let monitor = HidPresenceMonitor {
                 stop,
-                stop_signal,
+                stop_signal: Some(stop_signal),
                 state,
                 worker: Some(worker),
             };
@@ -463,7 +463,7 @@ mod windows {
         #[test]
         fn failed_listen_retries_after_the_delay_until_stopped() {
             let attempts = Arc::new(Mutex::new(Vec::new()));
-            let (two_attempts, reached_two) = channel::bounded(1);
+            let (two_attempts, reached_two) = mpsc::sync_channel(1);
             let observed = Arc::clone(&attempts);
             let (monitor, query_finished) = monitor_around(move || {
                 let mut attempts = observed.lock().unwrap();
@@ -475,8 +475,8 @@ mod windows {
             });
 
             // A failure before the query must not leave the caller waiting.
-            smol::block_on(query_finished.recv()).unwrap();
-            smol::block_on(reached_two.recv()).unwrap();
+            query_finished.recv().unwrap();
+            reached_two.recv().unwrap();
             assert_eq!(monitor.presence(), HeadsetPresence::Unknown);
 
             // Stopping must end the retry wait that follows the second failure.
@@ -492,7 +492,7 @@ mod windows {
         #[test]
         fn stopping_waits_for_a_blocking_read_and_keeps_the_last_state() {
             let reading = Arc::new(AtomicBool::new(false));
-            let (read_started, started) = channel::bounded(1);
+            let (read_started, started) = mpsc::sync_channel(1);
             let worker_reading = Arc::clone(&reading);
             let (monitor, _query_finished) = monitor_around(move || {
                 worker_reading.store(true, Ordering::SeqCst);
@@ -501,7 +501,7 @@ mod windows {
                 worker_reading.store(false, Ordering::SeqCst);
                 Ok(())
             });
-            smol::block_on(started.recv()).unwrap();
+            started.recv().unwrap();
 
             let state = Arc::clone(&monitor.state);
             drop(monitor);
@@ -529,21 +529,21 @@ mod windows {
 
         #[test]
         fn initial_query_wait_ends_on_an_answer_or_the_timeout() {
-            let (query_done, query_finished) = channel::bounded(1);
+            let (query_done, query_finished) = mpsc::sync_channel(1);
             let long_wait = Duration::from_secs(60);
 
             let waiting = Instant::now();
-            smol::block_on(signal_or_timeout(&query_finished, INITIAL_QUERY_WAIT));
+            let _ = query_finished.recv_timeout(INITIAL_QUERY_WAIT);
             assert!(waiting.elapsed() >= INITIAL_QUERY_WAIT);
 
             query_done.try_send(()).unwrap();
             let waiting = Instant::now();
-            smol::block_on(signal_or_timeout(&query_finished, long_wait));
+            let _ = query_finished.recv_timeout(long_wait);
             assert!(waiting.elapsed() < long_wait);
 
             drop(query_done);
             let waiting = Instant::now();
-            smol::block_on(signal_or_timeout(&query_finished, long_wait));
+            let _ = query_finished.recv_timeout(long_wait);
             assert!(waiting.elapsed() < long_wait);
         }
 
