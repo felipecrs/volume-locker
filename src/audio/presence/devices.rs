@@ -5,7 +5,6 @@ use super::{
 
 pub const A50X_PROFILE: HidPresenceProfile = HidPresenceProfile {
     model: "a50x",
-    name: "A50 X",
     vendor_id: 0x046d,
     product_id: 0x0b0b,
     usage_page: 0xff32,
@@ -17,7 +16,6 @@ pub const A50X_PROFILE: HidPresenceProfile = HidPresenceProfile {
 
 pub const G533_PROFILE: HidPresenceProfile = HidPresenceProfile {
     model: "g533",
-    name: "Logitech G533",
     vendor_id: 0x046d,
     product_id: 0x0a66,
     usage_page: 0xff43,
@@ -32,7 +30,6 @@ pub const G533_PROFILE: HidPresenceProfile = HidPresenceProfile {
 
 pub const G733_PROFILE: HidPresenceProfile = HidPresenceProfile {
     model: "g733",
-    name: "Logitech G733",
     vendor_id: 0x046d,
     product_id: 0x0ab5,
     usage_page: 0xff43,

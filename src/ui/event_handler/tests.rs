@@ -1,5 +1,3 @@
-#![allow(clippy::expect_used)]
-
 use super::{
     DeviceAction, DeviceId, DeviceType, PersistentState, PriorityKind, handle_priority_event,
 };

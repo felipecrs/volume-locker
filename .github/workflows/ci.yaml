@@ -17,6 +17,7 @@ jobs:
       contents: write # for release
     env:
       CARGO_TERM_COLOR: always
+      CARGO_BUILD_WARNINGS: deny
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
