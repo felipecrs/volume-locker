@@ -1,4 +1,7 @@
 @echo off
-rem Runs once at the end of Windows setup. The task only fires on later logons, so run it now too.
-schtasks /create /f /tn VolumeLockerE2EAgent /sc onlogon /ru Docker /rl highest /it /tr "powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\OEM\agent.ps1"
-schtasks /run /tn VolumeLockerE2EAgent
+rem Runs once as SYSTEM at the end of Windows setup. A local copy avoids the security prompt
+rem Windows shows for installers on a network share.
+C:\OEM\USBip-x64.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+schtasks /create /f /tn VolumeLockerE2E /sc onlogon /ru Docker /rl highest /it /tr "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\OEM\logon.ps1"
+rem Docker may already be logged on by now, in which case the logon trigger has passed.
+schtasks /run /tn VolumeLockerE2E
