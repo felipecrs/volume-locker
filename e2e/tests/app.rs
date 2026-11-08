@@ -195,6 +195,7 @@ fn tray_menu_changes_a_preference() {
     let app = App::start("tray_menu_changes_a_preference", &headset_first(false));
     wait_for_default(Flow::Output, HEADSET);
 
+    app.promote_tray_icon();
     let menu = Menu::open();
     let names = menu.item_names();
     for flow in FLOWS {

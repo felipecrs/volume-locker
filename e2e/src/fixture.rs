@@ -1,5 +1,6 @@
 //! Sets up what a test needs: the fake devices plugged in and the app running on seeded settings.
 use crate::audio::{self, Endpoint};
+use crate::tray;
 use crate::usbip::{self, Device};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -137,6 +138,12 @@ impl App {
             .spawn()
             .expect("start the app");
         Self { child, folder }
+    }
+
+    /// Pins the app's tray icon to the taskbar, so `Menu::open()` can find it.
+    pub fn promote_tray_icon(&self) {
+        let folder = self.folder.file_name().expect("the app folder has a name");
+        tray::promote_icon(&format!(r"\{}\VolumeLocker.exe", folder.to_string_lossy()));
     }
 
     /// The state file the app last saved.

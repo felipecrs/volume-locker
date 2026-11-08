@@ -30,3 +30,4 @@ windows = { version = "0.62.2", features = [
 	"Win32_UI_Shell_PropertiesSystem",
 	"Win32_UI_WindowsAndMessaging",
 ] }
+windows-registry = "0.6.1"

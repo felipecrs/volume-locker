@@ -13,8 +13,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
     MN_GETHMENU, SendMessageW, SetCursorPos,
 };
 use windows::core::{PCWSTR, w};
+use windows_registry::CURRENT_USER;
+
+use crate::fixture::wait_until;
 
 const OPEN_ATTEMPTS: usize = 10;
+const ICON_SETTINGS: &str = r"Control Panel\NotifyIconSettings";
 
 fn click(x: i32, y: i32) {
     unsafe {
@@ -65,27 +69,40 @@ pub struct Menu {
     handle: HMENU,
 }
 
+/// Pins an app's tray icon to the taskbar, as the Settings toggle does, so it's never in the
+/// hidden icons flyout. Windows records the icon once it first appears, so this waits for that.
+/// `path_suffix` is the end of the app's path, since Windows may abbreviate known folders.
+pub fn promote_icon(path_suffix: &str) {
+    let suffix = path_suffix.to_lowercase();
+    wait_until("Windows to record the tray icon", || {
+        let Ok(settings) = CURRENT_USER.create(ICON_SETTINGS) else {
+            return false;
+        };
+        let Ok(names) = settings.keys() else {
+            return false;
+        };
+        names
+            .filter_map(|name| settings.create(name).ok())
+            .find(|icon| {
+                icon.get_string("ExecutablePath")
+                    .is_ok_and(|path| path.to_lowercase().ends_with(&suffix))
+            })
+            .is_some_and(|icon| icon.set_u32("IsPromoted", 1).is_ok())
+    });
+}
+
 impl Menu {
-    /// Clicks the app's tray icon, opening the hidden icons flyout when it is in there.
+    /// Clicks the app's tray icon, which must be promoted to the taskbar.
     pub fn open() -> Self {
         let automation: IUIAutomation =
             unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }
                 .expect("create UI Automation");
         for _ in 0..OPEN_ATTEMPTS {
-            let icon = find_visible(
-                &automation,
-                w!("TopLevelWindowForOverflowXamlIsland"),
-                "Volume Locker",
-            )
-            .or_else(|| find_visible(&automation, w!("Shell_TrayWnd"), "Volume Locker"));
-            if let Some(icon) = icon {
+            // The taskbar may still be adding the icon, and a click can miss while it moves.
+            if let Some(icon) = find_visible(&automation, w!("Shell_TrayWnd"), "Volume Locker") {
                 click_element(&icon);
-            } else if let Some(more) =
-                find_visible(&automation, w!("Shell_TrayWnd"), "Show Hidden Icons")
-            {
-                click_element(&more);
             }
-            std::thread::sleep(Duration::from_secs(2));
+            std::thread::sleep(Duration::from_secs(1));
             if let Some(window) = menu_window() {
                 let reply = unsafe { SendMessageW(window, MN_GETHMENU, None, None) };
                 return Self {
