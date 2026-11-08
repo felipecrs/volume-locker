@@ -61,7 +61,15 @@ fn attached_port(device: Device) -> Option<String> {
     None
 }
 
-/// Plugs a fake device in and waits for Windows to offer its audio endpoint.
+fn endpoints_present(device: Device) -> usize {
+    device
+        .flows()
+        .into_iter()
+        .filter(|&flow| Endpoint::find(flow, device.product).is_some())
+        .count()
+}
+
+/// Plugs a fake device in and waits for Windows to offer all its audio endpoints.
 pub fn plug_in(device: Device) {
     if attached_port(device).is_none() {
         wait_up_to(DEVICE_TIMEOUT, "usbip to attach a device", &mut || {
@@ -69,20 +77,20 @@ pub fn plug_in(device: Device) {
         });
     }
     wait_up_to(DEVICE_TIMEOUT, device.product, &mut || {
-        Endpoint::find(device.product).is_some()
+        endpoints_present(device) == device.flows().len()
     });
 }
 
-/// Unplugs a fake device and waits for its audio endpoint to go away.
+/// Unplugs a fake device and waits for its audio endpoints to go away.
 pub fn unplug(device: Device) {
     let port = attached_port(device).expect("the device is attached");
     usbip(&["detach", "-p", &port]);
     wait_up_to(DEVICE_TIMEOUT, device.product, &mut || {
-        Endpoint::find(device.product).is_none()
+        endpoints_present(device) == 0
     });
 }
 
-/// Exclusive use of the machine, with both fake devices plugged in.
+/// Exclusive use of the machine, with every fake device plugged in.
 pub struct Machine {
     _guard: MutexGuard<'static, ()>,
 }
@@ -99,6 +107,7 @@ impl Machine {
         usbip::start();
         plug_in(usbip::SPEAKER);
         plug_in(usbip::HEADSET);
+        plug_in(usbip::MICROPHONE);
         Self { _guard: guard }
     }
 }

@@ -1,5 +1,6 @@
 //! A USB/IP server exporting fake USB audio devices on localhost, so the real Windows drivers and
 //! the real app see them as plugged-in hardware.
+use crate::audio::Flow;
 use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -25,14 +26,32 @@ const VENDOR_REPORT_DESC: &[u8] = &[
     0xC0,
 ];
 
+/// Audio control unit IDs. The feature units carry each direction's volume and mute.
+const SPEAKER_FEATURE_UNIT: u8 = 2;
+const MICROPHONE_FEATURE_UNIT: u8 = 5;
+
+const SPEAKER_UNITS: &[&[u8]] = &[
+    &[12, 0x24, 2, 1, 0x01, 0x01, 0, 2, 0x03, 0x00, 0, 0], // input terminal 1: USB streaming, stereo
+    &[10, 0x24, 6, SPEAKER_FEATURE_UNIT, 1, 1, 0x03, 0, 0, 0], // feature unit: master mute+volume
+    &[9, 0x24, 3, 3, 0x02, 0x04, 0, SPEAKER_FEATURE_UNIT, 0], // output terminal 3: headset
+];
+
+const MICROPHONE_UNITS: &[&[u8]] = &[
+    &[12, 0x24, 2, 4, 0x01, 0x02, 0, 1, 0x00, 0x00, 0, 0], // input terminal 4: microphone, mono
+    &[9, 0x24, 6, MICROPHONE_FEATURE_UNIT, 4, 1, 0x03, 0, 0], // feature unit: master mute+volume
+    &[9, 0x24, 3, 6, 0x01, 0x01, 0, MICROPHONE_FEATURE_UNIT, 0], // output terminal 6: USB streaming
+];
+
 #[derive(Clone, Copy, Debug)]
 pub struct Device {
     pub busid: &'static str,
-    /// Windows names the endpoint "Headset Earphone (<product>)".
+    /// Windows names the endpoints "Headset Earphone (<product>)" and "Microphone (<product>)".
     pub product: &'static str,
     vendor_id: u16,
     product_id: u16,
     serial: &'static str,
+    speaker: bool,
+    microphone: bool,
     hid: bool,
 }
 
@@ -42,20 +61,35 @@ pub const SPEAKER: Device = Device {
     vendor_id: 0xFFFF,
     product_id: 0xCB02,
     serial: "E2E1",
+    speaker: true,
+    microphone: false,
     hid: false,
 };
 
-/// Plays audio and reports presence over HID, like a wireless headset's dongle.
+/// Plays and records audio and reports presence over HID, like a wireless headset's dongle.
 pub const HEADSET: Device = Device {
     busid: "1-2",
     product: "E2E Headset",
     vendor_id: HEADSET_VENDOR_ID,
     product_id: HEADSET_PRODUCT_ID,
     serial: "E2E2",
+    speaker: true,
+    microphone: true,
     hid: true,
 };
 
-const DEVICES: [Device; 2] = [SPEAKER, HEADSET];
+pub const MICROPHONE: Device = Device {
+    busid: "1-3",
+    product: "E2E Microphone",
+    vendor_id: 0xFFFF,
+    product_id: 0xCB03,
+    serial: "E2E3",
+    speaker: false,
+    microphone: true,
+    hid: false,
+};
+
+const DEVICES: [Device; 3] = [SPEAKER, HEADSET, MICROPHONE];
 
 /// Sends presence reports to the currently attached headset connection.
 static HEADSET_REPORTS: Mutex<Option<Sender<u8>>> = Mutex::new(None);
@@ -90,8 +124,16 @@ pub fn report_headset_presence(available: bool) {
 }
 
 impl Device {
+    /// The directions Windows offers an audio endpoint for.
+    pub fn flows(&self) -> Vec<Flow> {
+        [(self.speaker, Flow::Output), (self.microphone, Flow::Input)]
+            .into_iter()
+            .filter_map(|(present, flow)| present.then_some(flow))
+            .collect()
+    }
+
     fn num_interfaces(&self) -> u8 {
-        2 + u8::from(self.hid)
+        1 + u8::from(self.speaker) + u8::from(self.microphone) + u8::from(self.hid)
     }
 
     fn device_descriptor(&self) -> Vec<u8> {
@@ -103,35 +145,34 @@ impl Device {
     }
 
     fn config_descriptor(&self) -> Vec<u8> {
-        let unit: Vec<u8> = [
-            &[12u8, 0x24, 2, 1, 0x01, 0x01, 0, 2, 0x03, 0x00, 0, 0][..], // input terminal: USB streaming
-            &[10, 0x24, 6, 2, 1, 1, 0x03, 0, 0, 0][..], // feature unit: master mute+volume
-            &[9, 0x24, 3, 3, 0x02, 0x04, 0, 2, 0][..],  // output terminal: headset
-        ]
-        .concat();
-        let unit_total = (9 + unit.len()) as u16;
+        let mut units = Vec::new();
+        let mut streaming = Vec::new();
+        let mut interface = 1;
+        if self.speaker {
+            units.extend(SPEAKER_UNITS.concat());
+            // 48 kHz 16-bit stereo, adaptive isochronous OUT, linked to input terminal 1.
+            streaming.extend(streaming_interface(interface, 1, 2, [0x01, 0x09, 192]));
+            interface += 1;
+        }
+        if self.microphone {
+            units.extend(MICROPHONE_UNITS.concat());
+            // 48 kHz 16-bit mono, asynchronous isochronous IN, linked to output terminal 6.
+            streaming.extend(streaming_interface(interface, 6, 1, [0x82, 0x05, 96]));
+            interface += 1;
+        }
+        let streaming_interfaces: Vec<u8> = (1..interface).collect();
+        let header_length = 8 + streaming_interfaces.len();
+        let control_total = (header_length + units.len()) as u16;
         let mut body = Vec::new();
         body.extend([9, 4, 0, 0, 0, 1, 1, 0, 0]);
-        body.extend([
-            9,
-            0x24,
-            1,
-            0x00,
-            0x01,
-            unit_total as u8,
-            (unit_total >> 8) as u8,
-            1,
-            1,
-        ]);
-        body.extend(unit);
-        body.extend([9, 4, 1, 0, 0, 1, 2, 0, 0]);
-        body.extend([9, 4, 1, 1, 1, 1, 2, 0, 0]);
-        body.extend([7, 0x24, 1, 1, 1, 0x01, 0x00]);
-        body.extend([11, 0x24, 2, 1, 2, 2, 16, 1, 0x80, 0xBB, 0x00]);
-        body.extend([9, 5, 0x01, 0x09, 0xC0, 0x00, 1, 0, 0]);
-        body.extend([7, 0x25, 1, 0x01, 0, 0, 0]);
+        body.extend([header_length as u8, 0x24, 1, 0x00, 0x01]);
+        body.extend(control_total.to_le_bytes());
+        body.push(streaming_interfaces.len() as u8);
+        body.extend(&streaming_interfaces);
+        body.extend(units);
+        body.extend(streaming);
         if self.hid {
-            body.extend([9, 4, 2, 0, 1, 3, 0, 0, 0]);
+            body.extend([9, 4, interface, 0, 1, 3, 0, 0, 0]);
             body.extend(hid_descriptor());
             body.extend([7, 5, 0x81, 0x03, REPORT_LENGTH as u8, 0, 10]);
         }
@@ -181,12 +222,75 @@ impl Device {
         out.extend(0x0100u16.to_be_bytes());
         out.extend([0, 0, 0, 1, 1, self.num_interfaces()]);
         if with_interfaces {
-            out.extend([1, 1, 0, 0, 1, 2, 0, 0]);
+            out.extend([1, 1, 0, 0]);
+            for _ in 0..u8::from(self.speaker) + u8::from(self.microphone) {
+                out.extend([1, 2, 0, 0]);
+            }
             if self.hid {
                 out.extend([3, 0, 0, 0]);
             }
         }
     }
+}
+
+/// An audio streaming interface: idle alternate setting 0, then PCM at 48 kHz on alternate 1.
+/// `endpoint` is the address, attributes and maximum packet size.
+fn streaming_interface(number: u8, terminal: u8, channels: u8, endpoint: [u8; 3]) -> Vec<u8> {
+    let [address, attributes, packet_size] = endpoint;
+    vec![
+        9,
+        4,
+        number,
+        0,
+        0,
+        1,
+        2,
+        0,
+        0, // alternate 0: no bandwidth
+        9,
+        4,
+        number,
+        1,
+        1,
+        1,
+        2,
+        0,
+        0, // alternate 1: streaming
+        7,
+        0x24,
+        1,
+        terminal,
+        1,
+        0x01,
+        0x00, // general: PCM
+        11,
+        0x24,
+        2,
+        1,
+        channels,
+        2,
+        16,
+        1,
+        0x80,
+        0xBB,
+        0x00, // format type I
+        9,
+        5,
+        address,
+        attributes,
+        packet_size,
+        0,
+        1,
+        0,
+        0, // isochronous endpoint
+        7,
+        0x25,
+        1,
+        0x01,
+        0,
+        0,
+        0, // sampling frequency control
+    ]
 }
 
 fn hid_descriptor() -> [u8; 9] {
@@ -225,11 +329,16 @@ fn ret_submit(seq: u32, status: i32, data: &[u8], packets: i32, iso: &[u8]) -> V
 }
 
 /// Returns the IN data for a control transfer, or None to stall.
-fn control(dev: &Device, audio: &mut AudioState, setup: &[u8], out: &[u8]) -> Option<Vec<u8>> {
+fn control(dev: &Device, units: &mut [AudioState; 2], setup: &[u8], out: &[u8]) -> Option<Vec<u8>> {
     let (request_type, request) = (setup[0], setup[1]);
     let value = u16::from_le_bytes([setup[2], setup[3]]);
     let index = u16::from_le_bytes([setup[4], setup[5]]);
     let (dtype, dindex) = ((value >> 8) as u8, value as u8);
+    let audio = match (index >> 8) as u8 {
+        SPEAKER_FEATURE_UNIT => Some(&mut units[0]),
+        MICROPHONE_FEATURE_UNIT => Some(&mut units[1]),
+        _ => None,
+    };
     let reply = match (request_type, request) {
         (0x80, 6) => match dtype {
             1 => dev.device_descriptor(),
@@ -246,16 +355,20 @@ fn control(dev: &Device, audio: &mut AudioState, setup: &[u8], out: &[u8]) -> Op
         (0x80, 8) => vec![1],
         (0x81, 10) => vec![0],
         (0x00..=0x02, _) => vec![],
-        (0xA1, 0x81) if (index >> 8) == 2 => match dtype {
-            1 => vec![audio.mute],
-            2 => audio.volume.to_le_bytes().to_vec(),
-            _ => return None,
-        },
+        (0xA1, 0x81) if audio.is_some() => {
+            let audio = audio?;
+            match dtype {
+                1 => vec![audio.mute],
+                2 => audio.volume.to_le_bytes().to_vec(),
+                _ => return None,
+            }
+        }
         (0xA1, 0x82) => (-0x3C00i16).to_le_bytes().to_vec(),
         (0xA1, 0x83) => 0i16.to_le_bytes().to_vec(),
         (0xA1, 0x84) => 0x0100i16.to_le_bytes().to_vec(),
         (0xA2, 0x81) => vec![0x80, 0xBB, 0x00],
-        (0x21, 0x01) if (index >> 8) == 2 => {
+        (0x21, 0x01) if audio.is_some() => {
+            let audio = audio?;
             match dtype {
                 1 => audio.mute = *out.first()?,
                 2 => audio.volume = i16::from_le_bytes([*out.first()?, *out.get(1)?]),
@@ -305,7 +418,10 @@ fn serve_urbs(dev: Device, mut read: TcpStream) -> std::io::Result<()> {
     if dev.hid {
         spawn_report_sender(write.clone(), pending.clone());
     }
-    let mut audio = AudioState { mute: 0, volume: 0 };
+    let mut units = [
+        AudioState { mute: 0, volume: 0 },
+        AudioState { mute: 0, volume: 0 },
+    ];
     loop {
         let mut h = [0u8; 48];
         read.read_exact(&mut h)?;
@@ -339,17 +455,15 @@ fn serve_urbs(dev: Device, mut read: TcpStream) -> std::io::Result<()> {
         ];
         read.read_exact(&mut iso)?;
         let reply = if ep == 0 {
-            match control(&dev, &mut audio, &h[40..48], &data) {
+            match control(&dev, &mut units, &h[40..48], &data) {
                 Some(mut d) => {
                     d.truncate(len);
                     ret_submit(seq, 0, if dir == 1 { &d } else { &[] }, 0, &[])
                 }
                 None => ret_submit(seq, -32, &[], 0, &[]),
             }
-        } else if dir == 1 {
-            pending.lock().unwrap().push_back(seq);
-            continue;
         } else if packets > 0 {
+            // Every packet completes in full: playback is discarded and recording is silence.
             for c in iso.chunks_mut(16) {
                 let length = be(c, 4).to_be_bytes();
                 c[8..12].copy_from_slice(&length);
@@ -357,7 +471,11 @@ fn serve_urbs(dev: Device, mut read: TcpStream) -> std::io::Result<()> {
             }
             // shortcut: pacing audio here also delays this device's other requests, split the reader if a test streams audio while using controls.
             std::thread::sleep(Duration::from_millis(packets as u64));
-            ret_submit(seq, 0, &[], packets, &iso)
+            let silence = vec![0u8; if dir == 1 { len } else { 0 }];
+            ret_submit(seq, 0, &silence, packets, &iso)
+        } else if dir == 1 {
+            pending.lock().unwrap().push_back(seq);
+            continue;
         } else {
             ret_submit(seq, 0, &[], 0, &[])
         };

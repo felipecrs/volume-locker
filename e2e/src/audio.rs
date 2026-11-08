@@ -2,7 +2,8 @@
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
 use windows::Win32::Media::Audio::{
-    DEVICE_STATE_ACTIVE, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator, eConsole, eRender,
+    DEVICE_STATE_ACTIVE, EDataFlow, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator, eCapture,
+    eConsole, eRender,
 };
 use windows::Win32::System::Com::{
     CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, STGM_READ,
@@ -27,17 +28,37 @@ fn friendly_name(device: &IMMDevice) -> windows::core::Result<String> {
     }
 }
 
-/// An active output endpoint, looked up by a part of its name.
+#[derive(Clone, Copy, Debug)]
+pub enum Flow {
+    Output,
+    Input,
+}
+
+impl Flow {
+    fn data_flow(self) -> EDataFlow {
+        match self {
+            Flow::Output => eRender,
+            Flow::Input => eCapture,
+        }
+    }
+}
+
+/// An active endpoint, looked up by a part of its name.
 pub struct Endpoint(IMMDevice);
 
 impl Endpoint {
-    pub fn find(name_part: &str) -> Option<Self> {
+    pub fn find(flow: Flow, name_part: &str) -> Option<Self> {
         let devices =
-            unsafe { enumerator().EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE) }.ok()?;
+            unsafe { enumerator().EnumAudioEndpoints(flow.data_flow(), DEVICE_STATE_ACTIVE) }
+                .ok()?;
         (0..unsafe { devices.GetCount() }.ok()?)
             .filter_map(|i| unsafe { devices.Item(i) }.ok())
             .find(|device| friendly_name(device).is_ok_and(|name| name.contains(name_part)))
             .map(Self)
+    }
+
+    pub fn name(&self) -> String {
+        friendly_name(&self.0).expect("read the endpoint name")
     }
 
     pub fn id(&self) -> String {
@@ -76,8 +97,9 @@ impl Endpoint {
     }
 }
 
-/// The friendly name of the default output device, if there is one.
-pub fn default_output_name() -> Option<String> {
-    let device = unsafe { enumerator().GetDefaultAudioEndpoint(eRender, eConsole) }.ok()?;
+/// The friendly name of the default device for `flow`, if there is one.
+pub fn default_name(flow: Flow) -> Option<String> {
+    let device =
+        unsafe { enumerator().GetDefaultAudioEndpoint(flow.data_flow(), eConsole) }.ok()?;
     friendly_name(&device).ok()
 }

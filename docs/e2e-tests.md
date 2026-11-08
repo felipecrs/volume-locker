@@ -8,7 +8,7 @@ They are a separate Cargo package, so a plain `cargo test` doesn't build or run 
 
 - [dockur/windows](https://github.com/dockur/windows) runs Windows in a container, in a real console session. Audio endpoints aren't visible to desktop apps in Windows Sandbox, whose session works like a remote desktop.
 - [usbip-win2](https://github.com/vadimgrn/usbip-win2) attaches USB devices over TCP using signed drivers, so the VM doesn't need test mode.
-- `e2e/src/usbip.rs` is a USB/IP server inside the test process. It exports a speaker and a headset that also reports presence over HID, and tests decide what the headset reports.
+- `e2e/src/usbip.rs` is a USB/IP server inside the test process. It exports a speaker, a microphone, and a headset with both that also reports presence over HID. Tests decide what the headset reports.
 - An agent in the VM's desktop session runs scripts from a folder shared with the host. It's how the host starts the tests.
 - `run.sh` boots the VM with QEMU's `-snapshot`, so whatever a run writes to disk is discarded and every run starts clean.
 
@@ -36,11 +36,10 @@ On Linux, build `VolumeLocker.exe` and the test executable for Windows, then pas
 
 Add a `#[test]` to `e2e/tests/app.rs`. Start with `Machine::acquire()`, seed settings with `App::start()`, then use `wait_until()` rather than fixed sleeps. If a test fails, its output includes the app's log.
 
-Tests can change devices with `plug_in()`, `unplug()` and `report_headset_presence()`, and use the tray with `Menu::open()`.
+Tests can change devices with `plug_in()`, `unplug()` and `report_headset_presence()`, and use the tray with `Menu::open()`. Most tests check output and input in turn, with the speaker and the microphone as fallbacks for the headset.
 
 ## Limitations
 
-- The fake devices are output only, so nothing covers input device paths yet.
 - No test streams audio.
 - `Menu::click()` can only click items that fit on the screen.
 - The tests match the English menu text, and the VM's language is English.
