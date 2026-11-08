@@ -1,4 +1,4 @@
-# Applies to cargo commands run from e2e/, including building the app there (see run.ps1).
+# Applies to cargo commands run from e2e/, including building the app there (see the e2e task in mise.toml).
 [build]
 target-dir = "target"
 

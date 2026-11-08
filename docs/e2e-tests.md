@@ -30,10 +30,10 @@ Then run the tests. This takes a few minutes, and you can watch the VM at <http:
 mise run e2e
 ```
 
-`e2e/run.ps1` builds the app, then runs `cargo test` from `e2e/`. There, `.cargo/config.toml` links with a static C runtime, since the VM doesn't have the Visual C++ runtime, and makes `run.sh` the test runner, so the tests run in the VM. Its arguments go to the test executable, so this runs only the tray test:
+The task builds the app, then runs `cargo test` from `e2e/`. There, `.cargo/config.toml` links with a static C runtime, since the VM doesn't have the Visual C++ runtime, and makes `run.sh` the test runner, so the tests run in the VM. Arguments after `--` go to the tests, so this runs only the tray test:
 
 ```bash
-powershell -File e2e/run.ps1 tray
+mise run e2e -- tray
 ```
 
 On Linux, build `VolumeLocker.exe` and the test executable for Windows with a static C runtime, then call `e2e/run.sh <VolumeLocker.exe> <test executable> [test arguments]`.
@@ -44,7 +44,7 @@ On Linux, build `VolumeLocker.exe` and the test executable for Windows with a st
 
 Add a `#[test]` to `e2e/tests/app.rs`. Start with `Machine::acquire()`, seed settings with `App::start()`, then use `wait_until()` rather than fixed sleeps. If a test fails, its output includes the app's log.
 
-Tests can change devices with `plug_in()`, `unplug()` and `report_headset_presence()`, and use the tray with `Menu::open()`. Most tests check output and input in turn, with the speaker and the microphone as fallbacks for the headset.
+Tests can change devices with `plug_in()`, `unplug()` and `report_headset_presence()`, and use the tray with `Menu::open()` after `app.promote_tray_icon()`, which pins the icon to the taskbar. Most tests check output and input in turn, with the speaker and the microphone as fallbacks for the headset.
 
 ## Limitations
 
@@ -52,5 +52,5 @@ Tests can change devices with `plug_in()`, `unplug()` and `report_headset_presen
 - `Menu::click()` can only click items that fit on the screen.
 - The tests match the English menu text, and the VM's language is English.
 - The base image uses a Windows evaluation licence. If tests start failing because Windows shuts itself down, provision again.
-- Docker in WSL only stays up while a `wsl.exe` process is open. `run.ps1` and the `e2e:provision` task keep one open while they run, but a container started by hand dies shortly after the command returns.
+- Docker in WSL only stays up while a `wsl.exe` process is open. The `e2e` and `e2e:provision` tasks keep one open while they run, but a container started by hand dies shortly after the command returns.
 - The tests don't run in CI yet.

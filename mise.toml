@@ -31,8 +31,13 @@ description = "Build release binary"
 run = "cargo build --release --frozen"
 
 [tasks.e2e]
-description = "Run the end-to-end tests in a Windows VM"
-run = "powershell -NoProfile -ExecutionPolicy Bypass -File e2e/run.ps1"
+description = "Run the end-to-end tests in a Windows VM. Arguments after -- go to the tests."
+# From e2e/, so cargo uses its .cargo/config.toml. mise appends arguments to the last command.
+dir = "{{config_root}}/e2e"
+run = [
+  "cargo build --manifest-path ../Cargo.toml --release --locked",
+  "cargo test --locked --",
+]
 
 [tasks."e2e:provision"]
 description = "Build the Windows VM image for the end-to-end tests"

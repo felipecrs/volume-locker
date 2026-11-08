@@ -12,7 +12,7 @@ app=$(linux_path "$1")
 tests=$(linux_path "$2")
 shift 2
 if [ ! -f "$app" ]; then
-  echo "No app at $app. Build it first, or use run.ps1." >&2
+  echo "No app at $app. Build it first, or use `mise run e2e`." >&2
   exit 1
 fi
 
