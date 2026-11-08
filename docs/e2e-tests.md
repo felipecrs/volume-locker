@@ -16,11 +16,13 @@ They are a separate Cargo package, so a plain `cargo test` doesn't build or run 
 
 You need Docker and KVM, which on Windows means Docker running inside WSL.
 
-Build the base image once. This takes about 30 minutes and needs about 7 GB of disk after the installer download. It's stored in `~/.cache/volume-locker-e2e`.
+Build the base image once. This takes about 30 minutes and needs about 7 GB of disk after the installer download. Each test run boots a VM with 4 GB of RAM. It's stored in `~/.cache/volume-locker-e2e`.
 
 ```bash
 mise run e2e:provision
 ```
+
+It uses Windows 11 Enterprise LTSC. To try another Windows, pass `e2e/provision.sh` a [dockur version](https://github.com/dockur/windows#faq-), an ISO URL or a local ISO file. The choice is saved in `~/.cache/volume-locker-e2e/windows-source`, and every boot must use it: if it changes, dockur moves the image to a `backups` folder and installs Windows again.
 
 Then run the tests. This takes a few minutes, and you can watch the VM at <http://localhost:8006>.
 
@@ -42,6 +44,6 @@ Tests can change devices with `plug_in()`, `unplug()` and `report_headset_presen
 - No test streams audio.
 - `Menu::click()` can only click items that fit on the screen.
 - The tests match the English menu text, and the VM's language is English.
-- The base image uses a Windows evaluation licence that lasts 90 days. `run-tests.ps1` prints its expiry date at the start of each run. Provision again when it runs out, because an expired evaluation shuts itself down every hour.
+- The base image uses a Windows evaluation licence. If tests start failing because Windows shuts itself down, provision again.
 - Docker in WSL only stays up while a `wsl.exe` process is open. `run.ps1` and the `e2e:provision` task keep one open while they run, but a container started by hand dies shortly after the command returns.
 - The tests don't run in CI yet.

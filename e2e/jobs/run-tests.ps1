@@ -1,5 +1,4 @@
 $share = '\\host.lan\Data'
-cscript //nologo C:\Windows\System32\slmgr.vbs /xpr
 New-Item -ItemType Directory C:\e2e -Force | Out-Null
 Copy-Item "$share\e2e.exe", "$share\VolumeLocker.exe" C:\e2e\
 $env:VOLUME_LOCKER_E2E = '1'

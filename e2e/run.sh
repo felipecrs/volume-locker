@@ -7,7 +7,7 @@ BOOT_ATTEMPTS=3
 BOOT_TIMEOUT=300
 TEST_TIMEOUT=1200
 
-if [ ! -f "$STORAGE/windows.boot" ]; then
+if [ ! -f "$STORAGE/windows.boot" ] || [ ! -f "$SOURCE_FILE" ]; then
   echo "No base image in $STORAGE. Run provision.sh first." >&2
   exit 1
 fi
