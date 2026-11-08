@@ -1,0 +1,10 @@
+# Applies to cargo commands run from e2e/, including building the app there (see run.ps1).
+[build]
+target-dir = "target"
+
+[target.x86_64-pc-windows-msvc]
+# The VM has no Visual C++ runtime installed.
+rustflags = ["-C", "target-feature=+crt-static"]
+# `cargo test` hands each test executable to run.sh, which runs it in the VM.
+# --exec skips WSL's shell, which would strip the backslashes from the Windows path cargo passes.
+runner = ["wsl.exe", "--exec", "bash", "run.sh", "target/release/VolumeLocker.exe"]

@@ -8,6 +8,11 @@ publish = false
 
 [workspace]
 
+# Only tests/app.rs has tests, and every test executable boots the VM.
+[lib]
+test = false
+doctest = false
+
 [dependencies]
 serde_json = "1.0.154"
 

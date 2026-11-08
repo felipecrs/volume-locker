@@ -30,7 +30,15 @@ Then run the tests. This takes a few minutes, and you can watch the VM at <http:
 mise run e2e
 ```
 
-On Linux, build `VolumeLocker.exe` and the test executable for Windows, then pass both paths to `e2e/run.sh`. Link them with a static C runtime, because the VM doesn't have the Visual C++ runtime.
+`e2e/run.ps1` builds the app, then runs `cargo test` from `e2e/`. There, `.cargo/config.toml` links with a static C runtime, since the VM doesn't have the Visual C++ runtime, and makes `run.sh` the test runner, so the tests run in the VM. Its arguments go to the test executable, so this runs only the tray test:
+
+```bash
+powershell -File e2e/run.ps1 tray
+```
+
+On Linux, build `VolumeLocker.exe` and the test executable for Windows with a static C runtime, then call `e2e/run.sh <VolumeLocker.exe> <test executable> [test arguments]`.
+
+`run-tests.ps1` is copied into the VM on every run, so changing how tests run doesn't need a new image. Only `e2e/oem/` is part of the image.
 
 ## Adding a test
 

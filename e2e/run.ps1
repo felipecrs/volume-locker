@@ -1,16 +1,9 @@
-# Builds the app and the tests on Windows, then runs them in a VM through Docker in WSL.
+# Builds the app, then runs the tests in a VM through Docker in WSL. Arguments go to the test
+# executable, so `run.ps1 tray` runs only the tests whose names contain "tray".
 $ErrorActionPreference = 'Stop'
-$root = Split-Path $PSScriptRoot
-# The VM has no Visual C++ runtime installed.
-$env:RUSTFLAGS = '-C target-feature=+crt-static'
-$target = Join-Path $PSScriptRoot 'target'
-
-cargo build --manifest-path "$root\Cargo.toml" --release --locked --target-dir $target
+# From e2e/ so cargo uses .cargo/config.toml: a static C runtime, and run.sh as the test runner.
+Set-Location $PSScriptRoot
+cargo build --manifest-path ..\Cargo.toml --release --locked
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
-$tests = cargo test --manifest-path "$PSScriptRoot\Cargo.toml" --locked --target-dir $target --no-run --message-format=json-render-diagnostics
-if ($LASTEXITCODE) { exit $LASTEXITCODE }
-$testExe = ($tests | ConvertFrom-Json | Where-Object { $_.target.name -eq 'app' -and $_.executable }).executable
-
-$paths = "$PSScriptRoot\run.sh", $testExe, "$target\release\VolumeLocker.exe" | ForEach-Object { (wsl.exe wslpath -u ($_ -replace '\\', '/')) -replace "`0", '' }
-wsl.exe bash @paths
+cargo test --locked -- @args
 exit $LASTEXITCODE

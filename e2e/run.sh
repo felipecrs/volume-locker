@@ -1,7 +1,20 @@
 #!/usr/bin/env bash
-# Runs the end-to-end tests in a disposable VM. Usage: run.sh <test exe> <VolumeLocker.exe>
+# Runs the end-to-end tests in a disposable VM. Cargo calls it as the test runner (see .cargo/config.toml).
+# Usage: run.sh <VolumeLocker.exe> <test exe> [test arguments...]
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
+
+# Cargo on Windows passes Windows paths.
+linux_path() {
+  if [[ "$1" == [A-Za-z]:\\* ]]; then wslpath -u "$1"; else echo "$1"; fi
+}
+app=$(linux_path "$1")
+tests=$(linux_path "$2")
+shift 2
+if [ ! -f "$app" ]; then
+  echo "No app at $app. Build it first, or use run.ps1." >&2
+  exit 1
+fi
 
 BOOT_ATTEMPTS=3
 BOOT_TIMEOUT=300
@@ -14,8 +27,10 @@ fi
 
 shared=$(new_shared_folder)
 trap 'docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; rm -rf "$shared"' EXIT
-install -m 777 "$1" "$shared/e2e.exe"
-install -m 777 "$2" "$shared/VolumeLocker.exe"
+install -m 777 "$tests" "$shared/e2e.exe"
+install -m 777 "$app" "$shared/VolumeLocker.exe"
+install -m 666 "$E2E_DIR/run-tests.ps1" "$shared/run-tests.ps1"
+printf '%s\n' "$@" >"$shared/test-args"
 
 # A boot occasionally hangs before reaching the desktop, so try again.
 for ((attempt = 1; attempt <= BOOT_ATTEMPTS; attempt++)); do
