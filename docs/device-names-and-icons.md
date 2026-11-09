@@ -1,6 +1,6 @@
 # Transferring names and icons
 
-Volume Locker transfers a device's Windows name and icon along with its settings. To turn this off, uncheck **Also transfer device name and icon** under **Preferences** > **Settings transfer**. It needs **Automatically transfer device settings** to be on.
+Volume Locker transfers a device's Windows name and icon along with its settings. To turn this off, uncheck **Also transfer device name and icon** in the **Settings transfer** submenu under **Preferences**. It needs **Automatically transfer device settings** to be on.
 
 When Windows creates a new endpoint for a device, the endpoint gets a default name and icon. Volume Locker writes the device's last seen name and icon to the new endpoint.
 
@@ -27,12 +27,12 @@ Volume Locker does not try to detect custom names or icons. It stores the curren
 flowchart LR
     OLD[Saved or cached fingerprint] --> MATCH[Accepted match]
     MATCH -->|Preference on: name and icon| NEW[New endpoint]
-    MATCH -->|Always: locks and priorities| STATE[Settings under the new ID]
+    MATCH -->|Always: locks and device order| STATE[Settings under the new ID]
 ```
 
 1. The [matching tiers](./settings-transfer.md#matching-tiers) accept a pair. The name and icon do not affect matching.
 2. `IPolicyConfig::SetPropertyValue` writes each changed value as a `VT_LPWSTR` string.
-3. Volume locks, unmute locks, and priorities move to the new ID.
+3. Volume locks, unmute locks, and places in the device order move to the new ID.
 
 ## If a write fails
 

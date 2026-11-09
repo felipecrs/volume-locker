@@ -1,13 +1,13 @@
 use crate::audio::{
     AudioBackend, AudioBackendImpl, AudioDevice, check_and_unmute_device, collect_device_info,
-    enforce_priorities, enforce_volume_lock, transfer_device_settings,
+    enforce_device_order, enforce_volume_lock, transfer_device_settings,
 };
 use crate::config::{PersistentState, save_state};
 use crate::consts::{APP_NAME, APP_UID, CURRENT_VERSION};
 use crate::i18n::t;
 use crate::notification::{NotificationThrottler, notify_error};
 use crate::types::{
-    DeviceChangeSource, DeviceFingerprint, DeviceId, DeviceType, TemporaryPriorities, UserEvent,
+    DeviceChangeSource, DeviceFingerprint, DeviceId, DeviceType, TemporaryDefaults, UserEvent,
     VolumeChangedEvent, VolumeScalar,
 };
 use crate::ui::{
@@ -29,7 +29,7 @@ pub struct AppState {
     pub menu_id_map: MenuIdMap,
     pub watched_devices: Vec<Box<dyn AudioDevice>>,
     pub notification_throttler: NotificationThrottler,
-    pub temporary_priorities: TemporaryPriorities,
+    pub temporary_defaults: TemporaryDefaults,
     pub update_info: Option<UpdateInfo>,
     pub update_check_in_progress: bool,
     pub update_download_in_progress: bool,
@@ -111,7 +111,7 @@ impl AppState {
         let result = transfer_device_settings(
             &self.backend,
             &mut self.persistent_state,
-            &mut self.temporary_priorities,
+            &mut self.temporary_defaults,
             &self.device_cache,
         );
 
@@ -294,11 +294,11 @@ impl AppState {
             }
         }
 
-        enforce_priorities(
+        enforce_device_order(
             &self.backend,
             &self.persistent_state,
             &mut self.notification_throttler,
-            &self.temporary_priorities,
+            &self.temporary_defaults,
         );
 
         let any_device_locked = self.rebuild_watched_devices(proxy);
@@ -415,7 +415,7 @@ impl AppState {
                 tray_menu: refs.tray_menu,
                 persistent_state: &mut self.persistent_state,
                 backend: &self.backend,
-                temporary_priorities: &mut self.temporary_priorities,
+                temporary_defaults: &mut self.temporary_defaults,
                 update_info: &self.update_info,
             };
             let result = handle_menu_event(event, menu_info, &mut ctx);
@@ -495,7 +495,7 @@ impl AppState {
         let ctx = MenuContext {
             backend: &self.backend,
             persistent_state: &self.persistent_state,
-            temporary_priorities: &self.temporary_priorities,
+            temporary_defaults: &self.temporary_defaults,
             auto_launch_enabled: refs.auto_launch.is_enabled().unwrap_or_else(|e| {
                 log::warn!("Failed to check auto-launch state: {e:#}");
                 false
@@ -539,66 +539,63 @@ impl AppState {
 
 #[cfg(test)]
 mod tests {
-    use crate::types::{DeviceType, PriorityKind, TemporaryPriorities};
+    use crate::types::{DeviceType, OrderKind, TemporaryDefaults};
 
     #[test]
-    fn temporary_priorities_get_returns_none_by_default() {
-        let tp = TemporaryPriorities::default();
-        assert!(tp.get(DeviceType::Output, PriorityKind::Main).is_none());
-        assert!(tp.get(DeviceType::Input, PriorityKind::Main).is_none());
+    fn temporary_defaults_get_returns_none_by_default() {
+        let tp = TemporaryDefaults::default();
+        assert!(tp.get(DeviceType::Output, OrderKind::Main).is_none());
+        assert!(tp.get(DeviceType::Input, OrderKind::Main).is_none());
         assert!(
-            tp.get(DeviceType::Output, PriorityKind::Communication)
+            tp.get(DeviceType::Output, OrderKind::Communication)
                 .is_none()
         );
         assert!(
-            tp.get(DeviceType::Input, PriorityKind::Communication)
+            tp.get(DeviceType::Input, OrderKind::Communication)
                 .is_none()
         );
     }
 
     #[test]
-    fn temporary_priorities_set_and_get_output() {
-        let mut tp = TemporaryPriorities::default();
-        tp.set(DeviceType::Output, PriorityKind::Main, Some("dev_a".into()));
+    fn temporary_defaults_set_and_get_output() {
+        let mut tp = TemporaryDefaults::default();
+        tp.set(DeviceType::Output, OrderKind::Main, Some("dev_a".into()));
         assert_eq!(
-            tp.get(DeviceType::Output, PriorityKind::Main).unwrap(),
+            tp.get(DeviceType::Output, OrderKind::Main).unwrap(),
             "dev_a"
         );
-        assert!(tp.get(DeviceType::Input, PriorityKind::Main).is_none());
+        assert!(tp.get(DeviceType::Input, OrderKind::Main).is_none());
     }
 
     #[test]
-    fn temporary_priorities_set_and_get_communication() {
-        let mut tp = TemporaryPriorities::default();
+    fn temporary_defaults_set_and_get_communication() {
+        let mut tp = TemporaryDefaults::default();
         tp.set(
             DeviceType::Output,
-            PriorityKind::Communication,
+            OrderKind::Communication,
             Some("headset".into()),
         );
-        assert!(tp.get(DeviceType::Output, PriorityKind::Main).is_none());
+        assert!(tp.get(DeviceType::Output, OrderKind::Main).is_none());
         assert_eq!(
-            tp.get(DeviceType::Output, PriorityKind::Communication)
+            tp.get(DeviceType::Output, OrderKind::Communication)
                 .unwrap(),
             "headset"
         );
     }
 
     #[test]
-    fn temporary_priorities_set_and_get_input() {
-        let mut tp = TemporaryPriorities::default();
-        tp.set(DeviceType::Input, PriorityKind::Main, Some("mic_1".into()));
-        assert!(tp.get(DeviceType::Output, PriorityKind::Main).is_none());
-        assert_eq!(
-            tp.get(DeviceType::Input, PriorityKind::Main).unwrap(),
-            "mic_1"
-        );
+    fn temporary_defaults_set_and_get_input() {
+        let mut tp = TemporaryDefaults::default();
+        tp.set(DeviceType::Input, OrderKind::Main, Some("mic_1".into()));
+        assert!(tp.get(DeviceType::Output, OrderKind::Main).is_none());
+        assert_eq!(tp.get(DeviceType::Input, OrderKind::Main).unwrap(), "mic_1");
     }
 
     #[test]
-    fn temporary_priorities_clear() {
-        let mut tp = TemporaryPriorities::default();
-        tp.set(DeviceType::Output, PriorityKind::Main, Some("dev_a".into()));
-        tp.set(DeviceType::Output, PriorityKind::Main, None);
-        assert!(tp.get(DeviceType::Output, PriorityKind::Main).is_none());
+    fn temporary_defaults_clear() {
+        let mut tp = TemporaryDefaults::default();
+        tp.set(DeviceType::Output, OrderKind::Main, Some("dev_a".into()));
+        tp.set(DeviceType::Output, OrderKind::Main, None);
+        assert!(tp.get(DeviceType::Output, OrderKind::Main).is_none());
     }
 }

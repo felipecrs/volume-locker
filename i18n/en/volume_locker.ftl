@@ -16,17 +16,17 @@ recording-devices = Recording devices...
 sound-settings = Sound settings...
 volume-mixer = Volume mixer...
 
-## Priority lists
+## Default device order
 
-output-device-priority = Output device priority
-input-device-priority = Input device priority
-device-priority-settings = Device priority settings
-communication-priority-settings = Communication priority settings
-priority-list = Priority list
-no-devices-configured = No devices configured
-no-devices-available = No devices available
-follow-output-device-priority = Follow output device priority
-follow-input-device-priority = Follow input device priority
+default-output-device-order = Default output device order
+default-input-device-order = Default input device order
+device-order = Device order
+communication-device-order = Communication device order
+current-order = Current order
+no-devices-added = No devices added
+no-devices-to-add = No devices to add
+follow-default-output-device = Follow default output device
+follow-default-input-device = Follow default input device
 add-device = Add device
 add-to-top = Add to top
 add-to-bottom = Add to bottom
@@ -35,13 +35,14 @@ move-down = Move down
 move-to-top = Move to top
 move-to-bottom = Move to bottom
 remove-device = Remove device
-notify-on-restore = Notify on restore
-current-device = Current: { $device }
+notify-on-switch = Notify on switch
+current-device = Current device: { $device }
 no-current-device = None
 
-## Temporary priority
+## Temporary default device
 
-temporary-priority = Temporary priority
+temporary-default-device = Temporary default device
+no-devices-available = No devices available
 temporary-output = Output
 temporary-input = Input
 temporary-communication = Communication
@@ -74,11 +75,11 @@ volume-restored = The volume of { $device } has been restored from { $from }% to
 output-unmuted-title = Output Device Unmuted
 input-unmuted-title = Input Device Unmuted
 device-unmuted = { $device } was unmuted due to Keep unmuted setting.
-output-restored-title = Output Device Restored
-input-restored-title = Input Device Restored
-output-communication-restored-title = Output Communication Device Restored
-input-communication-restored-title = Input Communication Device Restored
-switched-by-priority = Switched to { $device } based on priority list.
+output-switched-title = Default Output Device Switched
+input-switched-title = Default Input Device Switched
+output-communication-switched-title = Default Communication Output Device Switched
+input-communication-switched-title = Default Communication Input Device Switched
+switched-by-order = Switched to { $device } based on device order.
 unknown-device = Unknown Device
 settings-transferred-title = Device Settings Transferred
 settings-transferred = Settings for '{ $device }' were transferred to its new connection.

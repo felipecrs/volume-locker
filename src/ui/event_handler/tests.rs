@@ -1,5 +1,5 @@
 use super::{
-    DeviceAction, DeviceId, DeviceType, PersistentState, PriorityKind, handle_priority_event,
+    DeviceAction, DeviceId, DeviceType, OrderKind, PersistentState, handle_device_order_event,
 };
 use crate::types::DeviceSettings;
 
@@ -26,58 +26,58 @@ fn make_state_with_device(device_id: &str, device_type: DeviceType) -> Persisten
 }
 
 #[test]
-fn priority_add_inserts_device() {
+fn device_order_add_inserts_device() {
     let mut state = PersistentState::default();
-    let changed = handle_priority_event(
-        &DeviceAction::AddToPriorityBottom(PriorityKind::Main),
+    let changed = handle_device_order_event(
+        &DeviceAction::AddToBottom(OrderKind::Main),
         &DeviceId::from("dev1"),
         DeviceType::Output,
         "Speaker",
         &mut state,
     );
     assert!(changed);
-    assert_eq!(state.priority_list(DeviceType::Output), &["dev1"]);
+    assert_eq!(state.device_order(DeviceType::Output), &["dev1"]);
     assert!(state.devices.contains_key("dev1"));
 }
 
 #[test]
-fn priority_add_top_and_bottom() {
+fn device_order_add_top_and_bottom() {
     let mut state = PersistentState::default();
-    handle_priority_event(
-        &DeviceAction::AddToPriorityBottom(PriorityKind::Main),
+    handle_device_order_event(
+        &DeviceAction::AddToBottom(OrderKind::Main),
         &DeviceId::from("dev1"),
         DeviceType::Output,
         "Speaker",
         &mut state,
     );
-    handle_priority_event(
-        &DeviceAction::AddToPriorityTop(PriorityKind::Main),
+    handle_device_order_event(
+        &DeviceAction::AddToTop(OrderKind::Main),
         &DeviceId::from("dev0"),
         DeviceType::Output,
         "Headset",
         &mut state,
     );
-    handle_priority_event(
-        &DeviceAction::AddToPriorityBottom(PriorityKind::Main),
+    handle_device_order_event(
+        &DeviceAction::AddToBottom(OrderKind::Main),
         &DeviceId::from("dev2"),
         DeviceType::Output,
         "Earbuds",
         &mut state,
     );
     assert_eq!(
-        state.priority_list(DeviceType::Output),
+        state.device_order(DeviceType::Output),
         &["dev0", "dev1", "dev2"]
     );
 }
 
 #[test]
-fn priority_add_duplicate_no_op() {
+fn device_order_add_duplicate_no_op() {
     let mut state = PersistentState::default();
     state
-        .priority_list_mut(DeviceType::Output)
+        .device_order_mut(DeviceType::Output)
         .push("dev1".into());
-    let changed = handle_priority_event(
-        &DeviceAction::AddToPriorityBottom(PriorityKind::Main),
+    let changed = handle_device_order_event(
+        &DeviceAction::AddToBottom(OrderKind::Main),
         &DeviceId::from("dev1"),
         DeviceType::Output,
         "Speaker",
@@ -87,44 +87,44 @@ fn priority_add_duplicate_no_op() {
 }
 
 #[test]
-fn priority_remove_cleans_empty_device() {
+fn device_order_remove_cleans_empty_device() {
     let mut state = make_state_with_device("dev1", DeviceType::Output);
     state
-        .priority_list_mut(DeviceType::Output)
+        .device_order_mut(DeviceType::Output)
         .push("dev1".into());
-    let changed = handle_priority_event(
-        &DeviceAction::RemoveFromPriority(PriorityKind::Main),
+    let changed = handle_device_order_event(
+        &DeviceAction::RemoveFromOrder(OrderKind::Main),
         &DeviceId::from("dev1"),
         DeviceType::Output,
         "Speaker",
         &mut state,
     );
     assert!(changed);
-    assert!(state.priority_list(DeviceType::Output).is_empty());
+    assert!(state.device_order(DeviceType::Output).is_empty());
     assert!(!state.devices.contains_key("dev1"));
 }
 
 #[test]
-fn priority_move_up() {
+fn device_order_move_up() {
     let mut state = PersistentState::default();
-    *state.priority_list_mut(DeviceType::Output) = vec!["a".into(), "b".into(), "c".into()];
-    let changed = handle_priority_event(
-        &DeviceAction::MovePriorityUp(PriorityKind::Main),
+    *state.device_order_mut(DeviceType::Output) = vec!["a".into(), "b".into(), "c".into()];
+    let changed = handle_device_order_event(
+        &DeviceAction::MoveUp(OrderKind::Main),
         &DeviceId::from("b"),
         DeviceType::Output,
         "B",
         &mut state,
     );
     assert!(changed);
-    assert_eq!(state.priority_list(DeviceType::Output), &["b", "a", "c"]);
+    assert_eq!(state.device_order(DeviceType::Output), &["b", "a", "c"]);
 }
 
 #[test]
-fn priority_move_up_already_top() {
+fn device_order_move_up_already_top() {
     let mut state = PersistentState::default();
-    *state.priority_list_mut(DeviceType::Output) = vec!["a".into(), "b".into()];
-    let changed = handle_priority_event(
-        &DeviceAction::MovePriorityUp(PriorityKind::Main),
+    *state.device_order_mut(DeviceType::Output) = vec!["a".into(), "b".into()];
+    let changed = handle_device_order_event(
+        &DeviceAction::MoveUp(OrderKind::Main),
         &DeviceId::from("a"),
         DeviceType::Output,
         "A",
@@ -134,80 +134,80 @@ fn priority_move_up_already_top() {
 }
 
 #[test]
-fn priority_move_down() {
+fn device_order_move_down() {
     let mut state = PersistentState::default();
-    *state.priority_list_mut(DeviceType::Output) = vec!["a".into(), "b".into(), "c".into()];
-    let changed = handle_priority_event(
-        &DeviceAction::MovePriorityDown(PriorityKind::Main),
+    *state.device_order_mut(DeviceType::Output) = vec!["a".into(), "b".into(), "c".into()];
+    let changed = handle_device_order_event(
+        &DeviceAction::MoveDown(OrderKind::Main),
         &DeviceId::from("b"),
         DeviceType::Output,
         "B",
         &mut state,
     );
     assert!(changed);
-    assert_eq!(state.priority_list(DeviceType::Output), &["a", "c", "b"]);
+    assert_eq!(state.device_order(DeviceType::Output), &["a", "c", "b"]);
 }
 
 #[test]
-fn priority_move_to_top() {
+fn device_order_move_to_top() {
     let mut state = PersistentState::default();
-    *state.priority_list_mut(DeviceType::Output) = vec!["a".into(), "b".into(), "c".into()];
-    let changed = handle_priority_event(
-        &DeviceAction::MovePriorityToTop(PriorityKind::Main),
+    *state.device_order_mut(DeviceType::Output) = vec!["a".into(), "b".into(), "c".into()];
+    let changed = handle_device_order_event(
+        &DeviceAction::MoveToTop(OrderKind::Main),
         &DeviceId::from("c"),
         DeviceType::Output,
         "C",
         &mut state,
     );
     assert!(changed);
-    assert_eq!(state.priority_list(DeviceType::Output), &["c", "a", "b"]);
+    assert_eq!(state.device_order(DeviceType::Output), &["c", "a", "b"]);
 }
 
 #[test]
-fn priority_move_to_bottom() {
+fn device_order_move_to_bottom() {
     let mut state = PersistentState::default();
-    *state.priority_list_mut(DeviceType::Output) = vec!["a".into(), "b".into(), "c".into()];
-    let changed = handle_priority_event(
-        &DeviceAction::MovePriorityToBottom(PriorityKind::Main),
+    *state.device_order_mut(DeviceType::Output) = vec!["a".into(), "b".into(), "c".into()];
+    let changed = handle_device_order_event(
+        &DeviceAction::MoveToBottom(OrderKind::Main),
         &DeviceId::from("a"),
         DeviceType::Output,
         "A",
         &mut state,
     );
     assert!(changed);
-    assert_eq!(state.priority_list(DeviceType::Output), &["b", "c", "a"]);
+    assert_eq!(state.device_order(DeviceType::Output), &["b", "c", "a"]);
 }
 
 #[test]
-fn priority_input_type_uses_input_list() {
+fn device_order_input_type_uses_input_list() {
     let mut state = PersistentState::default();
-    handle_priority_event(
-        &DeviceAction::AddToPriorityBottom(PriorityKind::Main),
+    handle_device_order_event(
+        &DeviceAction::AddToBottom(OrderKind::Main),
         &DeviceId::from("mic1"),
         DeviceType::Input,
         "Mic",
         &mut state,
     );
-    assert!(state.priority_list(DeviceType::Output).is_empty());
-    assert_eq!(state.priority_list(DeviceType::Input), &["mic1"]);
+    assert!(state.device_order(DeviceType::Output).is_empty());
+    assert_eq!(state.device_order(DeviceType::Input), &["mic1"]);
 }
 
 #[test]
 fn communication_kind_uses_separate_list() {
     let mut state = PersistentState::default();
     state
-        .communication_priority_list_mut(DeviceType::Output)
+        .communication_device_order_mut(DeviceType::Output)
         .clear();
-    handle_priority_event(
-        &DeviceAction::AddToPriorityBottom(PriorityKind::Communication),
+    handle_device_order_event(
+        &DeviceAction::AddToBottom(OrderKind::Communication),
         &DeviceId::from("headset"),
         DeviceType::Output,
         "Headset",
         &mut state,
     );
-    assert!(state.priority_list(DeviceType::Output).is_empty());
+    assert!(state.device_order(DeviceType::Output).is_empty());
     assert_eq!(
-        state.communication_priority_list(DeviceType::Output),
+        state.communication_device_order(DeviceType::Output),
         &["headset"]
     );
 }
@@ -216,11 +216,11 @@ fn communication_kind_uses_separate_list() {
 fn same_device_can_be_in_both_lists() {
     let mut state = PersistentState::default();
     state
-        .communication_priority_list_mut(DeviceType::Output)
+        .communication_device_order_mut(DeviceType::Output)
         .clear();
-    for kind in [PriorityKind::Main, PriorityKind::Communication] {
-        let changed = handle_priority_event(
-            &DeviceAction::AddToPriorityBottom(kind),
+    for kind in [OrderKind::Main, OrderKind::Communication] {
+        let changed = handle_device_order_event(
+            &DeviceAction::AddToBottom(kind),
             &DeviceId::from("dev1"),
             DeviceType::Output,
             "Speaker",
@@ -228,9 +228,9 @@ fn same_device_can_be_in_both_lists() {
         );
         assert!(changed, "adding to the {kind:?} list should succeed");
     }
-    assert_eq!(state.priority_list(DeviceType::Output), &["dev1"]);
+    assert_eq!(state.device_order(DeviceType::Output), &["dev1"]);
     assert_eq!(
-        state.communication_priority_list(DeviceType::Output),
+        state.communication_device_order(DeviceType::Output),
         &["dev1"]
     );
 }
@@ -238,11 +238,11 @@ fn same_device_can_be_in_both_lists() {
 #[test]
 fn communication_move_does_not_touch_main_list() {
     let mut state = PersistentState::default();
-    *state.priority_list_mut(DeviceType::Output) = vec!["a".into(), "b".into()];
-    *state.communication_priority_list_mut(DeviceType::Output) = vec!["a".into(), "b".into()];
+    *state.device_order_mut(DeviceType::Output) = vec!["a".into(), "b".into()];
+    *state.communication_device_order_mut(DeviceType::Output) = vec!["a".into(), "b".into()];
 
-    let changed = handle_priority_event(
-        &DeviceAction::MovePriorityUp(PriorityKind::Communication),
+    let changed = handle_device_order_event(
+        &DeviceAction::MoveUp(OrderKind::Communication),
         &DeviceId::from("b"),
         DeviceType::Output,
         "B",
@@ -250,9 +250,9 @@ fn communication_move_does_not_touch_main_list() {
     );
 
     assert!(changed);
-    assert_eq!(state.priority_list(DeviceType::Output), &["a", "b"]);
+    assert_eq!(state.device_order(DeviceType::Output), &["a", "b"]);
     assert_eq!(
-        state.communication_priority_list(DeviceType::Output),
+        state.communication_device_order(DeviceType::Output),
         &["b", "a"]
     );
 }
@@ -261,21 +261,21 @@ fn communication_move_does_not_touch_main_list() {
 fn remove_keeps_device_settings_referenced_by_other_list() {
     let mut state = make_state_with_device("dev1", DeviceType::Output);
     state
-        .priority_list_mut(DeviceType::Output)
+        .device_order_mut(DeviceType::Output)
         .push("dev1".into());
     state
-        .communication_priority_list_mut(DeviceType::Output)
+        .communication_device_order_mut(DeviceType::Output)
         .push("dev1".into());
 
-    handle_priority_event(
-        &DeviceAction::RemoveFromPriority(PriorityKind::Main),
+    handle_device_order_event(
+        &DeviceAction::RemoveFromOrder(OrderKind::Main),
         &DeviceId::from("dev1"),
         DeviceType::Output,
         "Speaker",
         &mut state,
     );
 
-    assert!(state.priority_list(DeviceType::Output).is_empty());
+    assert!(state.device_order(DeviceType::Output).is_empty());
     assert!(
         state.devices.contains_key("dev1"),
         "settings must survive while the communication list still references the device"

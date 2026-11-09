@@ -1,7 +1,7 @@
 use crate::config::PersistentState;
 use crate::types::{
-    DeviceBusType, DeviceFingerprint, DeviceId, DeviceSettings, DeviceType, PriorityKind,
-    TemporaryPriorities,
+    DeviceBusType, DeviceFingerprint, DeviceId, DeviceSettings, DeviceType, OrderKind,
+    TemporaryDefaults,
 };
 use regex_lite::Regex;
 use std::sync::LazyLock;
@@ -360,7 +360,7 @@ fn is_device_active(backend: &impl AudioBackend, id: &DeviceId) -> bool {
 pub fn transfer_device_settings(
     backend: &impl AudioBackend,
     persistent_state: &mut PersistentState,
-    temporary_priorities: &mut TemporaryPriorities,
+    temporary_defaults: &mut TemporaryDefaults,
     device_cache: &std::collections::HashMap<
         DeviceId,
         (String, DeviceType, Option<DeviceFingerprint>),
@@ -432,29 +432,26 @@ pub fn transfer_device_settings(
         };
     }
 
-    // Also include any disconnected devices in priority lists not tracked in persistent_state.devices
+    // Also include any disconnected devices in device orders not tracked in persistent_state.devices
     for device_type in [DeviceType::Output, DeviceType::Input] {
-        for kind in [PriorityKind::Main, PriorityKind::Communication] {
-            for priority_id in persistent_state
-                .priority_list_of(device_type, kind)
-                .to_vec()
-            {
-                if !priority_id.is_main_priority()
-                    && !missing_by_type.iter().any(|m| m.id == priority_id)
-                    && !is_device_active(backend, &priority_id)
+        for kind in [OrderKind::Main, OrderKind::Communication] {
+            for ordered_id in persistent_state.device_order_of(device_type, kind).to_vec() {
+                if !ordered_id.is_follow_main()
+                    && !missing_by_type.iter().any(|m| m.id == ordered_id)
+                    && !is_device_active(backend, &ordered_id)
                 {
-                    let cached = device_cache.get(&priority_id);
+                    let cached = device_cache.get(&ordered_id);
                     let recovered_fp = cached
                         .and_then(|(_, _, fp)| fp.clone())
-                        .or_else(|| backend.device_fingerprint(&priority_id));
+                        .or_else(|| backend.device_fingerprint(&ordered_id));
                     let name = cached
                         .map(|(n, _, _)| n.clone())
                         .or_else(|| recovered_fp.as_ref().and_then(|f| f.clean_name.clone()))
                         .or_else(|| recovered_fp.as_ref().and_then(|f| f.device_desc.clone()))
-                        .unwrap_or_else(|| "Priority Device".to_string());
+                        .unwrap_or_else(|| "Unknown Device".to_string());
 
                     missing_by_type.push(MissingDevice {
-                        id: priority_id.clone(),
+                        id: ordered_id.clone(),
                         settings: DeviceSettings::new(name, device_type),
                         fingerprint: recovered_fp,
                     });
@@ -463,10 +460,10 @@ pub fn transfer_device_settings(
         }
     }
 
-    // Also include any disconnected devices in temporary priorities not tracked in persistent_state.devices
+    // Also include any disconnected devices in temporary defaults not tracked in persistent_state.devices
     for device_type in [DeviceType::Output, DeviceType::Input] {
-        for kind in [PriorityKind::Main, PriorityKind::Communication] {
-            if let Some(temp_id) = temporary_priorities.get(device_type, kind)
+        for kind in [OrderKind::Main, OrderKind::Communication] {
+            if let Some(temp_id) = temporary_defaults.get(device_type, kind)
                 && !missing_by_type.iter().any(|m| m.id == *temp_id)
                 && !is_device_active(backend, temp_id)
             {
@@ -516,20 +513,19 @@ pub fn transfer_device_settings(
         };
 
         // Filter out active devices that are already registered under their current ID,
-        // or already actively present in priority lists or temporary priorities.
+        // or already actively present in device orders or temporary defaults.
         let mut candidates: Vec<ActiveCandidate> = active_devices
             .into_iter()
             .filter(|d| {
                 !persistent_state.devices.contains_key(d.id())
                     && !persistent_state
-                        .priority_list_of(device_type, PriorityKind::Main)
+                        .device_order_of(device_type, OrderKind::Main)
                         .contains(d.id())
                     && !persistent_state
-                        .priority_list_of(device_type, PriorityKind::Communication)
+                        .device_order_of(device_type, OrderKind::Communication)
                         .contains(d.id())
-                    && temporary_priorities.get(device_type, PriorityKind::Main) != Some(d.id())
-                    && temporary_priorities.get(device_type, PriorityKind::Communication)
-                        != Some(d.id())
+                    && temporary_defaults.get(device_type, OrderKind::Main) != Some(d.id())
+                    && temporary_defaults.get(device_type, OrderKind::Communication) != Some(d.id())
             })
             .map(|d| ActiveCandidate {
                 id: d.id().clone(),
@@ -662,19 +658,15 @@ pub fn transfer_device_settings(
                     persistent_changed = true;
                 }
 
-                for kind in [PriorityKind::Main, PriorityKind::Communication] {
-                    let priority_list = persistent_state.priority_list_of_mut(device_type, kind);
-                    if let Some(pos) = priority_list.iter().position(|id| id == &old_device_id) {
-                        priority_list[pos] = new_device_id.clone();
+                for kind in [OrderKind::Main, OrderKind::Communication] {
+                    let device_order = persistent_state.device_order_of_mut(device_type, kind);
+                    if let Some(pos) = device_order.iter().position(|id| id == &old_device_id) {
+                        device_order[pos] = new_device_id.clone();
                         persistent_changed = true;
                     }
                 }
 
-                temporary_priorities.transfer_device_id(
-                    device_type,
-                    &old_device_id,
-                    &new_device_id,
-                );
+                temporary_defaults.transfer_device_id(device_type, &old_device_id, &new_device_id);
 
                 log::info!(
                     "Transferred settings of {device_type} device '{}' from ID {old_device_id} to {new_device_id} via {tier}",
@@ -713,7 +705,7 @@ mod tests {
         super::transfer_device_settings(
             backend,
             state,
-            &mut TemporaryPriorities::default(),
+            &mut TemporaryDefaults::default(),
             &std::collections::HashMap::new(),
         )
     }
@@ -1109,14 +1101,14 @@ mod tests {
             "id_old".into(),
             make_device_settings("Speakers", DeviceType::Output),
         );
-        state.output.priority_list = vec!["id_old".into()];
+        state.output.device_order = vec!["id_old".into()];
 
         let result = transfer_device_settings(&backend, &mut state);
         assert!(result.persistent_changed);
         assert_eq!(result.transferred_device_names, vec!["Speakers"]);
         assert!(!state.devices.contains_key("id_old"));
         assert!(state.devices.contains_key("id_new"));
-        assert_eq!(state.output.priority_list, vec!["id_new".to_string()]);
+        assert_eq!(state.output.device_order, vec!["id_new".to_string()]);
     }
 
     #[test]
@@ -1142,14 +1134,14 @@ mod tests {
         let mut settings = make_device_settings("Old Buds2 Name", DeviceType::Output);
         settings.fingerprint = Some(old_fp);
         state.devices.insert("bth_old_id".into(), settings);
-        state.output.priority_list = vec!["bth_old_id".into()];
+        state.output.device_order = vec!["bth_old_id".into()];
 
         let result = transfer_device_settings(&backend, &mut state);
         assert!(result.persistent_changed);
         assert_eq!(result.transferred_device_names, vec!["Old Buds2 Name"]);
         assert!(!state.devices.contains_key("bth_old_id"));
         assert!(state.devices.contains_key("bth_new_id"));
-        assert_eq!(state.output.priority_list, vec!["bth_new_id".to_string()]);
+        assert_eq!(state.output.device_order, vec!["bth_new_id".to_string()]);
     }
 
     #[test]
@@ -1254,14 +1246,14 @@ mod tests {
         let mut settings = make_device_settings("Logitech C930e", DeviceType::Input);
         settings.fingerprint = Some(old_fp);
         state.devices.insert("mic_port1".into(), settings);
-        state.input.priority_list = vec!["mic_port1".into()];
+        state.input.device_order = vec!["mic_port1".into()];
 
         let result = transfer_device_settings(&backend, &mut state);
         assert!(result.persistent_changed);
         assert_eq!(result.transferred_device_names, vec!["Logitech C930e"]);
         assert!(!state.devices.contains_key("mic_port1"));
         assert!(state.devices.contains_key("mic_port2"));
-        assert_eq!(state.input.priority_list, vec!["mic_port2".to_string()]);
+        assert_eq!(state.input.device_order, vec!["mic_port2".to_string()]);
     }
 
     #[test]
@@ -1374,7 +1366,7 @@ mod tests {
     }
 
     #[test]
-    fn transfer_updates_input_priority_list() {
+    fn transfer_updates_input_device_order() {
         let mut mic = MockDevice::new("mic_new", "Microphone", true);
         mic.device_type = DeviceType::Input;
         let backend = MockAudioBackend::new(vec![mic]);
@@ -1383,51 +1375,47 @@ mod tests {
             "mic_old".into(),
             make_device_settings("Microphone", DeviceType::Input),
         );
-        state.input.priority_list = vec!["mic_old".into()];
+        state.input.device_order = vec!["mic_old".into()];
 
         let result = transfer_device_settings(&backend, &mut state);
         assert!(result.persistent_changed);
         assert!(state.devices.contains_key("mic_new"));
-        assert_eq!(state.input.priority_list, vec!["mic_new"]);
+        assert_eq!(state.input.device_order, vec!["mic_new"]);
     }
 
     #[test]
-    fn transfer_updates_communication_priority_list() {
+    fn transfer_updates_communication_device_order() {
         let backend = MockAudioBackend::new(vec![MockDevice::new("id_new", "Headset", true)]);
         let mut state = PersistentState::default();
         state.devices.insert(
             "id_old".into(),
             make_device_settings("Headset", DeviceType::Output),
         );
-        state.output.priority_list = vec!["id_old".into()];
-        state.output.communication_priority_list = vec!["id_old".into()];
+        state.output.device_order = vec!["id_old".into()];
+        state.output.communication_device_order = vec!["id_old".into()];
 
         let result = transfer_device_settings(&backend, &mut state);
         assert!(result.persistent_changed);
-        assert_eq!(state.output.priority_list, vec!["id_new".to_string()]);
+        assert_eq!(state.output.device_order, vec!["id_new".to_string()]);
         assert_eq!(
-            state.output.communication_priority_list,
+            state.output.communication_device_order,
             vec!["id_new".to_string()]
         );
     }
 
     #[test]
-    fn transfer_updates_temporary_priorities() {
+    fn transfer_updates_temporary_defaults() {
         let backend = MockAudioBackend::new(vec![MockDevice::new("id_new", "Headset", true)]);
         let mut state = PersistentState::default();
         state.devices.insert(
             "id_old".into(),
             make_device_settings("Headset", DeviceType::Output),
         );
-        let mut temp = TemporaryPriorities::default();
+        let mut temp = TemporaryDefaults::default();
+        temp.set(DeviceType::Output, OrderKind::Main, Some("id_old".into()));
         temp.set(
             DeviceType::Output,
-            PriorityKind::Main,
-            Some("id_old".into()),
-        );
-        temp.set(
-            DeviceType::Output,
-            PriorityKind::Communication,
+            OrderKind::Communication,
             Some("id_old".into()),
         );
 
@@ -1439,17 +1427,17 @@ mod tests {
         );
         assert!(result.persistent_changed);
         assert_eq!(
-            temp.get(DeviceType::Output, PriorityKind::Main),
+            temp.get(DeviceType::Output, OrderKind::Main),
             Some(&DeviceId::from("id_new"))
         );
         assert_eq!(
-            temp.get(DeviceType::Output, PriorityKind::Communication),
+            temp.get(DeviceType::Output, OrderKind::Communication),
             Some(&DeviceId::from("id_new"))
         );
     }
 
     #[test]
-    fn transfer_temporary_priority_when_not_in_persistent_devices() {
+    fn transfer_temporary_default_when_not_in_persistent_devices() {
         let fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
@@ -1468,10 +1456,10 @@ mod tests {
         let mut state = PersistentState::default();
         assert!(state.devices.is_empty());
 
-        let mut temp = TemporaryPriorities::default();
+        let mut temp = TemporaryDefaults::default();
         temp.set(
             DeviceType::Output,
-            PriorityKind::Main,
+            OrderKind::Main,
             Some("g533_old_port".into()),
         );
 
@@ -1484,7 +1472,7 @@ mod tests {
         assert!(!result.persistent_changed);
         assert!(result.has_transfers());
         assert_eq!(
-            temp.get(DeviceType::Output, PriorityKind::Main),
+            temp.get(DeviceType::Output, OrderKind::Main),
             Some(&DeviceId::from("g533_new_port"))
         );
         assert!(state.devices.is_empty());
@@ -1525,10 +1513,10 @@ mod tests {
         let backend = MockAudioBackend::new(vec![old_inactive_dev, new_dev]);
 
         let mut state = PersistentState::default();
-        let mut temp = TemporaryPriorities::default();
+        let mut temp = TemporaryDefaults::default();
         temp.set(
             DeviceType::Output,
-            PriorityKind::Main,
+            OrderKind::Main,
             Some("{0.0.0.00000000}.{ce699537-6ac9-4b42-a0f2-dd7965a73d4b}".into()),
         );
 
@@ -1582,18 +1570,15 @@ mod tests {
         );
 
         let mut state = PersistentState::default();
-        let mut temp = TemporaryPriorities::default();
-        temp.set(DeviceType::Output, PriorityKind::Main, Some(old_id));
+        let mut temp = TemporaryDefaults::default();
+        temp.set(DeviceType::Output, OrderKind::Main, Some(old_id));
 
         let result = super::transfer_device_settings(&backend, &mut state, &mut temp, &cache);
         assert!(
             result.has_transfers(),
             "Bluetooth transfer via cached fingerprint should succeed!"
         );
-        assert_eq!(
-            temp.get(DeviceType::Output, PriorityKind::Main),
-            Some(&new_id)
-        );
+        assert_eq!(temp.get(DeviceType::Output, OrderKind::Main), Some(&new_id));
     }
 
     #[test]
@@ -1657,10 +1642,10 @@ mod tests {
     }
 
     #[test]
-    fn transfer_does_not_claim_active_priority_or_temporary_devices() {
-        // "active_priority_dev" is currently active and in output priority list,
+    fn transfer_does_not_claim_active_ordered_or_temporary_devices() {
+        // "active_ordered_dev" is currently active and in output device order,
         // but has no locks so it is not in state.devices.
-        let active_dev = MockDevice::new("active_priority_dev", "Headset", true);
+        let active_dev = MockDevice::new("active_ordered_dev", "Headset", true);
         let backend = MockAudioBackend::new(vec![active_dev]);
 
         let mut state = PersistentState::default();
@@ -1668,9 +1653,9 @@ mod tests {
             "old_disconnected_headset".into(),
             make_device_settings("Headset", DeviceType::Output),
         );
-        state.output.priority_list = vec!["active_priority_dev".into()];
+        state.output.device_order = vec!["active_ordered_dev".into()];
 
-        let mut temp = TemporaryPriorities::default();
+        let mut temp = TemporaryDefaults::default();
         let result = super::transfer_device_settings(
             &backend,
             &mut state,
@@ -1680,6 +1665,6 @@ mod tests {
 
         assert!(!result.persistent_changed);
         assert!(state.devices.contains_key("old_disconnected_headset"));
-        assert!(!state.devices.contains_key("active_priority_dev"));
+        assert!(!state.devices.contains_key("active_ordered_dev"));
     }
 }

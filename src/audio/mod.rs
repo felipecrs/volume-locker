@@ -60,12 +60,12 @@ pub trait AudioDevice {
 mod windows;
 pub use self::windows::WindowsAudioBackend as AudioBackendImpl;
 
+mod device_order;
 #[cfg(test)]
 mod presence_tests;
-mod priority;
 mod transfer;
 
-pub use priority::enforce_priorities;
+pub use device_order::enforce_device_order;
 pub use transfer::transfer_device_settings;
 
 use crate::notification::NotificationThrottler;
@@ -187,8 +187,7 @@ pub(crate) mod tests {
     use crate::config::PersistentState;
     use crate::notification::NotificationThrottler;
     use crate::types::{
-        DeviceFingerprint, DeviceId, DeviceSettings, TemporaryPriorities, VolumePercent,
-        VolumeScalar,
+        DeviceFingerprint, DeviceId, DeviceSettings, TemporaryDefaults, VolumePercent, VolumeScalar,
     };
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -477,7 +476,7 @@ pub(crate) mod tests {
     // --- Error path tests ---
 
     #[test]
-    fn enforce_priorities_continues_when_device_lookup_fails() {
+    fn enforce_device_order_continues_when_device_lookup_fails() {
         let backend = MockAudioBackend::new(vec![
             MockDevice::new("dev1", "Speaker", true),
             MockDevice::new("dev2", "Headphones", true),
@@ -487,12 +486,12 @@ pub(crate) mod tests {
         backend.failing_device_ids.borrow_mut().push("dev1".into());
 
         let mut state = PersistentState::default();
-        state.output.priority_list = vec!["dev1".into(), "dev2".into()];
+        state.output.device_order = vec!["dev1".into(), "dev2".into()];
         let mut throttler = NotificationThrottler::new();
-        let temp = TemporaryPriorities::default();
+        let temp = TemporaryDefaults::default();
 
         // Should not panic; dev1 lookup fails, but dev2 is already default
-        enforce_priorities(&backend, &state, &mut throttler, &temp);
+        enforce_device_order(&backend, &state, &mut throttler, &temp);
 
         let default = backend
             .default_device(DeviceType::Output, DeviceRole::Console)
@@ -501,8 +500,8 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn enforce_priorities_skips_failed_lookups_and_uses_next() {
-        // dev1 is higher priority but its lookup fails — should fall back to dev2
+    fn enforce_device_order_skips_failed_lookups_and_uses_next() {
+        // dev1 comes first but its lookup fails — should fall back to dev2
         let backend = MockAudioBackend::new(vec![
             MockDevice::new("dev1", "Speaker", true),
             MockDevice::new("dev2", "Headphones", true),
@@ -512,11 +511,11 @@ pub(crate) mod tests {
         backend.failing_device_ids.borrow_mut().push("dev1".into());
 
         let mut state = PersistentState::default();
-        state.output.priority_list = vec!["dev1".into(), "dev2".into()];
+        state.output.device_order = vec!["dev1".into(), "dev2".into()];
         let mut throttler = NotificationThrottler::new();
-        let temp = TemporaryPriorities::default();
+        let temp = TemporaryDefaults::default();
 
-        enforce_priorities(&backend, &state, &mut throttler, &temp);
+        enforce_device_order(&backend, &state, &mut throttler, &temp);
 
         // dev1 failed lookup, so dev2 should become default
         let default = backend
@@ -526,7 +525,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn enforce_priorities_handles_set_default_failure() {
+    fn enforce_device_order_handles_set_default_failure() {
         let backend = MockAudioBackend::new(vec![
             MockDevice::new("dev1", "Speaker", true),
             MockDevice::new("dev2", "Headphones", true),
@@ -535,12 +534,12 @@ pub(crate) mod tests {
         *backend.set_default_fails.borrow_mut() = true;
 
         let mut state = PersistentState::default();
-        state.output.priority_list = vec!["dev1".into(), "dev2".into()];
+        state.output.device_order = vec!["dev1".into(), "dev2".into()];
         let mut throttler = NotificationThrottler::new();
-        let temp = TemporaryPriorities::default();
+        let temp = TemporaryDefaults::default();
 
         // Should not panic even though set_default_device fails
-        enforce_priorities(&backend, &state, &mut throttler, &temp);
+        enforce_device_order(&backend, &state, &mut throttler, &temp);
     }
 
     // --- Integration test ---
@@ -554,25 +553,25 @@ pub(crate) mod tests {
         backend.set_default("other", DeviceType::Output);
 
         let mut state = PersistentState::default();
-        state.output.priority_list = vec![DeviceId::from("old_id")];
+        state.output.device_order = vec![DeviceId::from("old_id")];
         state.devices.insert(
             DeviceId::from("old_id"),
             make_device_settings("Speakers", DeviceType::Output),
         );
 
-        let mut temp_priorities = TemporaryPriorities::default();
+        let mut temp_defaults = TemporaryDefaults::default();
         transfer_device_settings(
             &backend,
             &mut state,
-            &mut temp_priorities,
+            &mut temp_defaults,
             &std::collections::HashMap::new(),
         );
         assert!(state.devices.contains_key("new_id"));
         assert!(!state.devices.contains_key("old_id"));
-        assert_eq!(state.output.priority_list, vec!["new_id"]);
+        assert_eq!(state.output.device_order, vec!["new_id"]);
 
         let mut throttler = NotificationThrottler::new();
-        enforce_priorities(&backend, &state, &mut throttler, &temp_priorities);
+        enforce_device_order(&backend, &state, &mut throttler, &temp_defaults);
 
         let default = backend
             .default_device(DeviceType::Output, DeviceRole::Console)

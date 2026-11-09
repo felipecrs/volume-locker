@@ -193,7 +193,7 @@ mod tests {
         assert_eq!(loader.current_language().to_string(), "en");
         assert_eq!(
             loader.get_args("current-device", HashMap::from([("device", "Speakers")])),
-            "Current: Speakers"
+            "Current device: Speakers"
         );
     }
 
@@ -214,7 +214,7 @@ mod tests {
     fn english_macro_formats_full_sentences() {
         assert_eq!(
             t_en!("current-device", device = "Speakers"),
-            "Current: Speakers"
+            "Current device: Speakers"
         );
     }
 

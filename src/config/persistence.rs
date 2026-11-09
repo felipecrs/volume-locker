@@ -81,13 +81,13 @@ mod tests {
         let path = dir.path().join("state.json");
 
         let mut state = PersistentState::default();
-        state.output.priority_list = vec!["device_a".into()];
+        state.output.device_order = vec!["device_a".into()];
         state.check_updates_on_launch = false;
 
         save_state_to(&path, &state).unwrap();
         let loaded = load_state_from(&path).unwrap();
 
-        assert_eq!(loaded.output.priority_list.len(), 1);
+        assert_eq!(loaded.output.device_order.len(), 1);
         assert!(!loaded.check_updates_on_launch);
     }
 
@@ -97,16 +97,16 @@ mod tests {
         let path = dir.path().join("state.json");
 
         let mut state1 = PersistentState::default();
-        state1.output.priority_list = vec!["device_a".into()];
+        state1.output.device_order = vec!["device_a".into()];
         save_state_to(&path, &state1).unwrap();
 
         let mut state2 = PersistentState::default();
-        state2.output.priority_list = vec!["device_b".into()];
+        state2.output.device_order = vec!["device_b".into()];
         save_state_to(&path, &state2).unwrap();
 
         let loaded = load_state_from(&path).unwrap();
         assert_eq!(
-            loaded.output.priority_list,
+            loaded.output.device_order,
             vec![crate::types::DeviceId::from("device_b")]
         );
     }
