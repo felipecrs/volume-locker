@@ -1,7 +1,7 @@
 @echo off
 rem Runs from the Startup folder at each logon, in the desktop session. UAC is off, so it's elevated.
 rem Test runs put the tests in the shared folder; without them, this is the image build, so it powers off.
-set share=\host.lan\Data
+set share=\\host.lan\Data
 :wait
 if not exist %share%\ (
   timeout /t 2 /nobreak >nul
