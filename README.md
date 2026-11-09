@@ -34,7 +34,7 @@ Click the Volume Locker tray icon to open the menu.
 
 ### Lock volume and unmute
 
-1.  Open **Output devices** or **Input devices**, then select a device.
+1.  Under **Output devices** or **Input devices**, open a device.
 2.  Check **Keep volume locked** to hold the volume at its current level.
 3.  Check **Keep unmuted** to prevent the device from being muted.
 
@@ -44,22 +44,20 @@ Click the Volume Locker tray icon to open the menu.
 
 Volume Locker switches your default device to the first available device in the order.
 
-1.  Open **Default output device order** or **Default input device order**.
-2.  Open **Device order**.
-3.  Under **Add device**, select a device, then **Add to top** or **Add to bottom**.
-4.  Select a device under **Current order** to move or remove it.
+1.  Under **Default output device order** or **Default input device order**, open **Device order**.
+2.  Under **Add device**, open a device, then select **Add to top** or **Add to bottom**.
+3.  Under **Current order**, open a device to move or remove it.
 
-**Communication device order** works the same way for voice calls and chat apps. By default, it holds **Follow default output device** (or **Follow default input device**), which picks the same device as the main order.
+**Communication device order**, right below it, works the same way for voice calls and chat apps. By default, it holds **Follow default output device** (or **Follow default input device**), which picks the same device as the main order.
 
-Check **Notify on switch** in either order to get a notification when Volume Locker switches devices.
+Check **Notify on switch** at the bottom of either submenu to get a notification when Volume Locker switches devices.
 
 ### Use a device temporarily
 
 To use a device for now without changing your device order:
 
-1.  Find the **Temporary default device** section of the menu.
-2.  Open **Output**, **Input**, or the **Communication** role under either one.
-3.  Select the device.
+1.  Under **Temporary default device**, open **Output** or **Input**, or the **Communication** entry below either one.
+2.  Select the device.
 
 It stays active until you uncheck it or restart the app.
 
@@ -77,7 +75,7 @@ See [Settings transfer](docs/settings-transfer.md) and [Transferring names and i
 
 ### Use your language
 
-Volume Locker follows the Windows display language, and English is the only language so far. To add yours, see [Localization](docs/localization.md).
+Volume Locker follows the Windows display language. It includes English and Simplified Chinese so far. To add yours, see [Localization](docs/localization.md).
 
 ### Preferences
 

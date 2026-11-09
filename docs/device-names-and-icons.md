@@ -1,6 +1,6 @@
 # Transferring names and icons
 
-Volume Locker transfers a device's Windows name and icon along with its settings. To turn this off, uncheck **Also transfer device name and icon** under **Preferences** > **Settings transfer**. It needs **Automatically transfer device settings** to be on.
+Volume Locker transfers a device's Windows name and icon along with its settings. To turn this off, uncheck **Also transfer device name and icon** in the **Settings transfer** submenu under **Preferences**. It needs **Automatically transfer device settings** to be on.
 
 When Windows creates a new endpoint for a device, the endpoint gets a default name and icon. Volume Locker writes the device's last seen name and icon to the new endpoint.
 
