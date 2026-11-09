@@ -14,7 +14,7 @@ They are a workspace member that isn't a default member, so a plain `cargo test`
 
 ## Running them
 
-You need Docker and KVM, which on Windows means Docker running inside WSL.
+You need Docker running inside WSL.
 
 Run the tests. Each run boots a VM with 4 GB of RAM and takes a few minutes, and you can watch it at <http://localhost:8006>.
 
@@ -22,15 +22,13 @@ Run the tests. Each run boots a VM with 4 GB of RAM and takes a few minutes, and
 mise run e2e
 ```
 
-The first run also builds the VM's Windows image, which takes 10 to 30 minutes and about 7 GB of disk in `~/.cache/volume-locker-e2e`, inside WSL on Windows. To rebuild it, delete that folder. It uses Windows 11 Enterprise LTSC. Every boot must pass dockur the same `VERSION`: if it changes, dockur moves the image to a `backups` folder and installs Windows again.
+The first run also builds the VM's Windows image, which takes 10 to 30 minutes and about 7 GB of disk in `~/.cache/volume-locker-e2e` in WSL. To rebuild it, delete that folder. It uses Windows 11 Enterprise LTSC. Every boot must pass dockur the same `VERSION`: if it changes, dockur moves the image to a `backups` folder and installs Windows again.
 
 The task runs `cargo xtask e2e`, which builds the app and the tests, then runs the tests in the VM. Arguments after `--` go to the tests, so this runs only the tray test:
 
 ```bash
 mise run e2e -- tray
 ```
-
-On Linux, the xtask calls Docker directly and builds for `x86_64-pc-windows-msvc`, so cargo must be set up to cross-compile for it. This hasn't been tried yet.
 
 `e2e/oem/` is part of the image, so after changing it, delete the image to rebuild it.
 

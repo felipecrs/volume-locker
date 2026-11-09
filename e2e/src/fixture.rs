@@ -45,6 +45,8 @@ fn run(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> String {
     let program = program.as_ref();
     let output = Command::new(program)
         .args(args)
+        // PowerShell 7 (CI's shell) sets this, and Windows PowerShell then can't load its own modules.
+        .env_remove("PSModulePath")
         .stdin(Stdio::null())
         .output()
         .unwrap_or_else(|e| panic!("run {program:?}: {e}"));
