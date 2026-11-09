@@ -3,7 +3,7 @@ $share = '\\host.lan\Data'
 Set-Content "$share\started" 'started'
 New-Item -ItemType Directory C:\e2e -Force | Out-Null
 Copy-Item "$share\e2e.exe", "$share\VolumeLocker.exe" C:\e2e\
-$env:VOLUME_LOCKER_E2E = '1'
+$env:CI = 'true'
 $env:RUST_BACKTRACE = '1'
 $testArgs = (Get-Content "$share\test-args" -ErrorAction SilentlyContinue) -join ' '
 # Output goes to a file, not a pipe, so processes the tests start can't hold it open.

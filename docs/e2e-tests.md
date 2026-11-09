@@ -2,7 +2,7 @@
 
 The tests in `e2e/` run the real release build of the app in a Windows VM, with fake USB audio devices that Windows treats as real hardware. They check what the app does from the outside: default devices, volumes, mute state, its state file and its tray menu.
 
-They are a separate Cargo package, so a plain `cargo test` doesn't build or run them. They change the default audio devices and move the mouse, so they refuse to run unless `VOLUME_LOCKER_E2E` is set. Only the VM sets it.
+They are a separate Cargo package, so a plain `cargo test` doesn't build or run them. They change the default audio devices and move the mouse, so they refuse to run unless `CI` is set, as it is on CI runners. The VM sets it too.
 
 ## How it works
 

@@ -8,7 +8,8 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, MutexGuard, Once};
 use std::time::{Duration, Instant};
 
-const GUARD_VARIABLE: &str = "VOLUME_LOCKER_E2E";
+/// Set on CI runners, and by run-tests.ps1 in the VM.
+const GUARD_VARIABLE: &str = "CI";
 const USBIP: &str = r"C:\Program Files\USBip\usbip.exe";
 const USBIP_INSTALLER_URL: &str =
     "https://github.com/vadimgrn/usbip-win2/releases/download/v.0.9.8.1/USBip-0.9.8.1-x64.exe";
@@ -165,7 +166,7 @@ impl Machine {
         assert!(
             std::env::var_os(GUARD_VARIABLE).is_some(),
             "these tests change the default audio devices and move the mouse, \
-             so they only run in the test VM. See docs/e2e-tests.md."
+             so they only run in CI or the test VM. See docs/e2e-tests.md."
         );
         let guard = MACHINE.lock().unwrap_or_else(|e| e.into_inner());
         prepare_windows();
