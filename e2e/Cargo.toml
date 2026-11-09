@@ -1,12 +1,10 @@
-# Separate from the app's package so its dependencies and tests stay out of a plain `cargo test`.
+# Not a default workspace member, so a plain `cargo test` leaves these tests out.
 [package]
 name = "volume-locker-e2e"
 version = "0.0.0"
 edition = "2024"
 license = "MIT"
 publish = false
-
-[workspace]
 
 # Only tests/app.rs has tests, and every test executable boots the VM.
 [lib]
@@ -27,4 +25,4 @@ windows = { version = "0.62.2", features = [
 	"Win32_UI_Shell_PropertiesSystem",
 	"Win32_UI_WindowsAndMessaging",
 ] }
-windows-registry = "0.6.1"
+windows-registry = "0.100.0"

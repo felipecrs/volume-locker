@@ -187,8 +187,15 @@ pub struct App {
 
 impl App {
     pub fn start(test_name: &str, state: &Value) -> Self {
-        let test_exe = std::env::current_exe().expect("find the test executable");
-        let source = test_exe.with_file_name("VolumeLocker.exe");
+        // In the VM the app sits next to the tests; elsewhere, use the release build.
+        let next_to_tests = std::env::current_exe()
+            .expect("find the test executable")
+            .with_file_name("VolumeLocker.exe");
+        let source = if next_to_tests.exists() {
+            next_to_tests
+        } else {
+            Path::new(env!("CARGO_MANIFEST_DIR")).join(r"..\target\release\VolumeLocker.exe")
+        };
         let folder = std::env::temp_dir()
             .join("volume-locker-e2e")
             .join(test_name);

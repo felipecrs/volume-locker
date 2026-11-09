@@ -4,19 +4,16 @@ mr-boxington = "v1.29.2"
 
 [tasks.fmt]
 description = "Check code formatting"
-run = ["cargo fmt --check", "cargo fmt --check --manifest-path e2e/Cargo.toml"]
+run = "cargo fmt --all --check"
 
 [tasks."fmt:fix"]
 description = "Format code"
 alias = ["format"]
-run = ["cargo fmt", "cargo fmt --manifest-path e2e/Cargo.toml"]
+run = "cargo fmt --all"
 
 [tasks.lint]
 description = "Run Clippy linter"
-run = [
-  "cargo clippy --locked",
-  "cargo clippy --locked --all-targets --manifest-path e2e/Cargo.toml",
-]
+run = "cargo clippy --locked --workspace --all-targets"
 
 [tasks.test]
 description = "Run tests"
@@ -35,6 +32,6 @@ description = "Run the end-to-end tests in a Windows VM. Arguments after -- go t
 # From e2e/, so cargo uses its .cargo/config.toml. mise appends arguments to the last command.
 dir = "{{config_root}}/e2e"
 run = [
-  "cargo build --manifest-path ../Cargo.toml --release --locked",
+  "cargo build --package volume-locker --release --locked",
   "cargo test --locked --",
 ]

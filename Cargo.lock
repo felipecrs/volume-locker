@@ -3123,6 +3123,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "volume-locker-e2e"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+ "windows",
+ "windows-registry 0.100.0",
+]
+
+[[package]]
 name = "walkdir"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

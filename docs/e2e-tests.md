@@ -2,7 +2,7 @@
 
 The tests in `e2e/` run the real release build of the app in a Windows VM, with fake USB audio devices that Windows treats as real hardware. They check what the app does from the outside: default devices, volumes, mute state, its state file and its tray menu.
 
-They are a separate Cargo package, so a plain `cargo test` doesn't build or run them. They change the default audio devices and move the mouse, so they refuse to run unless `CI` is set, as it is on CI runners. The VM sets it too.
+They are a workspace member that isn't a default member, so a plain `cargo test` doesn't build or run them. They change the default audio devices and move the mouse, so they refuse to run unless `CI` is set, as it is on CI runners. The VM sets it too.
 
 ## How it works
 
@@ -22,17 +22,17 @@ Run the tests. Each run boots a VM with 4 GB of RAM and takes a few minutes, and
 mise run e2e
 ```
 
-The first run also builds the VM's Windows image, which takes 10 to 30 minutes and about 7 GB of disk in `~/.cache/volume-locker-e2e`. To rebuild it, delete that folder or run `e2e/provision.sh`. It uses Windows 11 Enterprise LTSC. Every boot must pass dockur the same `VERSION`: if it changes, dockur moves the image to a `backups` folder and installs Windows again.
+The first run also builds the VM's Windows image, which takes 10 to 30 minutes and about 7 GB of disk in `~/.cache/volume-locker-e2e`. To rebuild it, delete that folder. It uses Windows 11 Enterprise LTSC. Every boot must pass dockur the same `VERSION`: if it changes, dockur moves the image to a `backups` folder and installs Windows again.
 
-The task builds the app, then runs `cargo test` from `e2e/`. There, `.cargo/config.toml` links with a static C runtime, since the VM doesn't have the Visual C++ runtime, and makes `run.sh` the test runner, so the tests run in the VM. Arguments after `--` go to the tests, so this runs only the tray test:
+The task builds the app, then runs `cargo test` from `e2e/`, where `.cargo/config.toml` makes `run.sh` the test runner, so the tests run in the VM. Arguments after `--` go to the tests, so this runs only the tray test:
 
 ```bash
 mise run e2e -- tray
 ```
 
-On Linux, build `VolumeLocker.exe` and the test executable for Windows with a static C runtime, then call `e2e/run.sh <VolumeLocker.exe> <test executable> [test arguments]`.
+On Linux, build `VolumeLocker.exe` and the test executable for Windows, then call `e2e/run.sh <VolumeLocker.exe> <test executable> [test arguments]`.
 
-`run-tests.ps1` is copied into the VM on every run, so changing how tests run doesn't need a new image. Only `e2e/oem/` is part of the image.
+`e2e/oem/` is part of the image, so after changing it, delete the image to rebuild it.
 
 ## Adding a test
 
@@ -47,4 +47,4 @@ Tests can change devices with `plug_in()`, `unplug()` and `report_headset_presen
 - The tests match the English menu text, and the VM's language is English.
 - The base image uses a Windows evaluation licence. If tests start failing because Windows shuts itself down, rebuild the image.
 - Docker in WSL only stays up while a `wsl.exe` process is open. The `e2e` task keeps one open while it runs, but a container started by hand dies shortly after the command returns.
-- CI runs the tests on GitHub's Windows runner itself, not in the VM, because the runner is a throwaway machine with a real desktop session. So CI covers Windows Server, while local runs cover Windows 11.
+- CI runs the tests from the repository root, on GitHub's Windows runner itself, not in the VM, because the runner is a throwaway machine with a real desktop session. So CI covers Windows Server, while local runs cover Windows 11.

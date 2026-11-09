@@ -1,1 +1,4 @@
 * text=auto eol=lf
+# cmd mishandles labels and goto in files with LF line endings.
+*.bat eol=crlf
+*.cmd eol=crlf
