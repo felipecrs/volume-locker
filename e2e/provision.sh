@@ -17,6 +17,4 @@ boot_vm "$shared" --volume "$E2E_DIR/oem:/oem:ro"
 # logon.ps1 writes this and powers off at the first logon, since no tests are in the shared folder.
 wait_for_file "$shared/provisioned" "$INSTALL_TIMEOUT"
 timeout 300 docker wait "$CONTAINER" >/dev/null
-cat "$shared/provisioned"
-grep -q '^usbip installed' "$shared/provisioned"
 echo "The image is ready in $STORAGE"

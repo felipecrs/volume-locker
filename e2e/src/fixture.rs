@@ -3,13 +3,17 @@ use crate::audio::{self, Endpoint};
 use crate::tray;
 use crate::usbip::{self, Device};
 use serde_json::Value;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard, Once};
 use std::time::{Duration, Instant};
 
 const GUARD_VARIABLE: &str = "VOLUME_LOCKER_E2E";
 const USBIP: &str = r"C:\Program Files\USBip\usbip.exe";
+const USBIP_INSTALLER_URL: &str =
+    "https://github.com/vadimgrn/usbip-win2/releases/download/v.0.9.8.1/USBip-0.9.8.1-x64.exe";
+const USBIP_INSTALLER_SHA256: &str =
+    "38cad6d4432b52d5bb9409d9ad03b72fdffc4ada4cd3a48fbeca1a2752a8518a";
 const STATE_FILE: &str = "VolumeLockerState.json";
 const LOG_FILE: &str = "VolumeLocker.log";
 const DEVICE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -32,6 +36,66 @@ fn wait_up_to(timeout: Duration, what: &str, done: &mut impl FnMut() -> bool) {
         assert!(start.elapsed() < timeout, "timed out waiting: {what}");
         std::thread::sleep(POLL_INTERVAL);
     }
+}
+
+/// Runs a program to completion and returns its output, failing the test if it fails.
+fn run(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> String {
+    let program = program.as_ref();
+    let output = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap_or_else(|e| panic!("run {program:?}: {e}"));
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(
+        output.status.success(),
+        "{program:?} {args:?} failed: {stdout}{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    stdout
+}
+
+/// Starts Windows Audio, which Windows Server turns off, and installs usbip-win2 if it's
+/// missing. Test runs in the VM always need the install, since every run starts clean.
+fn prepare_windows() {
+    static PREPARED: Once = Once::new();
+    PREPARED.call_once(|| {
+        run("sc.exe", &["config", "audiosrv", "start=", "auto"]);
+        // Fails when the service is already running, which is fine.
+        let _ = Command::new("sc.exe").args(["start", "audiosrv"]).output();
+        if Path::new(USBIP).exists() {
+            return;
+        }
+        let installer = std::env::temp_dir().join("USBip-x64.exe");
+        let installer_path = installer.to_str().expect("the temp path is UTF-8");
+        let curl_args = [
+            "--fail",
+            "--location",
+            "--silent",
+            "--show-error",
+            "--output",
+        ];
+        run(
+            "curl.exe",
+            &[&curl_args[..], &[installer_path, USBIP_INSTALLER_URL]].concat(),
+        );
+        // The hash is on the second line, with spaces between bytes on older Windows.
+        let hash: String = run("certutil.exe", &["-hashfile", installer_path, "SHA256"])
+            .lines()
+            .nth(1)
+            .unwrap_or_default()
+            .split_whitespace()
+            .collect();
+        assert_eq!(
+            hash, USBIP_INSTALLER_SHA256,
+            "the usbip-win2 installer's hash"
+        );
+        run(
+            &installer,
+            &["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"],
+        );
+        assert!(Path::new(USBIP).exists(), "usbip-win2 did not install");
+    });
 }
 
 fn usbip(args: &[&str]) -> String {
@@ -104,6 +168,7 @@ impl Machine {
              so they only run in the test VM. See docs/e2e-tests.md."
         );
         let guard = MACHINE.lock().unwrap_or_else(|e| e.into_inner());
+        prepare_windows();
         audio::init_com();
         usbip::start();
         plug_in(usbip::SPEAKER);

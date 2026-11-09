@@ -8,6 +8,5 @@ if (Test-Path "$share\run-tests.ps1") {
     exit
 }
 
-$usbip = if (Test-Path 'C:\Program Files\USBip\usbip.exe') { 'usbip installed' } else { 'usbip MISSING' }
-Set-Content "$share\provisioned" $usbip
+Set-Content "$share\provisioned" 'provisioned'
 shutdown /s /t 0
