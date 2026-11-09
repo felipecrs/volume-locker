@@ -1,5 +1,0 @@
-# Applies to cargo commands run from e2e/.
-# `cargo test` hands each test executable to run.sh, which runs it in the VM.
-# --exec skips WSL's shell, which would strip the backslashes from the Windows path cargo passes.
-[target.x86_64-pc-windows-msvc]
-runner = ["wsl.exe", "--exec", "bash", "run.sh", "../target/release/VolumeLocker.exe"]

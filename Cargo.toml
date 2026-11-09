@@ -16,9 +16,9 @@ CompanyName = "Felipe Santos"
 LegalCopyright = "Copyright © 2025 Felipe Santos"
 OriginalFilename = "VolumeLocker.exe"
 
-# The end-to-end tests are a member, left out of plain cargo commands run from here.
+# The end-to-end tests and xtask are members, left out of plain cargo commands run from here.
 [workspace]
-members = ["e2e"]
+members = ["e2e", "xtask"]
 default-members = ["."]
 
 [[bin]]

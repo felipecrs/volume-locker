@@ -1,3 +1,7 @@
 # Link the C runtime statically, so the app runs without the Visual C++ Redistributable.
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
+
+[alias]
+# Project tasks in Rust (see xtask/). mise runs them.
+xtask = "run --package xtask --"

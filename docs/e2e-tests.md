@@ -10,7 +10,7 @@ They are a workspace member that isn't a default member, so a plain `cargo test`
 - [usbip-win2](https://github.com/vadimgrn/usbip-win2) attaches USB devices over TCP using signed drivers, so the VM doesn't need test mode. The tests install it themselves when it's missing, and start Windows Audio, which Windows Server turns off. Since every VM run starts clean, each one installs it.
 - `e2e/src/usbip.rs` is a USB/IP server inside the test process. It exports a speaker, a microphone, and a headset with both that also reports presence over HID. Tests decide what the headset reports.
 - `e2e/oem/install.bat` puts `logon.cmd` in the Startup folder. At each logon, it looks in a folder shared with the host. If the tests are there, it runs them and writes their output and exit code back. If not, it's building the image, so it powers off.
-- `run.sh` boots the VM with QEMU's `-snapshot`, so whatever a run writes to disk is discarded and every run starts clean.
+- `xtask/` boots the VM with QEMU's `-snapshot`, so whatever a run writes to disk is discarded and every run starts clean.
 
 ## Running them
 
@@ -22,15 +22,15 @@ Run the tests. Each run boots a VM with 4 GB of RAM and takes a few minutes, and
 mise run e2e
 ```
 
-The first run also builds the VM's Windows image, which takes 10 to 30 minutes and about 7 GB of disk in `~/.cache/volume-locker-e2e`. To rebuild it, delete that folder. It uses Windows 11 Enterprise LTSC. Every boot must pass dockur the same `VERSION`: if it changes, dockur moves the image to a `backups` folder and installs Windows again.
+The first run also builds the VM's Windows image, which takes 10 to 30 minutes and about 7 GB of disk in `~/.cache/volume-locker-e2e`, inside WSL on Windows. To rebuild it, delete that folder. It uses Windows 11 Enterprise LTSC. Every boot must pass dockur the same `VERSION`: if it changes, dockur moves the image to a `backups` folder and installs Windows again.
 
-The task builds the app, then runs `cargo test` from `e2e/`, where `.cargo/config.toml` makes `run.sh` the test runner, so the tests run in the VM. Arguments after `--` go to the tests, so this runs only the tray test:
+The task runs `cargo xtask e2e`, which builds the app and the tests, then runs the tests in the VM. Arguments after `--` go to the tests, so this runs only the tray test:
 
 ```bash
 mise run e2e -- tray
 ```
 
-On Linux, build `VolumeLocker.exe` and the test executable for Windows, then call `e2e/run.sh <VolumeLocker.exe> <test executable> [test arguments]`.
+On Linux, the xtask calls Docker directly and builds for `x86_64-pc-windows-msvc`, so cargo must be set up to cross-compile for it. This hasn't been tried yet.
 
 `e2e/oem/` is part of the image, so after changing it, delete the image to rebuild it.
 
@@ -46,5 +46,5 @@ Tests can change devices with `plug_in()`, `unplug()` and `report_headset_presen
 - `Menu::click()` can only click items that fit on the screen.
 - The tests match the English menu text, and the VM's language is English.
 - The base image uses a Windows evaluation licence. If tests start failing because Windows shuts itself down, rebuild the image.
-- Docker in WSL only stays up while a `wsl.exe` process is open. The `e2e` task keeps one open while it runs, but a container started by hand dies shortly after the command returns.
+- Docker in WSL only stays up while a `wsl.exe` process is open. The xtask keeps one open while it runs, but a container started by hand dies shortly after the command returns.
 - CI runs the tests from the repository root, on GitHub's Windows runner itself, not in the VM, because the runner is a throwaway machine with a real desktop session. So CI covers Windows Server, while local runs cover Windows 11.
