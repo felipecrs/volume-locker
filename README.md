@@ -8,7 +8,7 @@
 
 Tired of apps changing your microphone volume without your consent? Of Windows constantly switching to the wrong audio device? Or of losing your device names and icons every time you change USB ports?
 
-Volume Locker is a tray app that locks the volume of your audio devices and switches your audio and communication devices based on priority lists. When you change USB ports, re-pair a Bluetooth device, or update a driver, it transfers your settings, along with the device's name and icon, to the device's new Windows entry. It is a portable, ~2MB binary written in Rust for Windows.
+Volume Locker is a tray app that locks the volume of your audio devices and switches your audio and communication devices based on the device order you set. When you change USB ports, re-pair a Bluetooth device, or update a driver, it transfers your settings, along with the device's name and icon, to the device's new Windows entry. It is a portable, ~2MB binary written in Rust for Windows.
 
 ## Demo
 
@@ -40,38 +40,38 @@ Click the Volume Locker tray icon to open the menu.
 
 **Notify on volume restore** and **Notify on unmute** show a notification when Volume Locker acts.
 
-### Set device priority
+### Set the default device order
 
-Volume Locker switches your default device to the highest-priority one available.
+Volume Locker switches your default device to the first available device in the order.
 
-1.  Open **Output device priority** or **Input device priority**.
-2.  Open **Device priority settings**.
+1.  Open **Default output device order** or **Default input device order**.
+2.  Open **Device order**.
 3.  Under **Add device**, select a device, then **Add to top** or **Add to bottom**.
-4.  Select a device in the **Priority list** to move or remove it.
+4.  Select a device under **Current order** to move or remove it.
 
-**Communication priority settings** works the same way for voice calls and chat apps. By default, it follows the device priority list.
+**Communication device order** works the same way for voice calls and chat apps. By default, it holds **Follow default output device** (or **Follow default input device**), which picks the same device as the main order.
 
-Check **Notify on restore** in either list to get a notification when Volume Locker switches devices.
+Check **Notify on switch** in either order to get a notification when Volume Locker switches devices.
 
 ### Use a device temporarily
 
-To override your priority lists without changing them:
+To use a device for now without changing your device order:
 
-1.  Open **Temporary priority**.
-2.  Select **Output**, **Input**, or the **Communication** role under either one.
+1.  Find the **Temporary default device** section of the menu.
+2.  Open **Output**, **Input**, or the **Communication** role under either one.
 3.  Select the device.
 
 It stays active until you uncheck it or restart the app.
 
 ### Skip wireless headsets that are off
 
-Some wireless receivers stay connected while the headset is off or out of range. Volume Locker skips supported headsets in that state, so put a fallback device below the headset in your priority list. See [Headset availability](docs/headset-availability.md).
+Some wireless receivers stay connected while the headset is off or out of range. Volume Locker skips supported headsets in that state, so put a fallback device below the headset in your device order. See [Headset availability](docs/headset-availability.md).
 
 ### Keep your settings, names, and icons
 
 Windows sometimes treats your device as new when you change USB ports, re-pair it, or update a driver. You would normally lose its custom name and icon, along with anything tied to it.
 
-Volume Locker recognizes the device and transfers its volume lock, unmute lock, priority list entries, name, and icon.
+Volume Locker recognizes the device and transfers its volume lock, unmute lock, place in the device order, name, and icon.
 
 See [Settings transfer](docs/settings-transfer.md) and [Transferring names and icons](docs/device-names-and-icons.md).
 
@@ -92,7 +92,7 @@ Volume Locker follows the Windows display language, and English is the only lang
 
 ## Credits
 
-Volume Locker started as my first Rust project, born from the dissatisfaction with existing solutions that relied on closed-source tools or lacked specific device locking capabilities. It has since grown to include default device priority management.
+Volume Locker started as my first Rust project, born from the dissatisfaction with existing solutions that relied on closed-source tools or lacked specific device locking capabilities. It has since grown to include default device order management.
 
 I used [wolfinabox/Windows-Mic-Volume-Locker](https://github.com/wolfinabox/Windows-Mic-Volume-Locker) for years before deciding to write my own solution.
 

@@ -4,7 +4,7 @@ use super::{
     append_footer_section, append_preferences_section, format_device_menu_label,
     register_menu_item,
 };
-use crate::types::PriorityKind;
+use crate::types::OrderKind;
 
 #[test]
 fn registered_names_stay_english_for_follow_entry_only() {
@@ -14,7 +14,7 @@ fn registered_names_stay_english_for_follow_entry_only() {
         register_menu_item(
             &mut map,
             menu_id.clone(),
-            DeviceAction::RemoveFromPriority(PriorityKind::Communication),
+            DeviceAction::RemoveFromOrder(OrderKind::Communication),
             &device_id,
             "Seguir",
             device_type,
@@ -23,12 +23,12 @@ fn registered_names_stay_english_for_follow_entry_only() {
     };
 
     assert_eq!(
-        name_for("output", DeviceId::main_priority(), DeviceType::Output),
-        "Follow output device priority"
+        name_for("output", DeviceId::follow_main(), DeviceType::Output),
+        "Follow default output device"
     );
     assert_eq!(
-        name_for("input", DeviceId::main_priority(), DeviceType::Input),
-        "Follow input device priority"
+        name_for("input", DeviceId::follow_main(), DeviceType::Input),
+        "Follow default input device"
     );
     assert_eq!(
         name_for("device", "dev1".into(), DeviceType::Output),

@@ -1,19 +1,19 @@
+mod device_order_section;
 mod device_section;
-mod priority_section;
 
 use super::{AppAction, DeviceAction, MenuAction, MenuItemInfo};
 use crate::audio::AudioBackend;
 use crate::config::PersistentState;
 use crate::i18n::{t, t_en};
-use crate::types::{DeviceId, DeviceType, TemporaryPriorities, VolumePercent};
+use crate::types::{DeviceId, DeviceType, TemporaryDefaults, VolumePercent};
 use crate::update::UpdateInfo;
 use std::collections::HashMap;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 
 use super::MenuIdMap;
 
+use device_order_section::{append_device_order_to_menu, append_temporary_default_section};
 use device_section::append_device_list_to_menu;
-use priority_section::{append_priority_list_to_menu, append_temporary_priority_section};
 
 pub struct DeviceDisplayInfo<'a> {
     pub name: &'a str,
@@ -61,10 +61,10 @@ fn register_menu_item(
 ) {
     // This name goes to the logs. The Follow entry's label is translated app text, so it needs an
     // English name, unlike real devices, whose names come from Windows.
-    let name = if device_id.is_main_priority() {
+    let name = if device_id.is_follow_main() {
         match device_type {
-            DeviceType::Output => t_en!("follow-output-device-priority"),
-            DeviceType::Input => t_en!("follow-input-device-priority"),
+            DeviceType::Output => t_en!("follow-default-output-device"),
+            DeviceType::Input => t_en!("follow-default-input-device"),
         }
     } else {
         name.to_string()
@@ -111,7 +111,7 @@ pub struct TrayMenuItems<'a> {
 pub struct MenuContext<'a, B: AudioBackend> {
     pub backend: &'a B,
     pub persistent_state: &'a PersistentState,
-    pub temporary_priorities: &'a TemporaryPriorities,
+    pub temporary_defaults: &'a TemporaryDefaults,
     pub auto_launch_enabled: bool,
     pub update_info: &'a Option<UpdateInfo>,
     pub update_download_in_progress: bool,
@@ -156,7 +156,7 @@ pub fn rebuild_tray_menu(
     tray_menu.append(&PredefinedMenuItem::separator())?;
 
     for device_type in [DeviceType::Output, DeviceType::Input] {
-        append_priority_list_to_menu(
+        append_device_order_to_menu(
             tray_menu,
             device_type,
             ctx.backend,
@@ -165,11 +165,11 @@ pub fn rebuild_tray_menu(
         )?;
     }
 
-    append_temporary_priority_section(
+    append_temporary_default_section(
         tray_menu,
         ctx.backend,
         ctx.persistent_state,
-        ctx.temporary_priorities,
+        ctx.temporary_defaults,
         &mut map,
     )?;
 

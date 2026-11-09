@@ -1,6 +1,6 @@
 # Settings transfer
 
-When Windows gives an audio device a new endpoint ID, Volume Locker finds the same physical device and transfers its volume lock, unmute lock, and priority list entries to the new ID. This is on by default. To turn it off, uncheck **Automatically transfer device settings** under **Preferences** > **Settings transfer**. To get a notification when it happens, check **Notify on settings transfer**.
+When Windows gives an audio device a new endpoint ID, Volume Locker finds the same physical device and transfers its volume lock, unmute lock, and place in the device order to the new ID. This is on by default. To turn it off, uncheck **Automatically transfer device settings** under **Preferences** > **Settings transfer**. To get a notification when it happens, check **Notify on settings transfer**.
 
 To also transfer the device's Windows name and icon, see [Transferring names and icons](./device-names-and-icons.md).
 
@@ -97,7 +97,7 @@ Volume Locker tries each tier in order, highest confidence first:
 
 1. Both devices must be the same type, output or input.
 2. If both have a form factor, a bus type, a USB VID/PID, an `MI_xx` value, or a USB serial number, each of those must match. This keeps motherboard speakers named `Speakers` from matching a new USB speaker, and one headset channel from matching another.
-3. Active devices already in tracked settings, a priority list, or a temporary priority are not candidates.
+3. Active devices already in tracked settings, a device order, or a temporary default device are not candidates.
 4. A match must be one to one. If several devices qualify, that tier skips them and the next tier tries, so settings do not transfer between identical devices.
 
 ### Renamed devices

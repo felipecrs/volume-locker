@@ -32,7 +32,7 @@ use crate::platform::{
     NotificationDuration, SingleInstanceGuard, init_platform, is_directory_writable,
     send_notification,
 };
-use crate::types::{TemporaryPriorities, UserEvent};
+use crate::types::{TemporaryDefaults, UserEvent};
 use crate::ui::{MenuIdMap, dismiss_tray_menu};
 use crate::utils::{get_executable_directory, get_executable_path_str};
 use anyhow::Context;
@@ -224,7 +224,7 @@ fn run() -> anyhow::Result<()> {
         menu_id_map: MenuIdMap::new(),
         watched_devices: Vec::new(),
         notification_throttler: NotificationThrottler::new(),
-        temporary_priorities: TemporaryPriorities::default(),
+        temporary_defaults: TemporaryDefaults::default(),
         update_info: None,
         update_check_in_progress: false,
         update_download_in_progress: false,

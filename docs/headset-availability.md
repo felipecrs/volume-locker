@@ -1,8 +1,8 @@
 # Headset availability
 
-To use this, put a fallback device below the headset in the same priority list. It is on by default. To turn it off, uncheck **Skip disconnected wireless headsets** in **Preferences**.
+To use this, put a fallback device below the headset in the same device order. It is on by default. To turn it off, uncheck **Skip disconnected wireless headsets** in **Preferences**.
 
-Some wireless receivers keep their Windows audio endpoint active while the headset is off or out of range. Volume Locker reads the status of supported headsets over HID, and the priority lists skip the endpoint while the headset is unavailable. Supported headsets are identified by USB VID/PID.
+Some wireless receivers keep their Windows audio endpoint active while the headset is off or out of range. Volume Locker reads the status of supported headsets over HID, and the device order skips the endpoint while the headset is unavailable. Supported headsets are identified by USB VID/PID.
 
 ## Supported headsets
 

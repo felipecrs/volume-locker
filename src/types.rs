@@ -76,14 +76,14 @@ impl PartialEq<f32> for VolumePercent {
 pub struct DeviceId(String);
 
 impl DeviceId {
-    pub const MAIN_PRIORITY: &'static str = "__main_priority__";
+    pub const FOLLOW_MAIN: &'static str = "__follow_main__";
 
-    pub fn is_main_priority(&self) -> bool {
-        self.0 == Self::MAIN_PRIORITY
+    pub fn is_follow_main(&self) -> bool {
+        self.0 == Self::FOLLOW_MAIN
     }
 
-    pub fn main_priority() -> Self {
-        Self(Self::MAIN_PRIORITY.to_string())
+    pub fn follow_main() -> Self {
+        Self(Self::FOLLOW_MAIN.to_string())
     }
 }
 
@@ -161,19 +161,19 @@ pub enum DeviceRole {
     Communications,
 }
 
-/// Which of a device type's two priority lists is being referred to.
+/// Which of a device type's two device orders is being referred to.
 ///
-/// [`PriorityKind::Main`] drives the Console/Multimedia roles.
-/// [`PriorityKind::Communication`] drives the Communications role, allowing media
+/// [`OrderKind::Main`] drives the Console/Multimedia roles.
+/// [`OrderKind::Communication`] drives the Communications role, allowing media
 /// and chat audio to resolve to different devices, or to fall back to the main
-/// device priority.
+/// device order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PriorityKind {
+pub enum OrderKind {
     Main,
     Communication,
 }
 
-impl fmt::Display for PriorityKind {
+impl fmt::Display for OrderKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Main => f.write_str("main"),
@@ -308,7 +308,7 @@ impl DeviceSettings {
 
     /// Returns true if the device has any active volume/unmute lock or notification setting.
     /// Used to decide whether a `DeviceSettings` entry can be pruned when no longer referenced
-    /// by a priority list.
+    /// by a device order.
     pub fn has_active_locks_or_notifications(&self) -> bool {
         self.volume_lock.is_locked
             || self.unmute_lock.is_locked
@@ -324,29 +324,29 @@ pub struct VolumeChangedEvent {
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub struct TemporaryPriorities {
+pub struct TemporaryDefaults {
     pub(crate) output: Option<DeviceId>,
     pub(crate) input: Option<DeviceId>,
     pub(crate) output_communication: Option<DeviceId>,
     pub(crate) input_communication: Option<DeviceId>,
 }
 
-impl TemporaryPriorities {
-    pub fn get(&self, device_type: DeviceType, kind: PriorityKind) -> Option<&DeviceId> {
+impl TemporaryDefaults {
+    pub fn get(&self, device_type: DeviceType, kind: OrderKind) -> Option<&DeviceId> {
         match (device_type, kind) {
-            (DeviceType::Output, PriorityKind::Main) => self.output.as_ref(),
-            (DeviceType::Input, PriorityKind::Main) => self.input.as_ref(),
-            (DeviceType::Output, PriorityKind::Communication) => self.output_communication.as_ref(),
-            (DeviceType::Input, PriorityKind::Communication) => self.input_communication.as_ref(),
+            (DeviceType::Output, OrderKind::Main) => self.output.as_ref(),
+            (DeviceType::Input, OrderKind::Main) => self.input.as_ref(),
+            (DeviceType::Output, OrderKind::Communication) => self.output_communication.as_ref(),
+            (DeviceType::Input, OrderKind::Communication) => self.input_communication.as_ref(),
         }
     }
 
-    pub fn set(&mut self, device_type: DeviceType, kind: PriorityKind, value: Option<DeviceId>) {
+    pub fn set(&mut self, device_type: DeviceType, kind: OrderKind, value: Option<DeviceId>) {
         match (device_type, kind) {
-            (DeviceType::Output, PriorityKind::Main) => self.output = value,
-            (DeviceType::Input, PriorityKind::Main) => self.input = value,
-            (DeviceType::Output, PriorityKind::Communication) => self.output_communication = value,
-            (DeviceType::Input, PriorityKind::Communication) => self.input_communication = value,
+            (DeviceType::Output, OrderKind::Main) => self.output = value,
+            (DeviceType::Input, OrderKind::Main) => self.input = value,
+            (DeviceType::Output, OrderKind::Communication) => self.output_communication = value,
+            (DeviceType::Input, OrderKind::Communication) => self.input_communication = value,
         }
     }
 
@@ -357,7 +357,7 @@ impl TemporaryPriorities {
         new_id: &DeviceId,
     ) -> bool {
         let mut changed = false;
-        for kind in [PriorityKind::Main, PriorityKind::Communication] {
+        for kind in [OrderKind::Main, OrderKind::Communication] {
             if self.get(device_type, kind) == Some(old_id) {
                 self.set(device_type, kind, Some(new_id.clone()));
                 changed = true;

@@ -16,17 +16,17 @@ recording-devices = 录制设备...
 sound-settings = 声音设置...
 volume-mixer = 音量合成器...
 
-## Priority lists / 默认设备顺序
+## Default device order / 默认设备顺序
 
-output-device-priority = 默认输出设备顺序
-input-device-priority = 默认输入设备顺序
-device-priority-settings = 设备顺序设置
-communication-priority-settings = 通信设备顺序设置
-priority-list = 当前顺序
-no-devices-configured = 尚未添加设备
-no-devices-available = 没有可添加的设备
-follow-output-device-priority = 跟随默认输出设备
-follow-input-device-priority = 跟随默认输入设备
+default-output-device-order = 默认输出设备顺序
+default-input-device-order = 默认输入设备顺序
+device-order = 设备顺序设置
+communication-device-order = 通信设备顺序设置
+current-order = 当前顺序
+no-devices-added = 尚未添加设备
+no-devices-to-add = 没有可添加的设备
+follow-default-output-device = 跟随默认输出设备
+follow-default-input-device = 跟随默认输入设备
 add-device = 添加设备
 add-to-top = 添加到顶部
 add-to-bottom = 添加到底部
@@ -35,13 +35,14 @@ move-down = 下移
 move-to-top = 移到顶部
 move-to-bottom = 移到底部
 remove-device = 移除设备
-notify-on-restore = 切换后通知
+notify-on-switch = 切换后通知
 current-device = 当前设备：{ $device }
 no-current-device = 无
 
-## Temporary priority / 临时指定设备
+## Temporary default device / 临时指定设备
 
-temporary-priority = 临时指定设备
+temporary-default-device = 临时指定设备
+no-devices-available = 没有可用的设备
 temporary-output = 输出
 temporary-input = 输入
 temporary-communication = 通信
@@ -78,7 +79,7 @@ output-restored-title = 默认输出设备已恢复
 input-restored-title = 默认输入设备已恢复
 output-communication-restored-title = 默认通信输出设备已恢复
 input-communication-restored-title = 默认通信输入设备已恢复
-switched-by-priority = 已按设备顺序切换到「{ $device }」。
+switched-by-order = 已按设备顺序切换到「{ $device }」。
 unknown-device = 未知设备
 settings-transferred-title = 设备设置已迁移
 settings-transferred = 「{ $device }」的设置已迁移到它的新连接。

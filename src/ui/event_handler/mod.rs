@@ -7,7 +7,7 @@ use crate::platform::{
     open_device_properties, open_device_settings, open_sound_control_panel, open_sound_settings,
     open_volume_mixer,
 };
-use crate::types::{DeviceId, DeviceType, PriorityKind, TemporaryPriorities};
+use crate::types::{DeviceId, DeviceType, OrderKind, TemporaryDefaults};
 use crate::update::UpdateInfo;
 use crate::utils::{get_executable_directory, open_path, open_url};
 use tray_icon::menu::Menu;
@@ -114,7 +114,7 @@ fn apply_device_lock_toggle(
     }
 }
 
-fn handle_priority_event(
+fn handle_device_order_event(
     action: &DeviceAction,
     device_id: &DeviceId,
     device_type: DeviceType,
@@ -122,16 +122,16 @@ fn handle_priority_event(
     persistent_state: &mut PersistentState,
 ) -> bool {
     match action {
-        DeviceAction::AddToPriorityTop(kind) => {
-            let list = persistent_state.priority_list_of_mut(device_type, *kind);
+        DeviceAction::AddToTop(kind) => {
+            let list = persistent_state.device_order_of_mut(device_type, *kind);
             if list.iter().any(|x| *x == **device_id) {
                 false
             } else {
                 list.insert(0, device_id.clone());
                 log::info!(
-                    "User added '{device_name}' to top of {device_type} {kind} priority list"
+                    "User added '{device_name}' to top of {device_type} {kind} device order"
                 );
-                if !device_id.is_main_priority() {
+                if !device_id.is_follow_main() {
                     persistent_state.ensure_device_settings(
                         device_id.clone(),
                         device_name.to_string(),
@@ -141,16 +141,16 @@ fn handle_priority_event(
                 true
             }
         }
-        DeviceAction::AddToPriorityBottom(kind) => {
-            let list = persistent_state.priority_list_of_mut(device_type, *kind);
+        DeviceAction::AddToBottom(kind) => {
+            let list = persistent_state.device_order_of_mut(device_type, *kind);
             if list.iter().any(|x| *x == **device_id) {
                 false
             } else {
                 list.push(device_id.clone());
                 log::info!(
-                    "User added '{device_name}' to bottom of {device_type} {kind} priority list"
+                    "User added '{device_name}' to bottom of {device_type} {kind} device order"
                 );
-                if !device_id.is_main_priority() {
+                if !device_id.is_follow_main() {
                     persistent_state.ensure_device_settings(
                         device_id.clone(),
                         device_name.to_string(),
@@ -160,24 +160,25 @@ fn handle_priority_event(
                 true
             }
         }
-        DeviceAction::RemoveFromPriority(kind) => {
-            let list = persistent_state.priority_list_of_mut(device_type, *kind);
+        DeviceAction::RemoveFromOrder(kind) => {
+            let list = persistent_state.device_order_of_mut(device_type, *kind);
             if let Some(pos) = list.iter().position(|x| x == device_id) {
                 list.remove(pos);
-                log::info!("User removed '{device_name}' from {device_type} {kind} priority list");
+                log::info!("User removed '{device_name}' from {device_type} {kind} device order");
                 persistent_state.remove_device_if_unused(device_id);
                 true
             } else {
                 false
             }
         }
-        DeviceAction::MovePriorityUp(kind)
-        | DeviceAction::MovePriorityDown(kind)
-        | DeviceAction::MovePriorityToTop(kind)
-        | DeviceAction::MovePriorityToBottom(kind) => {
-            let moved = move_priority_item(action, device_id, device_type, *kind, persistent_state);
+        DeviceAction::MoveUp(kind)
+        | DeviceAction::MoveDown(kind)
+        | DeviceAction::MoveToTop(kind)
+        | DeviceAction::MoveToBottom(kind) => {
+            let moved =
+                move_device_order_item(action, device_id, device_type, *kind, persistent_state);
             if moved {
-                log::info!("User reordered '{device_name}' in {device_type} {kind} priority list");
+                log::info!("User reordered '{device_name}' in {device_type} {kind} device order");
             }
             moved
         }
@@ -185,33 +186,33 @@ fn handle_priority_event(
     }
 }
 
-fn move_priority_item(
+fn move_device_order_item(
     action: &DeviceAction,
     device_id: &DeviceId,
     device_type: DeviceType,
-    kind: PriorityKind,
+    kind: OrderKind,
     persistent_state: &mut PersistentState,
 ) -> bool {
-    let list = persistent_state.priority_list_of_mut(device_type, kind);
+    let list = persistent_state.device_order_of_mut(device_type, kind);
     let Some(pos) = list.iter().position(|x| x == device_id) else {
         return false;
     };
 
     match action {
-        DeviceAction::MovePriorityUp(_) if pos > 0 => {
+        DeviceAction::MoveUp(_) if pos > 0 => {
             list.swap(pos, pos - 1);
             true
         }
-        DeviceAction::MovePriorityDown(_) if pos < list.len() - 1 => {
+        DeviceAction::MoveDown(_) if pos < list.len() - 1 => {
             list.swap(pos, pos + 1);
             true
         }
-        DeviceAction::MovePriorityToTop(_) if pos > 0 => {
+        DeviceAction::MoveToTop(_) if pos > 0 => {
             let id = list.remove(pos);
             list.insert(0, id);
             true
         }
-        DeviceAction::MovePriorityToBottom(_) if pos < list.len() - 1 => {
+        DeviceAction::MoveToBottom(_) if pos < list.len() - 1 => {
             let id = list.remove(pos);
             list.push(id);
             true
@@ -224,7 +225,7 @@ pub struct MenuEventContext<'a, B: AudioBackend> {
     pub tray_menu: &'a Menu,
     pub persistent_state: &'a mut PersistentState,
     pub backend: &'a B,
-    pub temporary_priorities: &'a mut TemporaryPriorities,
+    pub temporary_defaults: &'a mut TemporaryDefaults,
     pub update_info: &'a Option<UpdateInfo>,
 }
 
@@ -276,14 +277,14 @@ fn handle_device_event(
                 MenuEventResult::NoChange
             }
         }
-        DeviceAction::AddToPriorityTop(_)
-        | DeviceAction::AddToPriorityBottom(_)
-        | DeviceAction::RemoveFromPriority(_)
-        | DeviceAction::MovePriorityUp(_)
-        | DeviceAction::MovePriorityDown(_)
-        | DeviceAction::MovePriorityToTop(_)
-        | DeviceAction::MovePriorityToBottom(_) => {
-            if handle_priority_event(
+        DeviceAction::AddToTop(_)
+        | DeviceAction::AddToBottom(_)
+        | DeviceAction::RemoveFromOrder(_)
+        | DeviceAction::MoveUp(_)
+        | DeviceAction::MoveDown(_)
+        | DeviceAction::MoveToTop(_)
+        | DeviceAction::MoveToBottom(_) => {
+            if handle_device_order_event(
                 action,
                 device_id,
                 device_type,
@@ -301,16 +302,16 @@ fn handle_device_event(
                 MenuEventResult::NoChange
             }
         }
-        DeviceAction::SetTemporaryPriority(kind) => {
+        DeviceAction::SetTemporaryDefault(kind) => {
             let is_checked = get_check_item_state(ctx.tray_menu, &event.id).unwrap_or(false);
             if is_checked {
                 log::info!(
-                    "User set temporary {device_type} {kind} priority: '{device_name}' ({device_id})"
+                    "User set temporary {device_type} {kind} default device: '{device_name}' ({device_id})"
                 );
             } else {
-                log::info!("User cleared temporary {device_type} {kind} priority");
+                log::info!("User cleared temporary {device_type} {kind} default device");
             }
-            ctx.temporary_priorities.set(
+            ctx.temporary_defaults.set(
                 device_type,
                 *kind,
                 if is_checked {
@@ -343,13 +344,11 @@ fn handle_preference_event(
     ctx: &mut MenuEventContext<'_, impl AudioBackend>,
 ) -> MenuEventResult {
     match action {
-        PreferenceAction::PriorityRestoreNotify(kind) => {
+        PreferenceAction::NotifyOnSwitch(kind) => {
             with_check_state(ctx.tray_menu, &event.id, |checked| {
-                log::info!(
-                    "User toggled 'Notify on restore' for {device_type} {kind} to {checked}"
-                );
+                log::info!("User toggled 'Notify on switch' for {device_type} {kind} to {checked}");
                 ctx.persistent_state
-                    .set_notify_on_priority_restore_of(device_type, *kind, checked);
+                    .set_notify_on_switch_of(device_type, *kind, checked);
             })
         }
         PreferenceAction::OpenDevicesList => {

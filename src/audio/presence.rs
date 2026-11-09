@@ -235,7 +235,7 @@ mod windows {
                 query_done,
                 listen_once,
             ));
-            // Callers apply priorities right after this, so give the query a chance
+            // Callers apply the device order right after this, so give the query a chance
             // to answer first rather than routing to a headset that is off.
             if profile.initial_query.is_some() {
                 smol::block_on(signal_or_timeout(&query_finished, INITIAL_QUERY_WAIT));

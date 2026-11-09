@@ -4,11 +4,11 @@ mod menu_builder;
 pub use event_handler::{MenuEventContext, MenuEventResult, handle_menu_event};
 pub use menu_builder::{MenuContext, TrayMenuItems, rebuild_tray_menu};
 
-use crate::types::{DeviceId, DeviceType, PriorityKind};
+use crate::types::{DeviceId, DeviceType, OrderKind};
 use std::collections::HashMap;
 use tray_icon::menu::{Menu, MenuId, MenuItemKind};
 
-/// The priority-list variants each carry the [`PriorityKind`] of the list the
+/// The device order variants each carry the [`OrderKind`] of the list the
 /// menu item belongs to, so the same menu code drives both the main and the
 /// communication list.
 #[derive(Debug)]
@@ -17,21 +17,21 @@ pub enum DeviceAction {
     VolumeLockNotify,
     UnmuteLock,
     UnmuteLockNotify,
-    AddToPriorityTop(PriorityKind),
-    AddToPriorityBottom(PriorityKind),
-    RemoveFromPriority(PriorityKind),
-    MovePriorityUp(PriorityKind),
-    MovePriorityDown(PriorityKind),
-    MovePriorityToTop(PriorityKind),
-    MovePriorityToBottom(PriorityKind),
-    SetTemporaryPriority(PriorityKind),
+    AddToTop(OrderKind),
+    AddToBottom(OrderKind),
+    RemoveFromOrder(OrderKind),
+    MoveUp(OrderKind),
+    MoveDown(OrderKind),
+    MoveToTop(OrderKind),
+    MoveToBottom(OrderKind),
+    SetTemporaryDefault(OrderKind),
     OpenProperties,
     OpenSettings,
 }
 
 #[derive(Debug)]
 pub enum PreferenceAction {
-    PriorityRestoreNotify(PriorityKind),
+    NotifyOnSwitch(OrderKind),
     OpenDevicesList,
 }
 
