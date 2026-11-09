@@ -32,6 +32,9 @@ jobs:
           sed -i "s/^version = \"0.0.0-development\"$/version = \"${version}\"/" Cargo.toml Cargo.lock
           grep -q "^version = \"${version}\"$" Cargo.toml Cargo.lock
       - run: mise run build
+      # With CI set, this runs the tests on the runner itself instead of in the VM.
+      # They run before the release upload, so a failure blocks the release.
+      - run: mise run e2e
       - if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
         with:
