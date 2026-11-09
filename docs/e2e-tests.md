@@ -16,19 +16,13 @@ They are a separate Cargo package, so a plain `cargo test` doesn't build or run 
 
 You need Docker and KVM, which on Windows means Docker running inside WSL.
 
-Build the base image once. This takes 10 to 30 minutes and needs about 7 GB of disk in `~/.cache/volume-locker-e2e` after the installer download. Each test run boots a VM with 4 GB of RAM.
-
-```bash
-mise run e2e:provision
-```
-
-It uses Windows 11 Enterprise LTSC. Every boot must pass dockur the same `VERSION`: if it changes, dockur moves the image to a `backups` folder and installs Windows again.
-
-Then run the tests. This takes a few minutes, and you can watch the VM at <http://localhost:8006>.
+Run the tests. Each run boots a VM with 4 GB of RAM and takes a few minutes, and you can watch it at <http://localhost:8006>.
 
 ```bash
 mise run e2e
 ```
+
+The first run also builds the VM's Windows image, which takes 10 to 30 minutes and about 7 GB of disk in `~/.cache/volume-locker-e2e`. To rebuild it, delete that folder or run `e2e/provision.sh`. It uses Windows 11 Enterprise LTSC. Every boot must pass dockur the same `VERSION`: if it changes, dockur moves the image to a `backups` folder and installs Windows again.
 
 The task builds the app, then runs `cargo test` from `e2e/`. There, `.cargo/config.toml` links with a static C runtime, since the VM doesn't have the Visual C++ runtime, and makes `run.sh` the test runner, so the tests run in the VM. Arguments after `--` go to the tests, so this runs only the tray test:
 
@@ -51,6 +45,6 @@ Tests can change devices with `plug_in()`, `unplug()` and `report_headset_presen
 - No test streams audio.
 - `Menu::click()` can only click items that fit on the screen.
 - The tests match the English menu text, and the VM's language is English.
-- The base image uses a Windows evaluation licence. If tests start failing because Windows shuts itself down, provision again.
-- Docker in WSL only stays up while a `wsl.exe` process is open. The `e2e` and `e2e:provision` tasks keep one open while they run, but a container started by hand dies shortly after the command returns.
+- The base image uses a Windows evaluation licence. If tests start failing because Windows shuts itself down, rebuild the image.
+- Docker in WSL only stays up while a `wsl.exe` process is open. The `e2e` task keeps one open while it runs, but a container started by hand dies shortly after the command returns.
 - The tests don't run in CI yet.

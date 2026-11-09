@@ -38,7 +38,3 @@ run = [
   "cargo build --manifest-path ../Cargo.toml --release --locked",
   "cargo test --locked --",
 ]
-
-[tasks."e2e:provision"]
-description = "Build the Windows VM image for the end-to-end tests"
-run = "wsl.exe bash e2e/provision.sh"

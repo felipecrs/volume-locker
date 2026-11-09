@@ -1,0 +1,53 @@
+# Spike: can the end-to-end tests run on GitHub's own Windows runner, without a VM?
+name: e2e
+
+on:
+  push:
+    branches:
+      - claude/automated-ui-testing-strategy-837718
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+      - uses: jdx/mr-boxington-action@v1
+      - name: Describe the runner
+        continue-on-error: true
+        run: |
+          whoami
+          [Environment]::OSVersion.VersionString
+          "this process runs in session $((Get-Process -Id $PID).SessionId)"
+          query session
+          Get-Process explorer -ErrorAction SilentlyContinue | Format-Table Id, SessionId | Out-String
+          Get-Service audiosrv, AudioEndpointBuilder | Format-Table Name, Status, StartType | Out-String
+      - name: Start Windows Audio
+        run: |
+          Set-Service audiosrv -StartupType Automatic
+          Start-Service audiosrv
+          Get-Service audiosrv, AudioEndpointBuilder | Format-Table Name, Status | Out-String
+      - name: Install usbip-win2
+        run: |
+          $installer = "$env:RUNNER_TEMP\USBip-x64.exe"
+          Invoke-WebRequest https://github.com/vadimgrn/usbip-win2/releases/download/v.0.9.8.1/USBip-0.9.8.1-x64.exe -OutFile $installer
+          if ((Get-FileHash $installer -Algorithm SHA256).Hash -ne '38CAD6D4432B52D5BB9409D9AD03B72FDFFC4ADA4CD3A48FBECA1A2752A8518A') { throw 'unexpected installer hash' }
+          Start-Process $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
+          if (-not (Test-Path 'C:\Program Files\USBip\usbip.exe')) { throw 'usbip-win2 did not install' }
+      - name: Build
+        working-directory: e2e
+        run: |
+          cargo build --manifest-path ../Cargo.toml --release --locked
+          cargo test --locked --no-run
+          Copy-Item target\release\VolumeLocker.exe target\debug\deps\
+      - name: Run the tests on the runner itself
+        working-directory: e2e
+        env:
+          VOLUME_LOCKER_E2E: "1"
+          # Replaces the VM runner from .cargo/config.toml.
+          CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUNNER: cmd /c
+        run: cargo test --locked

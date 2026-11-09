@@ -21,8 +21,8 @@ BOOT_TIMEOUT=300
 TEST_TIMEOUT=1200
 
 if [ ! -f "$STORAGE/windows.boot" ]; then
-  echo "No base image in $STORAGE. Run provision.sh first." >&2
-  exit 1
+  echo "No Windows image yet, so building one first. This takes 10 to 30 minutes."
+  bash "$E2E_DIR/provision.sh"
 fi
 
 shared=$(new_shared_folder)
