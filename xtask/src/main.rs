@@ -106,7 +106,7 @@ fn e2e(test_args: &[String]) -> Result<i32> {
         let oem = linux.linux_path(&root.join("e2e").join("oem"))?;
         // Dockur copies oem/ to C:\OEM and runs install.bat at the end of setup.
         vm.boot(&["--volume", &format!("{oem}:/oem:ro")])?;
-        // oem/logon.cmd writes this and powers off at the first logon, since no tests are in the shared folder.
+        // oem/logon.ps1 writes this and powers off at the first logon, since no tests are in the shared folder.
         vm.wait_for_file("provisioned", INSTALL_TIMEOUT)?;
         wait_until("the VM to power off", SHUTDOWN_TIMEOUT, || {
             Ok(!vm.running()?)
@@ -129,7 +129,7 @@ fn e2e(test_args: &[String]) -> Result<i32> {
 
     fs::copy(&tests, vm.file("e2e.exe"))?;
     fs::copy(&app, vm.file("VolumeLocker.exe"))?;
-    // One line, since logon.cmd reads only the first.
+    // One line, since logon.ps1 reads only the first.
     fs::write(vm.file("test-args"), test_args.join(" ") + "\n")?;
     // The VM's Samba server reads and writes these as another user.
     linux.cmd("chmod").args(["-R", "a+rwX", &shared]).run()?;

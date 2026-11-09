@@ -9,7 +9,7 @@ They are a workspace member that isn't a default member, so a plain `cargo test`
 - [dockur/windows](https://github.com/dockur/windows) runs Windows in a container, in a real console session. Audio endpoints aren't visible to desktop apps in Windows Sandbox, whose session works like a remote desktop.
 - [usbip-win2](https://github.com/vadimgrn/usbip-win2) attaches USB devices over TCP using signed drivers, so the VM doesn't need test mode. The tests install it themselves when it's missing, and start Windows Audio, which Windows Server turns off. Since every VM run starts clean, each one installs it.
 - `e2e/src/usbip.rs` is a USB/IP server inside the test process. It exports a speaker, a microphone, and a headset with both that also reports presence over HID. Tests decide what the headset reports.
-- `e2e/oem/install.bat` puts `logon.cmd` in the Startup folder. At each logon, it looks in a folder shared with the host. If the tests are there, it runs them and writes their output and exit code back. If not, it's building the image, so it powers off.
+- `e2e/oem/install.bat` registers `logon.ps1` to run at every logon. It looks in a folder shared with the host. If the tests are there, it runs them and writes their output and exit code back. If not, it's building the image, so it powers off.
 - `xtask/` boots the VM with QEMU's `-snapshot`, so whatever a run writes to disk is discarded and every run starts clean.
 
 ## Running them

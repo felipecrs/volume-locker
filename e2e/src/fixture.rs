@@ -9,7 +9,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, MutexGuard, Once};
 use std::time::{Duration, Instant};
 
-/// Set on CI runners, and by oem/logon.cmd in the VM.
+/// Set on CI runners, and by oem/logon.ps1 in the VM.
 const GUARD_VARIABLE: &str = "CI";
 const USBIP: &str = r"C:\Program Files\USBip\usbip.exe";
 const STATE_FILE: &str = "VolumeLockerState.json";
