@@ -1,7 +1,8 @@
 //! Project tasks, run through mise.
 //!
 //! `cargo xtask e2e [test arguments]` builds the app and the end-to-end tests, then runs the tests
-//! in a disposable Windows VM, building its image first if there isn't one. See docs/e2e-tests.md.
+//! in a disposable Windows VM, building its image first if there isn't one. With `CI` set, it runs
+//! them directly instead. See docs/e2e-tests.md.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -53,6 +54,16 @@ fn e2e(test_args: &[String]) -> Result<i32> {
         ),
         "VolumeLocker",
     )?;
+    // CI runners are throwaway machines with a real desktop session, so the tests run there
+    // directly instead of in the VM. The tests find the app in target/release.
+    if env::var_os("CI").is_some() {
+        cmd!(
+            sh,
+            "cargo test --package volume-locker-e2e --locked -- {test_args...}"
+        )
+        .run()?;
+        return Ok(0);
+    }
     let tests = built_executable(
         cmd!(
             sh,

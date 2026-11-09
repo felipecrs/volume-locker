@@ -32,11 +32,9 @@ jobs:
           sed -i "s/^version = \"0.0.0-development\"$/version = \"${version}\"/" Cargo.toml Cargo.lock
           grep -q "^version = \"${version}\"$" Cargo.toml Cargo.lock
       - run: mise run build
-      # The runner is a throwaway machine with a real desktop session, so the end-to-end
-      # tests run on it directly, against the release build, instead of in the VM.
+      # With CI set, this runs the tests on the runner itself instead of in the VM.
       # They run before the release upload, so a failure blocks the release.
-      - name: Run the end-to-end tests
-        run: cargo test --locked --package volume-locker-e2e
+      - run: mise run e2e
       - if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
         with:
