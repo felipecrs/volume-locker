@@ -164,19 +164,15 @@ impl<'a> Linux<'a> {
             .args(["--exec", "sleep", "infinity"])
             .stdin(Stdio::null())
             .spawn()?;
-        let mut linux = Self {
-            sh,
-            home: String::new(),
-            wsl_root: None,
-            _keep_alive: Some(KillOnDrop(keep_alive)),
-        };
-        let vars = linux
-            .cmd("printenv")
-            .args(["WSL_DISTRO_NAME", "HOME"])
-            .read()?;
+        let keep_alive = KillOnDrop(keep_alive);
+        let vars = cmd!(sh, "wsl.exe --exec printenv WSL_DISTRO_NAME HOME").read()?;
         let (distro, home) = vars.split_once('\n').ok_or("WSL didn't report its home")?;
-        linux.wsl_root = Some(PathBuf::from(format!(r"\\wsl.localhost\{distro}")));
-        linux.home = home.trim().to_owned();
+        let linux = Self {
+            sh,
+            home: home.trim().to_owned(),
+            wsl_root: Some(PathBuf::from(format!(r"\\wsl.localhost\{distro}"))),
+            _keep_alive: Some(keep_alive),
+        };
         Ok(linux)
     }
 
