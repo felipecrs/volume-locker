@@ -336,13 +336,13 @@ fn matches_tier(missing: &MissingDevice, candidate: &ActiveCandidate, tier: Matc
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct SeenAsNewResult {
     pub persistent_changed: bool,
-    pub recognized_device_names: Vec<String>,
+    pub seen_as_new_device_names: Vec<String>,
 }
 
 impl SeenAsNewResult {
     #[cfg(test)]
-    pub fn has_recognized_devices(&self) -> bool {
-        !self.recognized_device_names.is_empty()
+    pub fn has_devices_seen_as_new(&self) -> bool {
+        !self.seen_as_new_device_names.is_empty()
     }
 }
 
@@ -369,7 +369,7 @@ pub fn keep_settings_of_devices_seen_as_new(
     >,
 ) -> SeenAsNewResult {
     let mut persistent_changed = false;
-    let mut recognized_device_names: Vec<String> = Vec::new();
+    let mut seen_as_new_device_names: Vec<String> = Vec::new();
     let mut devices_to_update: Vec<(DeviceId, DeviceSettings)> = Vec::new();
     let mut missing_by_type: Vec<MissingDevice> = Vec::new();
 
@@ -430,7 +430,7 @@ pub fn keep_settings_of_devices_seen_as_new(
     if !persistent_state.keep_settings_when_seen_as_new {
         return SeenAsNewResult {
             persistent_changed,
-            recognized_device_names,
+            seen_as_new_device_names,
         };
     }
 
@@ -491,7 +491,7 @@ pub fn keep_settings_of_devices_seen_as_new(
     if missing_by_type.is_empty() {
         return SeenAsNewResult {
             persistent_changed,
-            recognized_device_names,
+            seen_as_new_device_names,
         };
     }
 
@@ -677,7 +677,7 @@ pub fn keep_settings_of_devices_seen_as_new(
                     "Windows saw {device_type} device '{}' as new; moved its settings from ID {old_device_id} to {new_device_id} via {tier}",
                     missing.settings.name
                 );
-                recognized_device_names.push(missing.settings.name.clone());
+                seen_as_new_device_names.push(missing.settings.name.clone());
             }
         }
 
@@ -694,7 +694,7 @@ pub fn keep_settings_of_devices_seen_as_new(
 
     SeenAsNewResult {
         persistent_changed,
-        recognized_device_names,
+        seen_as_new_device_names,
     }
 }
 
@@ -956,7 +956,7 @@ mod tests {
             form_factor: Some(9),
             ..Default::default()
         };
-        let recognized = |old: DeviceFingerprint, new: DeviceFingerprint| {
+        let seen_as_new = |old: DeviceFingerprint, new: DeviceFingerprint| {
             let backend = MockAudioBackend::new(vec![
                 MockDevice::new("new", "Default (HD Audio Adapter)", true).with_fingerprint(new),
             ]);
@@ -964,19 +964,19 @@ mod tests {
             let mut settings = make_device_settings("Desk (HD Audio Adapter)", DeviceType::Output);
             settings.fingerprint = Some(old);
             state.devices.insert("old".into(), settings);
-            keep_settings_of_devices_seen_as_new(&backend, &mut state).has_recognized_devices()
+            keep_settings_of_devices_seen_as_new(&backend, &mut state).has_devices_seen_as_new()
         };
 
-        assert!(recognized(
+        assert!(seen_as_new(
             monitor("Desk", "{A}"),
             monitor("Default", "{A}")
         ));
-        assert!(!recognized(
+        assert!(!seen_as_new(
             monitor("Desk", "{A}"),
             monitor("Default", "{B}")
         ));
         let system = SYSTEM_CONTAINER_ID.to_lowercase();
-        assert!(!recognized(
+        assert!(!seen_as_new(
             monitor("Desk", &system),
             monitor("Default", &system)
         ));
@@ -994,7 +994,7 @@ mod tests {
             usb_serial: usb_serial.map(str::to_string),
             ..Default::default()
         };
-        let recognized = |old: DeviceFingerprint, new: DeviceFingerprint| {
+        let seen_as_new = |old: DeviceFingerprint, new: DeviceFingerprint| {
             let backend = MockAudioBackend::new(vec![
                 MockDevice::new("new", "Default (USB Audio)", true).with_fingerprint(new),
             ]);
@@ -1002,12 +1002,12 @@ mod tests {
             let mut settings = make_device_settings("Default (USB Audio)", DeviceType::Output);
             settings.fingerprint = Some(old);
             state.devices.insert("old".into(), settings);
-            keep_settings_of_devices_seen_as_new(&backend, &mut state).has_recognized_devices()
+            keep_settings_of_devices_seen_as_new(&backend, &mut state).has_devices_seen_as_new()
         };
 
-        assert!(recognized(usb(Some(0), None), usb(Some(0), None)));
-        assert!(!recognized(usb(Some(0), None), usb(Some(1), None)));
-        assert!(!recognized(usb(None, Some("AAA")), usb(None, Some("BBB"))));
+        assert!(seen_as_new(usb(Some(0), None), usb(Some(0), None)));
+        assert!(!seen_as_new(usb(Some(0), None), usb(Some(1), None)));
+        assert!(!seen_as_new(usb(None, Some("AAA")), usb(None, Some("BBB"))));
     }
 
     #[test]
@@ -1024,7 +1024,7 @@ mod tests {
 
         let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
 
-        assert!(!result.has_recognized_devices());
+        assert!(!result.has_devices_seen_as_new());
         assert!(state.devices.contains_key("id_old"));
         assert!(!state.devices.contains_key("id_new"));
     }
@@ -1110,7 +1110,7 @@ mod tests {
 
         let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
         assert!(result.persistent_changed);
-        assert_eq!(result.recognized_device_names, vec!["Speakers"]);
+        assert_eq!(result.seen_as_new_device_names, vec!["Speakers"]);
         assert!(!state.devices.contains_key("id_old"));
         assert!(state.devices.contains_key("id_new"));
         assert_eq!(state.output.device_order, vec!["id_new".to_string()]);
@@ -1143,7 +1143,7 @@ mod tests {
 
         let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
         assert!(result.persistent_changed);
-        assert_eq!(result.recognized_device_names, vec!["Old Buds2 Name"]);
+        assert_eq!(result.seen_as_new_device_names, vec!["Old Buds2 Name"]);
         assert!(!state.devices.contains_key("bth_old_id"));
         assert!(state.devices.contains_key("bth_new_id"));
         assert_eq!(state.output.device_order, vec!["bth_new_id".to_string()]);
@@ -1213,7 +1213,7 @@ mod tests {
 
         let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
         assert!(result.persistent_changed);
-        assert_eq!(result.recognized_device_names, vec!["Logitech G533"]);
+        assert_eq!(result.seen_as_new_device_names, vec!["Logitech G533"]);
         assert!(!state.devices.contains_key("usb_old_port_id"));
         assert!(state.devices.contains_key("usb_new_port_id"));
     }
@@ -1255,7 +1255,7 @@ mod tests {
 
         let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
         assert!(result.persistent_changed);
-        assert_eq!(result.recognized_device_names, vec!["Logitech C930e"]);
+        assert_eq!(result.seen_as_new_device_names, vec!["Logitech C930e"]);
         assert!(!state.devices.contains_key("mic_port1"));
         assert!(state.devices.contains_key("mic_port2"));
         assert_eq!(state.input.device_order, vec!["mic_port2".to_string()]);
@@ -1351,7 +1351,7 @@ mod tests {
 
         let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
         assert!(result.persistent_changed);
-        assert_eq!(result.recognized_device_names, vec!["Galaxy Buds"]);
+        assert_eq!(result.seen_as_new_device_names, vec!["Galaxy Buds"]);
         assert!(!state.devices.contains_key("old_bth_id"));
         assert!(state.devices.contains_key("new_bth_id"));
     }
@@ -1475,7 +1475,7 @@ mod tests {
             &std::collections::HashMap::new(),
         );
         assert!(!result.persistent_changed);
-        assert!(result.has_recognized_devices());
+        assert!(result.has_devices_seen_as_new());
         assert_eq!(
             temp.get(DeviceType::Output, OrderKind::Main),
             Some(&DeviceId::from("g533_new_port"))
@@ -1532,8 +1532,8 @@ mod tests {
             &std::collections::HashMap::new(),
         );
         assert!(
-            result.has_recognized_devices(),
-            "The device should have been recognized!"
+            result.has_devices_seen_as_new(),
+            "The device should have been seen as new!"
         );
     }
 
@@ -1584,7 +1584,7 @@ mod tests {
         let result =
             super::keep_settings_of_devices_seen_as_new(&backend, &mut state, &mut temp, &cache);
         assert!(
-            result.has_recognized_devices(),
+            result.has_devices_seen_as_new(),
             "Bluetooth match via cached fingerprint should succeed!"
         );
         assert_eq!(temp.get(DeviceType::Output, OrderKind::Main), Some(&new_id));

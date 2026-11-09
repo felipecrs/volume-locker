@@ -108,7 +108,7 @@ A renamed endpoint in the system container matches no tier if Windows re-creates
 
 ## Notification
 
-If **Notify when it happens** is checked, each recognized device shows this notification:
+If **Notify when it happens** is checked, each device seen as new shows this notification:
 
-> **Device Recognized**
-> Windows saw '{name}' as a new device. Volume Locker kept its settings.
+> **Device Seen as New**
+> Kept the settings of {name}.

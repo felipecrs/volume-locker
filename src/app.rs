@@ -128,11 +128,11 @@ impl AppState {
         }
 
         if self.persistent_state.notify_when_seen_as_new {
-            for name in result.recognized_device_names {
+            for name in result.seen_as_new_device_names {
                 self.notification_throttler.send_if_not_throttled(
                     &format!("seen_as_new_{name}"),
-                    &t!("device-recognized-title"),
-                    &t!("device-recognized", device = name.as_str()),
+                    &t!("device-seen-as-new-title"),
+                    &t!("device-seen-as-new", device = name.as_str()),
                 );
             }
         }
