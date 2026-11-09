@@ -14,7 +14,8 @@ mod usbip_win2;
 
 type Result<T = (), E = Box<dyn std::error::Error>> = std::result::Result<T, E>;
 
-const IMAGE: &str = "docker.io/dockurr/windows@sha256:16fd7c39a3e48bb946d29c59dc6015942e5b900a1fa5d7e5552053bfc48ee2ea";
+/// Renovate updates this (see renovate.json).
+const IMAGE: &str = "docker.io/dockurr/windows:6.06@sha256:16fd7c39a3e48bb946d29c59dc6015942e5b900a1fa5d7e5552053bfc48ee2ea";
 const CONTAINER: &str = "volume-locker-e2e";
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(7200);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(300);

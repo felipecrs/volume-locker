@@ -16,6 +16,15 @@
       "datasourceTemplate": "github-releases",
       "extractVersionTemplate": "^v\\.(?<version>.+)$",
       "versioningTemplate": "loose"
+    },
+    {
+      "customType": "regex",
+      "description": "Update dockur/windows, which runs the end-to-end tests' VM",
+      "managerFilePatterns": ["/^xtask/src/main\\.rs$/"],
+      "matchStrings": [
+        "const IMAGE: &str = \"(?<depName>[^:\"]+):(?<currentValue>[^@\"]+)@(?<currentDigest>sha256:[0-9a-f]+)\";"
+      ],
+      "datasourceTemplate": "docker"
     }
   ]
 }
