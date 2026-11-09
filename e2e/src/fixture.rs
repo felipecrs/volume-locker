@@ -8,13 +8,14 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, MutexGuard, Once};
 use std::time::{Duration, Instant};
 
-/// Set on CI runners, and by run-tests.ps1 in the VM.
+/// Set on CI runners, and by oem/logon.cmd in the VM.
 const GUARD_VARIABLE: &str = "CI";
 const USBIP: &str = r"C:\Program Files\USBip\usbip.exe";
-const USBIP_INSTALLER_URL: &str =
-    "https://github.com/vadimgrn/usbip-win2/releases/download/v.0.9.8.1/USBip-0.9.8.1-x64.exe";
-const USBIP_INSTALLER_SHA256: &str =
-    "38cad6d4432b52d5bb9409d9ad03b72fdffc4ada4cd3a48fbeca1a2752a8518a";
+/// Renovate updates this (see renovate.json).
+const USBIP_VERSION: &str = "0.9.8.1";
+/// Who signs usbip-win2's installers and drivers. Checking the signer instead of a hash
+/// lets Renovate update the version alone.
+const USBIP_SIGNER: &str = "Cloudyne Systems (Scheibling Consulting AB)";
 const STATE_FILE: &str = "VolumeLockerState.json";
 const LOG_FILE: &str = "VolumeLocker.log";
 const DEVICE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -76,20 +77,23 @@ fn prepare_windows() {
             "--show-error",
             "--output",
         ];
+        let url = format!(
+            "https://github.com/vadimgrn/usbip-win2/releases/download/v.{USBIP_VERSION}/USBip-{USBIP_VERSION}-x64.exe"
+        );
         run(
             "curl.exe",
-            &[&curl_args[..], &[installer_path, USBIP_INSTALLER_URL]].concat(),
+            &[&curl_args[..], &[installer_path, &url]].concat(),
         );
-        // The hash is on the second line, with spaces between bytes on older Windows.
-        let hash: String = run("certutil.exe", &["-hashfile", installer_path, "SHA256"])
-            .lines()
-            .nth(1)
-            .unwrap_or_default()
-            .split_whitespace()
-            .collect();
+        // Prints the signer's name only if the signature is valid.
+        let script = format!(
+            "$s = Get-AuthenticodeSignature -LiteralPath '{installer_path}'; \
+             if ($s.Status -eq 'Valid') {{ $s.SignerCertificate.GetNameInfo('SimpleName', $false) }}"
+        );
+        let signer = run("powershell.exe", &["-NoProfile", "-Command", &script]);
         assert_eq!(
-            hash, USBIP_INSTALLER_SHA256,
-            "the usbip-win2 installer's hash"
+            signer.trim(),
+            USBIP_SIGNER,
+            "the usbip-win2 installer's signer"
         );
         run(
             &installer,
