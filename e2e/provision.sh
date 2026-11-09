@@ -3,6 +3,7 @@
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
+# Keep the version and hash in sync with .github/workflows/ci.yaml.
 USBIP_URL=https://github.com/vadimgrn/usbip-win2/releases/download/v.0.9.8.1/USBip-0.9.8.1-x64.exe
 USBIP_SHA256=38cad6d4432b52d5bb9409d9ad03b72fdffc4ada4cd3a48fbeca1a2752a8518a
 INSTALL_TIMEOUT=7200

@@ -32,6 +32,28 @@ jobs:
           sed -i "s/^version = \"0.0.0-development\"$/version = \"${version}\"/" Cargo.toml Cargo.lock
           grep -q "^version = \"${version}\"$" Cargo.toml Cargo.lock
       - run: mise run build
+      # The runner is a throwaway machine with a real desktop session, so the end-to-end
+      # tests run on it directly, against the release build, instead of in the VM.
+      - name: Prepare for the end-to-end tests
+        run: |
+          Set-Service audiosrv -StartupType Automatic
+          Start-Service audiosrv
+          $installer = "$env:RUNNER_TEMP\USBip-x64.exe"
+          # Keep the version and hash in sync with e2e/provision.sh.
+          Invoke-WebRequest https://github.com/vadimgrn/usbip-win2/releases/download/v.0.9.8.1/USBip-0.9.8.1-x64.exe -OutFile $installer
+          if ((Get-FileHash $installer -Algorithm SHA256).Hash -ne '38CAD6D4432B52D5BB9409D9AD03B72FDFFC4ADA4CD3A48FBECA1A2752A8518A') { throw 'unexpected installer hash' }
+          Start-Process $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
+          if (-not (Test-Path 'C:\Program Files\USBip\usbip.exe')) { throw 'usbip-win2 did not install' }
+      - name: Run the end-to-end tests
+        working-directory: e2e
+        env:
+          VOLUME_LOCKER_E2E: "1"
+          # Runs the tests directly, instead of in the VM as .cargo/config.toml says.
+          CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUNNER: cmd /c
+        run: |
+          cargo test --locked --no-run
+          Copy-Item ..\target\release\VolumeLocker.exe target\debug\deps\
+          cargo test --locked
       - if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
         with:

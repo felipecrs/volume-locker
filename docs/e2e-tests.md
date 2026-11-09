@@ -47,4 +47,4 @@ Tests can change devices with `plug_in()`, `unplug()` and `report_headset_presen
 - The tests match the English menu text, and the VM's language is English.
 - The base image uses a Windows evaluation licence. If tests start failing because Windows shuts itself down, rebuild the image.
 - Docker in WSL only stays up while a `wsl.exe` process is open. The `e2e` task keeps one open while it runs, but a container started by hand dies shortly after the command returns.
-- The tests don't run in CI yet.
+- CI runs the tests on GitHub's Windows runner itself, not in the VM, because the runner is a throwaway machine with a real desktop session. So CI covers Windows Server, while local runs cover Windows 11.
