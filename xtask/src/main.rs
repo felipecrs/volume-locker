@@ -65,6 +65,16 @@ fn e2e(test_args: &[String]) -> Result<i32> {
     let cache = format!("{}/.cache/volume-locker-e2e", linux.home);
     let storage = format!("{cache}/windows");
     linux.cmd("mkdir").args(["-p", &cache]).run()?;
+    let installer = consts::installer_name();
+    // Remove what interrupted runs and older usbip-win2 versions left behind.
+    linux
+        .cmd("find")
+        .args([&cache, "-mindepth", "1", "-maxdepth", "1"])
+        .args([
+            "(", "-name", "shared.*", "-o", "-name", "USBip-*", "!", "-name", &installer, ")",
+        ])
+        .args(["-exec", "rm", "-rf", "{}", "+"])
+        .run()?;
     let shared = linux
         .cmd("mktemp")
         .args(["-d", &format!("{cache}/shared.XXXXXX")])
@@ -94,7 +104,6 @@ fn e2e(test_args: &[String]) -> Result<i32> {
     }
 
     // Each run starts clean, so the tests install usbip-win2 every time. Download it only once.
-    let installer = consts::installer_name();
     let cached_installer = format!("{cache}/{installer}");
     if !linux.host_path(&cached_installer).exists() {
         let partial = format!("{cached_installer}.partial");
