@@ -1,4 +1,4 @@
-# Copied into the VM's shared folder by run.sh, and run by the logon script.
+# Copied into the VM's shared folder by run.sh, and started by oem/logon.cmd.
 $share = '\\host.lan\Data'
 Set-Content "$share\started" 'started'
 New-Item -ItemType Directory C:\e2e -Force | Out-Null

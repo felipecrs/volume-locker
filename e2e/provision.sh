@@ -14,7 +14,7 @@ trap 'docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; rm -rf "$shared"' EXIT
 echo "Installing Windows. Watch it at http://localhost:8006"
 # Dockur copies oem/ to C:\OEM and runs install.bat at the end of setup.
 boot_vm "$shared" --volume "$E2E_DIR/oem:/oem:ro"
-# logon.ps1 writes this and powers off at the first logon, since no tests are in the shared folder.
+# oem/logon.cmd writes this and powers off at the first logon, since no tests are in the shared folder.
 wait_for_file "$shared/provisioned" "$INSTALL_TIMEOUT"
 timeout 300 docker wait "$CONTAINER" >/dev/null
 echo "The image is ready in $STORAGE"
