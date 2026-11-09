@@ -75,7 +75,7 @@ See [Settings transfer](docs/settings-transfer.md) and [Transferring names and i
 
 ### Use your language
 
-Volume Locker follows the Windows display language. It includes English and Simplified Chinese so far. To add yours, see [Localization](docs/localization.md).
+Volume Locker follows the Windows display language. To add yours, see [Localization](docs/localization.md).
 
 ### Preferences
 
