@@ -32,7 +32,7 @@ fn default_is(flow: Flow, device: Device) -> bool {
 }
 
 /// Lists `first` before the other device for that direction.
-fn priority(flow: Flow, first: Device) -> Vec<String> {
+fn device_order(flow: Flow, first: Device) -> Vec<String> {
     let second = if first.product == HEADSET.product {
         fallback(flow)
     } else {
@@ -42,7 +42,7 @@ fn priority(flow: Flow, first: Device) -> Vec<String> {
 }
 
 /// Settings with the headset's volume and unmute locked in both directions.
-fn settings(output_priority: &[String], input_priority: &[String], skip: bool) -> Value {
+fn settings(output_order: &[String], input_order: &[String], skip: bool) -> Value {
     let devices: serde_json::Map<String, Value> = FLOWS
         .into_iter()
         .map(|flow| {
@@ -59,8 +59,8 @@ fn settings(output_priority: &[String], input_priority: &[String], skip: bool) -
         .collect();
     json!({
         "devices": devices,
-        "output_priority_list": output_priority,
-        "input_priority_list": input_priority,
+        "output_device_order": output_order,
+        "input_device_order": input_order,
         "check_updates_on_launch": false,
         "skip_disconnected_wireless_headsets": skip,
     })
@@ -68,8 +68,8 @@ fn settings(output_priority: &[String], input_priority: &[String], skip: bool) -
 
 fn headset_first(skip: bool) -> Value {
     settings(
-        &priority(Flow::Output, HEADSET),
-        &priority(Flow::Input, HEADSET),
+        &device_order(Flow::Output, HEADSET),
+        &device_order(Flow::Input, HEADSET),
         skip,
     )
 }
@@ -107,8 +107,8 @@ fn applies_saved_settings_on_start() {
     let _app = App::start(
         "applies_saved_settings_on_start",
         &settings(
-            &priority(Flow::Output, targets[0]),
-            &priority(Flow::Input, targets[1]),
+            &device_order(Flow::Output, targets[0]),
+            &device_order(Flow::Input, targets[1]),
             false,
         ),
     );
@@ -146,10 +146,10 @@ fn unmutes_a_locked_device() {
 }
 
 #[test]
-fn follows_priority_when_a_device_is_unplugged_and_returns() {
+fn follows_device_order_when_a_device_is_unplugged_and_returns() {
     let _machine = Machine::acquire();
     let _app = App::start(
-        "follows_priority_when_a_device_is_unplugged_and_returns",
+        "follows_device_order_when_a_device_is_unplugged_and_returns",
         &headset_first(false),
     );
     for flow in FLOWS {
