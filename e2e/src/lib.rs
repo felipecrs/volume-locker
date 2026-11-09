@@ -2,7 +2,7 @@
 #![cfg(target_os = "windows")]
 
 pub mod audio;
+pub mod consts;
 pub mod fixture;
 pub mod tray;
 pub mod usbip;
-mod usbip_win2;

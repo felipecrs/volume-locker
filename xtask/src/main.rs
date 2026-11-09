@@ -9,13 +9,13 @@ use std::time::{Duration, Instant};
 use std::{env, fs, thread};
 use xshell::{Cmd, Shell, cmd};
 
-#[path = "../../e2e/src/usbip_win2.rs"]
-mod usbip_win2;
+// Only some of these are used here.
+#[allow(dead_code)]
+#[path = "../../e2e/src/consts.rs"]
+mod consts;
 
 type Result<T = (), E = Box<dyn std::error::Error>> = std::result::Result<T, E>;
 
-/// Renovate updates this (see renovate.json).
-const IMAGE: &str = "docker.io/dockurr/windows:6.06@sha256:16fd7c39a3e48bb946d29c59dc6015942e5b900a1fa5d7e5552053bfc48ee2ea";
 const CONTAINER: &str = "volume-locker-e2e";
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(7200);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(300);
@@ -94,14 +94,14 @@ fn e2e(test_args: &[String]) -> Result<i32> {
     }
 
     // Each run starts clean, so the tests install usbip-win2 every time. Download it only once.
-    let installer = usbip_win2::installer_name();
+    let installer = consts::installer_name();
     let cached_installer = format!("{cache}/{installer}");
     if !linux.host_path(&cached_installer).exists() {
         let partial = format!("{cached_installer}.partial");
         linux
             .cmd("curl")
             .args(["--fail", "--location", "--silent", "--show-error"])
-            .args(["--output", &partial, &usbip_win2::installer_url()])
+            .args(["--output", &partial, &consts::installer_url()])
             .run()?;
         linux.cmd("mv").args([&partial, &cached_installer]).run()?;
     }
@@ -261,7 +261,7 @@ impl Vm<'_> {
             .args(["--volume", &format!("{shared}:/shared")])
             .args(["--stop-timeout", "120"])
             .args(extra)
-            .arg(IMAGE)
+            .arg(consts::DOCKUR_IMAGE)
             .ignore_stdout()
             .run()?;
         Ok(())

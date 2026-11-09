@@ -10,8 +10,8 @@
     {
       "customType": "regex",
       "description": "Update usbip-win2, which the end-to-end tests install",
-      "managerFilePatterns": ["/^e2e/src/usbip_win2\\.rs$/"],
-      "matchStrings": ["const VERSION: &str = \"(?<currentValue>[^\"]+)\";"],
+      "managerFilePatterns": ["/^e2e/src/consts\\.rs$/"],
+      "matchStrings": ["const USBIP_VERSION: &str = \"(?<currentValue>[^\"]+)\";"],
       "depNameTemplate": "vadimgrn/usbip-win2",
       "datasourceTemplate": "github-releases",
       "extractVersionTemplate": "^v\\.(?<version>.+)$",
@@ -20,9 +20,9 @@
     {
       "customType": "regex",
       "description": "Update dockur/windows, which runs the end-to-end tests' VM",
-      "managerFilePatterns": ["/^xtask/src/main\\.rs$/"],
+      "managerFilePatterns": ["/^e2e/src/consts\\.rs$/"],
       "matchStrings": [
-        "const IMAGE: &str = \"(?<depName>[^:\"]+):(?<currentValue>[^@\"]+)@(?<currentDigest>sha256:[0-9a-f]+)\";"
+        "const DOCKUR_IMAGE: &str = \"(?<depName>[^:\"]+):(?<currentValue>[^@\"]+)@(?<currentDigest>sha256:[0-9a-f]+)\";"
       ],
       "datasourceTemplate": "docker"
     }

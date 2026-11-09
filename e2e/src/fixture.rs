@@ -1,8 +1,8 @@
 //! Sets up what a test needs: the fake devices plugged in and the app running on seeded settings.
 use crate::audio::{self, Endpoint};
+use crate::consts;
 use crate::tray;
 use crate::usbip::{self, Device};
-use crate::usbip_win2;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -12,9 +12,6 @@ use std::time::{Duration, Instant};
 /// Set on CI runners, and by oem/logon.cmd in the VM.
 const GUARD_VARIABLE: &str = "CI";
 const USBIP: &str = r"C:\Program Files\USBip\usbip.exe";
-/// Who signs usbip-win2's installers and drivers. Checking the signer instead of a hash
-/// lets Renovate update the version alone.
-const USBIP_SIGNER: &str = "Cloudyne Systems (Scheibling Consulting AB)";
 const STATE_FILE: &str = "VolumeLockerState.json";
 const LOG_FILE: &str = "VolumeLocker.log";
 const DEVICE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -72,16 +69,16 @@ fn prepare_windows() {
         // In the VM, xtask puts a cached installer next to the tests.
         let next_to_tests = std::env::current_exe()
             .expect("find the test executable")
-            .with_file_name(usbip_win2::installer_name());
+            .with_file_name(consts::installer_name());
         let installer = if next_to_tests.exists() {
             next_to_tests
         } else {
-            std::env::temp_dir().join(usbip_win2::installer_name())
+            std::env::temp_dir().join(consts::installer_name())
         };
         let installer_path = installer.to_str().expect("the installer path is UTF-8");
         if !installer.exists() {
             let curl_args = ["--fail", "--location", "--silent", "--show-error"];
-            let url = usbip_win2::installer_url();
+            let url = consts::installer_url();
             run(
                 "curl.exe",
                 &[&curl_args[..], &["--output", installer_path, &url]].concat(),
@@ -95,7 +92,7 @@ fn prepare_windows() {
         let signer = run("powershell.exe", &["-NoProfile", "-Command", &script]);
         assert_eq!(
             signer.trim(),
-            USBIP_SIGNER,
+            consts::USBIP_SIGNER,
             "the usbip-win2 installer's signer"
         );
         run(
