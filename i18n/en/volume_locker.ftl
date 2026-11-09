@@ -51,10 +51,10 @@ temporary-with-device = { $target }: { $device }
 ## Preferences
 
 preferences = Preferences
-settings-transfer = Settings transfer
-transfer-device-settings = Automatically transfer device settings
-transfer-device-name-and-icon = Also transfer device name and icon
-notify-on-settings-transfer = Notify on settings transfer
+devices-seen-as-new = Devices seen as new
+keep-their-settings = Keep their settings
+keep-their-name-and-icon = Keep their name and icon
+notify-when-seen-as-new = Notify when it happens
 skip-disconnected-wireless-headsets = Skip disconnected wireless headsets
 auto-launch = Auto-launch on startup
 check-updates-on-launch = Check for updates on launch
@@ -81,8 +81,8 @@ output-communication-switched-title = Default Communication Output Device Switch
 input-communication-switched-title = Default Communication Input Device Switched
 switched-by-order = Switched to { $device } based on device order.
 unknown-device = Unknown Device
-settings-transferred-title = Device Settings Transferred
-settings-transferred = Settings for '{ $device }' were transferred to its new connection.
+device-recognized-title = Device Recognized
+device-recognized = Windows saw '{ $device }' as a new device. Volume Locker kept its settings.
 update-available-title = Update Available
 update-available = Version { $version } is available. Click 'Update' in the menu to install.
 no-updates-title = No Updates Available

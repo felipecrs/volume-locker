@@ -226,7 +226,7 @@ pub struct DeviceFingerprint {
 
     /// Raw endpoint name from PKEY_Device_DeviceDesc (e.g. "Speakers", "LU28R55"). Windows edits
     /// it when the user renames an endpoint, so it does not identify hardware. It is re-applied
-    /// to the new endpoint after a settings transfer.
+    /// to the new endpoint when Windows sees the device as new.
     #[serde(
         default,
         alias = "hardware_desc",
@@ -350,7 +350,7 @@ impl TemporaryDefaults {
         }
     }
 
-    pub fn transfer_device_id(
+    pub fn replace_device_id(
         &mut self,
         device_type: DeviceType,
         old_id: &DeviceId,

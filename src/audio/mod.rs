@@ -63,10 +63,10 @@ pub use self::windows::WindowsAudioBackend as AudioBackendImpl;
 mod device_order;
 #[cfg(test)]
 mod presence_tests;
-mod transfer;
+mod seen_as_new;
 
 pub use device_order::enforce_device_order;
-pub use transfer::transfer_device_settings;
+pub use seen_as_new::keep_settings_of_devices_seen_as_new;
 
 use crate::notification::NotificationThrottler;
 
@@ -545,7 +545,7 @@ pub(crate) mod tests {
     // --- Integration test ---
 
     #[test]
-    fn transfer_then_enforce_integration() {
+    fn seen_as_new_then_enforce_integration() {
         let backend = MockAudioBackend::new(vec![
             MockDevice::new("new_id", "Speakers", true),
             MockDevice::new("other", "Headphones", true),
@@ -560,7 +560,7 @@ pub(crate) mod tests {
         );
 
         let mut temp_defaults = TemporaryDefaults::default();
-        transfer_device_settings(
+        keep_settings_of_devices_seen_as_new(
             &backend,
             &mut state,
             &mut temp_defaults,

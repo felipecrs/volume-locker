@@ -1,8 +1,8 @@
-# Settings transfer
+# Devices seen as new
 
-When Windows gives an audio device a new endpoint ID, Volume Locker finds the same physical device and transfers its volume lock, unmute lock, and place in the device order to the new ID. This is on by default. To turn it off, uncheck **Automatically transfer device settings** in the **Settings transfer** submenu under **Preferences**. To get a notification when it happens, check **Notify on settings transfer**.
+When Windows gives an audio device a new endpoint ID, it sees the device as new. Volume Locker finds the same physical device and moves its volume lock, unmute lock, and place in the device order to the new ID. This is on by default. To turn it off, uncheck **Keep their settings** in the **Devices seen as new** submenu under **Preferences**. To get a notification when it happens, check **Notify when it happens**.
 
-To also transfer the device's Windows name and icon, see [Transferring names and icons](./device-names-and-icons.md).
+To also keep the device's Windows name and icon, see [Keeping names and icons](./device-names-and-icons.md).
 
 ## When endpoint IDs change
 
@@ -17,22 +17,22 @@ The Windows `AudioEndpointBuilder` service can create a new GUID when you:
 2. Unpair and re-pair a Bluetooth device.
 3. Update a driver or Windows.
 
-## How a transfer runs
+## How it runs
 
-Transfers run on audio events, with no periodic polling:
+Volume Locker looks for devices seen as new on audio events, with no periodic polling:
 
 ```mermaid
 flowchart LR
     NOTIF[IMMNotificationClient<br/>Device added, removed, or changed state<br/>Default device or property changed] --> EVENT[Device change event]
     POWER[System resume] --> EVENT
-    EVENT --> TRANSFER[Transfer settings]
-    TRANSFER --> LOCKS[Enforce volume and unmute locks]
+    EVENT --> MATCH[Keep settings of devices seen as new]
+    MATCH --> LOCKS[Enforce volume and unmute locks]
 ```
 
 1. Volume Locker finds tracked devices whose endpoint is no longer active.
 2. It recovers each missing device's fingerprint.
 3. It compares missing devices with unclaimed active devices through the five matching tiers.
-4. It transfers the settings of each accepted match to the new ID and saves them.
+4. It moves the settings of each accepted match to the new ID and saves them.
 
 Each event also saves any change to a tracked device's name or fingerprint.
 
@@ -98,17 +98,17 @@ Volume Locker tries each tier in order, highest confidence first:
 1. Both devices must be the same type, output or input.
 2. If both have a form factor, a bus type, a USB VID/PID, an `MI_xx` value, or a USB serial number, each of those must match. This keeps motherboard speakers named `Speakers` from matching a new USB speaker, and one headset channel from matching another.
 3. Active devices already in tracked settings, a device order, or a temporary default device are not candidates.
-4. A match must be one to one. If several devices qualify, that tier skips them and the next tier tries, so settings do not transfer between identical devices.
+4. A match must be one to one. If several devices qualify, that tier skips them and the next tier tries, so settings do not move between identical devices.
 
 ### Renamed devices
 
 Tiers 1 and 2 ignore the name. Tier 3 only ignores it when both endpoints share a container other than the system container (`{00000000-0000-0000-FFFF-FFFFFFFFFFFF}`), because Windows uses that one for unrelated endpoints.
 
-A renamed endpoint in the system container matches no tier if Windows re-creates it with its default name, so its settings do not transfer.
+A renamed endpoint in the system container matches no tier if Windows re-creates it with its default name, so its settings stay with the old ID.
 
 ## Notification
 
-If **Notify on settings transfer** is checked, each transferred device shows this notification:
+If **Notify when it happens** is checked, each recognized device shows this notification:
 
-> **Device Settings Transferred**
-> Settings for '{name}' were transferred to its new connection.
+> **Device Recognized**
+> Windows saw '{name}' as a new device. Volume Locker kept its settings.
