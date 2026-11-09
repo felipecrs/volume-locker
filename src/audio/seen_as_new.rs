@@ -334,15 +334,15 @@ fn matches_tier(missing: &MissingDevice, candidate: &ActiveCandidate, tier: Matc
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct TransferResult {
+pub struct SeenAsNewResult {
     pub persistent_changed: bool,
-    pub transferred_device_names: Vec<String>,
+    pub seen_as_new_device_names: Vec<String>,
 }
 
-impl TransferResult {
+impl SeenAsNewResult {
     #[cfg(test)]
-    pub fn has_transfers(&self) -> bool {
-        !self.transferred_device_names.is_empty()
+    pub fn has_devices_seen_as_new(&self) -> bool {
+        !self.seen_as_new_device_names.is_empty()
     }
 }
 
@@ -357,7 +357,9 @@ fn is_device_active(backend: &impl AudioBackend, id: &DeviceId) -> bool {
         .is_ok_and(|d| d.is_active().unwrap_or(false))
 }
 
-pub fn transfer_device_settings(
+/// Finds tracked devices that Windows now sees as new (they came back under a new endpoint ID)
+/// and moves their settings to the new ID. Also saves renames of active tracked devices.
+pub fn keep_settings_of_devices_seen_as_new(
     backend: &impl AudioBackend,
     persistent_state: &mut PersistentState,
     temporary_defaults: &mut TemporaryDefaults,
@@ -365,9 +367,9 @@ pub fn transfer_device_settings(
         DeviceId,
         (String, DeviceType, Option<DeviceFingerprint>),
     >,
-) -> TransferResult {
+) -> SeenAsNewResult {
     let mut persistent_changed = false;
-    let mut transferred_device_names: Vec<String> = Vec::new();
+    let mut seen_as_new_device_names: Vec<String> = Vec::new();
     let mut devices_to_update: Vec<(DeviceId, DeviceSettings)> = Vec::new();
     let mut missing_by_type: Vec<MissingDevice> = Vec::new();
 
@@ -425,10 +427,10 @@ pub fn transfer_device_settings(
         persistent_changed = true;
     }
 
-    if !persistent_state.transfer_device_settings {
-        return TransferResult {
+    if !persistent_state.keep_settings_when_seen_as_new {
+        return SeenAsNewResult {
             persistent_changed,
-            transferred_device_names,
+            seen_as_new_device_names,
         };
     }
 
@@ -487,9 +489,9 @@ pub fn transfer_device_settings(
     }
 
     if missing_by_type.is_empty() {
-        return TransferResult {
+        return SeenAsNewResult {
             persistent_changed,
-            transferred_device_names,
+            seen_as_new_device_names,
         };
     }
 
@@ -507,7 +509,9 @@ pub fn transfer_device_settings(
         let active_devices = match backend.devices(device_type) {
             Ok(devs) => devs,
             Err(e) => {
-                log::warn!("Failed to query {device_type:?} devices for settings transfer: {e:#}");
+                log::warn!(
+                    "Failed to query {device_type:?} devices to find devices seen as new: {e:#}"
+                );
                 continue;
             }
         };
@@ -591,25 +595,26 @@ pub fn transfer_device_settings(
                 let old_fingerprint = missing.fingerprint.as_ref();
                 // The last seen endpoint name and icon are restored as they are; there is no
                 // attempt to decide whether they were customized by the user.
-                let mut transferred_fingerprint = candidate.fingerprint;
-                let (endpoint_name, icon_path) = if persistent_state.transfer_device_name_and_icon {
-                    (
-                        value_to_restore(
-                            old_fingerprint.and_then(|fp| fp.device_desc.as_deref()),
-                            transferred_fingerprint
-                                .as_ref()
-                                .and_then(|fp| fp.device_desc.as_deref()),
-                        ),
-                        value_to_restore(
-                            old_fingerprint.and_then(|fp| fp.icon_path.as_deref()),
-                            transferred_fingerprint
-                                .as_ref()
-                                .and_then(|fp| fp.icon_path.as_deref()),
-                        ),
-                    )
-                } else {
-                    (None, None)
-                };
+                let mut new_fingerprint = candidate.fingerprint;
+                let (endpoint_name, icon_path) =
+                    if persistent_state.keep_name_and_icon_when_seen_as_new {
+                        (
+                            value_to_restore(
+                                old_fingerprint.and_then(|fp| fp.device_desc.as_deref()),
+                                new_fingerprint
+                                    .as_ref()
+                                    .and_then(|fp| fp.device_desc.as_deref()),
+                            ),
+                            value_to_restore(
+                                old_fingerprint.and_then(|fp| fp.icon_path.as_deref()),
+                                new_fingerprint
+                                    .as_ref()
+                                    .and_then(|fp| fp.icon_path.as_deref()),
+                            ),
+                        )
+                    } else {
+                        (None, None)
+                    };
                 let properties_restored = if endpoint_name.is_some() || icon_path.is_some() {
                     match backend.restore_device_properties(
                         &new_device_id,
@@ -629,7 +634,7 @@ pub fn transfer_device_settings(
                 };
 
                 if properties_restored {
-                    if let Some(fingerprint) = transferred_fingerprint.as_mut() {
+                    if let Some(fingerprint) = new_fingerprint.as_mut() {
                         if let Some(name) = endpoint_name {
                             fingerprint.device_desc = Some(name.to_string());
                             fingerprint.clean_name = compose_device_name(
@@ -642,14 +647,14 @@ pub fn transfer_device_settings(
                         }
                     }
                     if endpoint_name.is_some() {
-                        new_settings.name = transferred_fingerprint
+                        new_settings.name = new_fingerprint
                             .as_ref()
                             .and_then(|fingerprint| fingerprint.clean_name.clone())
                             .unwrap_or_else(|| missing.settings.name.clone());
                     }
                 }
-                if transferred_fingerprint.is_some() {
-                    new_settings.fingerprint = transferred_fingerprint;
+                if new_fingerprint.is_some() {
+                    new_settings.fingerprint = new_fingerprint;
                 }
 
                 if persistent_state.devices.contains_key(&old_device_id) {
@@ -666,13 +671,13 @@ pub fn transfer_device_settings(
                     }
                 }
 
-                temporary_defaults.transfer_device_id(device_type, &old_device_id, &new_device_id);
+                temporary_defaults.replace_device_id(device_type, &old_device_id, &new_device_id);
 
                 log::info!(
-                    "Transferred settings of {device_type} device '{}' from ID {old_device_id} to {new_device_id} via {tier}",
+                    "Windows saw {device_type} device '{}' as new; moved its settings from ID {old_device_id} to {new_device_id} via {tier}",
                     missing.settings.name
                 );
-                transferred_device_names.push(missing.settings.name.clone());
+                seen_as_new_device_names.push(missing.settings.name.clone());
             }
         }
 
@@ -687,9 +692,9 @@ pub fn transfer_device_settings(
         }
     }
 
-    TransferResult {
+    SeenAsNewResult {
         persistent_changed,
-        transferred_device_names,
+        seen_as_new_device_names,
     }
 }
 
@@ -698,11 +703,11 @@ mod tests {
     use super::*;
     use crate::audio::tests::{MockAudioBackend, MockDevice, make_device_settings};
 
-    fn transfer_device_settings(
+    fn keep_settings_of_devices_seen_as_new(
         backend: &impl AudioBackend,
         state: &mut PersistentState,
-    ) -> TransferResult {
-        super::transfer_device_settings(
+    ) -> SeenAsNewResult {
+        super::keep_settings_of_devices_seen_as_new(
             backend,
             state,
             &mut TemporaryDefaults::default(),
@@ -812,7 +817,7 @@ mod tests {
     }
 
     #[test]
-    fn transfer_no_changes_when_devices_match() {
+    fn seen_as_new_no_changes_when_devices_match() {
         let backend = MockAudioBackend::new(vec![
             MockDevice::new("id1", "Speakers", true),
             MockDevice::new("id2", "Headphones", true),
@@ -827,14 +832,14 @@ mod tests {
             make_device_settings("Headphones", DeviceType::Output),
         );
 
-        let result = transfer_device_settings(&backend, &mut state);
+        let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
         assert!(!result.persistent_changed);
         assert!(state.devices.contains_key("id1"));
         assert!(state.devices.contains_key("id2"));
     }
 
     #[test]
-    fn transfer_updates_name_and_fingerprint_when_device_renamed() {
+    fn seen_as_new_updates_name_and_fingerprint_when_device_renamed() {
         let fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             device_desc: Some("Headphones".to_string()),
@@ -848,14 +853,14 @@ mod tests {
             make_device_settings("Old Speaker Name", DeviceType::Output),
         );
 
-        let result = transfer_device_settings(&backend, &mut state);
+        let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
         assert!(result.persistent_changed);
         assert_eq!(state.devices["id1"].name, "New Speaker Name");
         assert_eq!(state.devices["id1"].fingerprint, Some(fp));
     }
 
     #[test]
-    fn transfer_restores_last_endpoint_name_and_icon() {
+    fn seen_as_new_restores_last_endpoint_name_and_icon() {
         let old_fingerprint = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
@@ -883,13 +888,13 @@ mod tests {
         settings.fingerprint = Some(old_fingerprint);
         state.devices.insert("old_endpoint".into(), settings);
 
-        let result = transfer_device_settings(&backend, &mut state);
+        let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
 
         assert!(result.persistent_changed);
         assert!(!state.devices.contains_key("old_endpoint"));
-        let transferred = state.devices.get("new_endpoint").unwrap();
-        assert_eq!(transferred.name, "G544 (Logitech G533 Gaming Headset)");
-        let fingerprint = transferred.fingerprint.as_ref().unwrap();
+        let kept = state.devices.get("new_endpoint").unwrap();
+        assert_eq!(kept.name, "G544 (Logitech G533 Gaming Headset)");
+        let fingerprint = kept.fingerprint.as_ref().unwrap();
         assert_eq!(fingerprint.device_desc.as_deref(), Some("G544"));
         assert_eq!(
             fingerprint.clean_name.as_deref(),
@@ -910,7 +915,7 @@ mod tests {
     }
 
     #[test]
-    fn transfer_renamed_usb_device_without_serial_restores_name() {
+    fn seen_as_new_renamed_usb_device_without_serial_restores_name() {
         let usb_fingerprint = |desc: &str| DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
@@ -928,7 +933,7 @@ mod tests {
         settings.fingerprint = Some(usb_fingerprint("Desk Audio"));
         state.devices.insert("old_port".into(), settings);
 
-        transfer_device_settings(&backend, &mut state);
+        keep_settings_of_devices_seen_as_new(&backend, &mut state);
 
         assert_eq!(state.devices["new_port"].name, "Desk Audio (USB Audio)");
         assert_eq!(
@@ -951,7 +956,7 @@ mod tests {
             form_factor: Some(9),
             ..Default::default()
         };
-        let transferred = |old: DeviceFingerprint, new: DeviceFingerprint| {
+        let seen_as_new = |old: DeviceFingerprint, new: DeviceFingerprint| {
             let backend = MockAudioBackend::new(vec![
                 MockDevice::new("new", "Default (HD Audio Adapter)", true).with_fingerprint(new),
             ]);
@@ -959,26 +964,26 @@ mod tests {
             let mut settings = make_device_settings("Desk (HD Audio Adapter)", DeviceType::Output);
             settings.fingerprint = Some(old);
             state.devices.insert("old".into(), settings);
-            transfer_device_settings(&backend, &mut state).has_transfers()
+            keep_settings_of_devices_seen_as_new(&backend, &mut state).has_devices_seen_as_new()
         };
 
-        assert!(transferred(
+        assert!(seen_as_new(
             monitor("Desk", "{A}"),
             monitor("Default", "{A}")
         ));
-        assert!(!transferred(
+        assert!(!seen_as_new(
             monitor("Desk", "{A}"),
             monitor("Default", "{B}")
         ));
         let system = SYSTEM_CONTAINER_ID.to_lowercase();
-        assert!(!transferred(
+        assert!(!seen_as_new(
             monitor("Desk", &system),
             monitor("Default", &system)
         ));
     }
 
     #[test]
-    fn transfer_rejects_other_usb_interface_and_other_unit() {
+    fn seen_as_new_rejects_other_usb_interface_and_other_unit() {
         let usb = |interface_index: Option<u8>, usb_serial: Option<&str>| DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x1234, 0x5678)),
@@ -989,7 +994,7 @@ mod tests {
             usb_serial: usb_serial.map(str::to_string),
             ..Default::default()
         };
-        let transferred = |old: DeviceFingerprint, new: DeviceFingerprint| {
+        let seen_as_new = |old: DeviceFingerprint, new: DeviceFingerprint| {
             let backend = MockAudioBackend::new(vec![
                 MockDevice::new("new", "Default (USB Audio)", true).with_fingerprint(new),
             ]);
@@ -997,19 +1002,19 @@ mod tests {
             let mut settings = make_device_settings("Default (USB Audio)", DeviceType::Output);
             settings.fingerprint = Some(old);
             state.devices.insert("old".into(), settings);
-            transfer_device_settings(&backend, &mut state).has_transfers()
+            keep_settings_of_devices_seen_as_new(&backend, &mut state).has_devices_seen_as_new()
         };
 
-        assert!(transferred(usb(Some(0), None), usb(Some(0), None)));
-        assert!(!transferred(usb(Some(0), None), usb(Some(1), None)));
-        assert!(!transferred(usb(None, Some("AAA")), usb(None, Some("BBB"))));
+        assert!(seen_as_new(usb(Some(0), None), usb(Some(0), None)));
+        assert!(!seen_as_new(usb(Some(0), None), usb(Some(1), None)));
+        assert!(!seen_as_new(usb(None, Some("AAA")), usb(None, Some("BBB"))));
     }
 
     #[test]
-    fn transfer_keeps_old_id_when_transfer_is_off() {
+    fn seen_as_new_keeps_old_id_when_keep_settings_is_off() {
         let backend = MockAudioBackend::new(vec![MockDevice::new("id_new", "Speakers", true)]);
         let mut state = PersistentState {
-            transfer_device_settings: false,
+            keep_settings_when_seen_as_new: false,
             ..Default::default()
         };
         state.devices.insert(
@@ -1017,15 +1022,15 @@ mod tests {
             make_device_settings("Speakers", DeviceType::Output),
         );
 
-        let result = transfer_device_settings(&backend, &mut state);
+        let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
 
-        assert!(!result.has_transfers());
+        assert!(!result.has_devices_seen_as_new());
         assert!(state.devices.contains_key("id_old"));
         assert!(!state.devices.contains_key("id_new"));
     }
 
     #[test]
-    fn transfer_leaves_name_and_icon_alone_when_off() {
+    fn seen_as_new_leaves_name_and_icon_alone_when_off() {
         let fingerprint = |desc: &str| DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
@@ -1038,21 +1043,21 @@ mod tests {
                 .with_fingerprint(fingerprint("Speakers")),
         ]);
         let mut state = PersistentState {
-            transfer_device_name_and_icon: false,
+            keep_name_and_icon_when_seen_as_new: false,
             ..Default::default()
         };
         let mut settings = make_device_settings("Desk (USB Audio)", DeviceType::Output);
         settings.fingerprint = Some(fingerprint("Desk"));
         state.devices.insert("old".into(), settings);
 
-        transfer_device_settings(&backend, &mut state);
+        keep_settings_of_devices_seen_as_new(&backend, &mut state);
 
         assert!(backend.restored_properties.borrow().is_empty());
         assert_eq!(state.devices["new"].name, "Speakers (USB Audio)");
     }
 
     #[test]
-    fn transfer_continues_when_property_restore_fails() {
+    fn seen_as_new_continues_when_property_restore_fails() {
         let old_fingerprint = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
@@ -1077,12 +1082,12 @@ mod tests {
         settings.fingerprint = Some(old_fingerprint);
         state.devices.insert("old_endpoint".into(), settings);
 
-        let result = transfer_device_settings(&backend, &mut state);
+        let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
 
         assert!(result.persistent_changed);
         assert!(!state.devices.contains_key("old_endpoint"));
-        let transferred = state.devices.get("new_endpoint").unwrap();
-        assert_eq!(transferred.name, "Headphones (USB Audio)");
+        let kept = state.devices.get("new_endpoint").unwrap();
+        assert_eq!(kept.name, "Headphones (USB Audio)");
         assert_eq!(
             backend.restored_properties.borrow().as_slice(),
             &[(
@@ -1094,7 +1099,7 @@ mod tests {
     }
 
     #[test]
-    fn transfer_moves_device_when_id_changes() {
+    fn seen_as_new_moves_device_when_id_changes() {
         let backend = MockAudioBackend::new(vec![MockDevice::new("id_new", "Speakers", true)]);
         let mut state = PersistentState::default();
         state.devices.insert(
@@ -1103,16 +1108,16 @@ mod tests {
         );
         state.output.device_order = vec!["id_old".into()];
 
-        let result = transfer_device_settings(&backend, &mut state);
+        let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
         assert!(result.persistent_changed);
-        assert_eq!(result.transferred_device_names, vec!["Speakers"]);
+        assert_eq!(result.seen_as_new_device_names, vec!["Speakers"]);
         assert!(!state.devices.contains_key("id_old"));
         assert!(state.devices.contains_key("id_new"));
         assert_eq!(state.output.device_order, vec!["id_new".to_string()]);
     }
 
     #[test]
-    fn transfer_tier1_bluetooth_mac_match() {
+    fn seen_as_new_tier1_bluetooth_mac_match() {
         let mac = "A0AC69494DD3".to_string();
         let old_fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Bluetooth),
@@ -1136,16 +1141,16 @@ mod tests {
         state.devices.insert("bth_old_id".into(), settings);
         state.output.device_order = vec!["bth_old_id".into()];
 
-        let result = transfer_device_settings(&backend, &mut state);
+        let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
         assert!(result.persistent_changed);
-        assert_eq!(result.transferred_device_names, vec!["Old Buds2 Name"]);
+        assert_eq!(result.seen_as_new_device_names, vec!["Old Buds2 Name"]);
         assert!(!state.devices.contains_key("bth_old_id"));
         assert!(state.devices.contains_key("bth_new_id"));
         assert_eq!(state.output.device_order, vec!["bth_new_id".to_string()]);
     }
 
     #[test]
-    fn transfer_tier1_bluetooth_respects_form_factor_disambiguation() {
+    fn seen_as_new_tier1_bluetooth_respects_form_factor_disambiguation() {
         let mac = "A0AC69494DD3".to_string();
         // Missing stereo headphones (form_factor = 3)
         let old_headphones_fp = DeviceFingerprint {
@@ -1171,15 +1176,15 @@ mod tests {
         settings.fingerprint = Some(old_headphones_fp);
         state.devices.insert("bth_a2dp_old".into(), settings);
 
-        let result = transfer_device_settings(&backend, &mut state);
-        // Should NOT transfer stereo headphones onto hands-free headset!
+        let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
+        // Should NOT match stereo headphones to the hands-free headset!
         assert!(!result.persistent_changed);
         assert!(state.devices.contains_key("bth_a2dp_old"));
         assert!(!state.devices.contains_key("bth_hfp_id"));
     }
 
     #[test]
-    fn transfer_tier2_usb_vid_pid_and_interface_match() {
+    fn seen_as_new_tier2_usb_vid_pid_and_interface_match() {
         let old_fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
@@ -1206,15 +1211,15 @@ mod tests {
         settings.fingerprint = Some(old_fp);
         state.devices.insert("usb_old_port_id".into(), settings);
 
-        let result = transfer_device_settings(&backend, &mut state);
+        let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
         assert!(result.persistent_changed);
-        assert_eq!(result.transferred_device_names, vec!["Logitech G533"]);
+        assert_eq!(result.seen_as_new_device_names, vec!["Logitech G533"]);
         assert!(!state.devices.contains_key("usb_old_port_id"));
         assert!(state.devices.contains_key("usb_new_port_id"));
     }
 
     #[test]
-    fn transfer_tier4_normalized_name_with_port_prefix() {
+    fn seen_as_new_tier4_normalized_name_with_port_prefix() {
         let old_fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             device_desc: Some("Logitech C930e".to_string()),
@@ -1248,9 +1253,9 @@ mod tests {
         state.devices.insert("mic_port1".into(), settings);
         state.input.device_order = vec!["mic_port1".into()];
 
-        let result = transfer_device_settings(&backend, &mut state);
+        let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
         assert!(result.persistent_changed);
-        assert_eq!(result.transferred_device_names, vec!["Logitech C930e"]);
+        assert_eq!(result.seen_as_new_device_names, vec!["Logitech C930e"]);
         assert!(!state.devices.contains_key("mic_port1"));
         assert!(state.devices.contains_key("mic_port2"));
         assert_eq!(state.input.device_order, vec!["mic_port2".to_string()]);
@@ -1279,7 +1284,7 @@ mod tests {
         settings.fingerprint = Some(old_fp);
         state.devices.insert("internal_jack".into(), settings);
 
-        let result = transfer_device_settings(&backend, &mut state);
+        let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
         assert!(!result.persistent_changed);
         assert!(state.devices.contains_key("internal_jack"));
         assert!(!state.devices.contains_key("usb_soundbar"));
@@ -1310,7 +1315,7 @@ mod tests {
         settings.fingerprint = Some(old_mic_fp);
         state.devices.insert("mic_old_id".into(), settings);
 
-        let result = transfer_device_settings(&backend, &mut state);
+        let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
         // Ambiguous match (1 missing vs 2 candidates) must be rejected
         assert!(!result.persistent_changed);
         assert!(state.devices.contains_key("mic_old_id"));
@@ -1344,15 +1349,15 @@ mod tests {
         let settings = make_device_settings("Galaxy Buds", DeviceType::Output);
         state.devices.insert("old_bth_id".into(), settings);
 
-        let result = transfer_device_settings(&backend, &mut state);
+        let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
         assert!(result.persistent_changed);
-        assert_eq!(result.transferred_device_names, vec!["Galaxy Buds"]);
+        assert_eq!(result.seen_as_new_device_names, vec!["Galaxy Buds"]);
         assert!(!state.devices.contains_key("old_bth_id"));
         assert!(state.devices.contains_key("new_bth_id"));
     }
 
     #[test]
-    fn transfer_keeps_missing_device_when_no_match() {
+    fn seen_as_new_keeps_missing_device_when_no_match() {
         let backend = MockAudioBackend::new(vec![MockDevice::new("id_other", "Microphone", true)]);
         let mut state = PersistentState::default();
         state.devices.insert(
@@ -1360,13 +1365,13 @@ mod tests {
             make_device_settings("Speakers", DeviceType::Output),
         );
 
-        let result = transfer_device_settings(&backend, &mut state);
+        let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
         assert!(!result.persistent_changed);
         assert!(state.devices.contains_key("id_gone"));
     }
 
     #[test]
-    fn transfer_updates_input_device_order() {
+    fn seen_as_new_updates_input_device_order() {
         let mut mic = MockDevice::new("mic_new", "Microphone", true);
         mic.device_type = DeviceType::Input;
         let backend = MockAudioBackend::new(vec![mic]);
@@ -1377,14 +1382,14 @@ mod tests {
         );
         state.input.device_order = vec!["mic_old".into()];
 
-        let result = transfer_device_settings(&backend, &mut state);
+        let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
         assert!(result.persistent_changed);
         assert!(state.devices.contains_key("mic_new"));
         assert_eq!(state.input.device_order, vec!["mic_new"]);
     }
 
     #[test]
-    fn transfer_updates_communication_device_order() {
+    fn seen_as_new_updates_communication_device_order() {
         let backend = MockAudioBackend::new(vec![MockDevice::new("id_new", "Headset", true)]);
         let mut state = PersistentState::default();
         state.devices.insert(
@@ -1394,7 +1399,7 @@ mod tests {
         state.output.device_order = vec!["id_old".into()];
         state.output.communication_device_order = vec!["id_old".into()];
 
-        let result = transfer_device_settings(&backend, &mut state);
+        let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
         assert!(result.persistent_changed);
         assert_eq!(state.output.device_order, vec!["id_new".to_string()]);
         assert_eq!(
@@ -1404,7 +1409,7 @@ mod tests {
     }
 
     #[test]
-    fn transfer_updates_temporary_defaults() {
+    fn seen_as_new_updates_temporary_defaults() {
         let backend = MockAudioBackend::new(vec![MockDevice::new("id_new", "Headset", true)]);
         let mut state = PersistentState::default();
         state.devices.insert(
@@ -1419,7 +1424,7 @@ mod tests {
             Some("id_old".into()),
         );
 
-        let result = super::transfer_device_settings(
+        let result = super::keep_settings_of_devices_seen_as_new(
             &backend,
             &mut state,
             &mut temp,
@@ -1437,7 +1442,7 @@ mod tests {
     }
 
     #[test]
-    fn transfer_temporary_default_when_not_in_persistent_devices() {
+    fn seen_as_new_temporary_default_when_not_in_persistent_devices() {
         let fp = DeviceFingerprint {
             bus_type: Some(DeviceBusType::Usb),
             usb_vid_pid: Some((0x046d, 0x0a66)),
@@ -1463,14 +1468,14 @@ mod tests {
             Some("g533_old_port".into()),
         );
 
-        let result = super::transfer_device_settings(
+        let result = super::keep_settings_of_devices_seen_as_new(
             &backend,
             &mut state,
             &mut temp,
             &std::collections::HashMap::new(),
         );
         assert!(!result.persistent_changed);
-        assert!(result.has_transfers());
+        assert!(result.has_devices_seen_as_new());
         assert_eq!(
             temp.get(DeviceType::Output, OrderKind::Main),
             Some(&DeviceId::from("g533_new_port"))
@@ -1520,17 +1525,20 @@ mod tests {
             Some("{0.0.0.00000000}.{ce699537-6ac9-4b42-a0f2-dd7965a73d4b}".into()),
         );
 
-        let result = super::transfer_device_settings(
+        let result = super::keep_settings_of_devices_seen_as_new(
             &backend,
             &mut state,
             &mut temp,
             &std::collections::HashMap::new(),
         );
-        assert!(result.has_transfers(), "Transfer should have succeeded!");
+        assert!(
+            result.has_devices_seen_as_new(),
+            "The device should have been seen as new!"
+        );
     }
 
     #[test]
-    fn test_live_bluetooth_unpair_re_pair_transfer() {
+    fn test_live_bluetooth_unpair_re_pair_keeps_settings() {
         let mac = "A0AC69494DD3".to_string();
         let old_id = DeviceId::from("{0.0.0.00000000}.{e801d086-a873-4852-9c6b-66d7df7be3d0}");
         let new_id = DeviceId::from("{0.0.0.00000000}.{8e89cde4-58c0-432c-a776-bce5eff55f2b}");
@@ -1573,10 +1581,11 @@ mod tests {
         let mut temp = TemporaryDefaults::default();
         temp.set(DeviceType::Output, OrderKind::Main, Some(old_id));
 
-        let result = super::transfer_device_settings(&backend, &mut state, &mut temp, &cache);
+        let result =
+            super::keep_settings_of_devices_seen_as_new(&backend, &mut state, &mut temp, &cache);
         assert!(
-            result.has_transfers(),
-            "Bluetooth transfer via cached fingerprint should succeed!"
+            result.has_devices_seen_as_new(),
+            "Bluetooth match via cached fingerprint should succeed!"
         );
         assert_eq!(temp.get(DeviceType::Output, OrderKind::Main), Some(&new_id));
     }
@@ -1605,7 +1614,7 @@ mod tests {
             .devices
             .insert("internal_hd_speakers".into(), settings);
 
-        let result = transfer_device_settings(&backend, &mut state);
+        let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
         assert!(!result.persistent_changed);
         assert!(state.devices.contains_key("internal_hd_speakers"));
         assert!(!state.devices.contains_key("usb_speakers"));
@@ -1635,14 +1644,14 @@ mod tests {
         settings.fingerprint = Some(old_usb_fp);
         state.devices.insert("usb_dev1".into(), settings);
 
-        let result = transfer_device_settings(&backend, &mut state);
+        let result = keep_settings_of_devices_seen_as_new(&backend, &mut state);
         assert!(!result.persistent_changed);
         assert!(state.devices.contains_key("usb_dev1"));
         assert!(!state.devices.contains_key("usb_dev2"));
     }
 
     #[test]
-    fn transfer_does_not_claim_active_ordered_or_temporary_devices() {
+    fn seen_as_new_does_not_claim_active_ordered_or_temporary_devices() {
         // "active_ordered_dev" is currently active and in output device order,
         // but has no locks so it is not in state.devices.
         let active_dev = MockDevice::new("active_ordered_dev", "Headset", true);
@@ -1656,7 +1665,7 @@ mod tests {
         state.output.device_order = vec!["active_ordered_dev".into()];
 
         let mut temp = TemporaryDefaults::default();
-        let result = super::transfer_device_settings(
+        let result = super::keep_settings_of_devices_seen_as_new(
             &backend,
             &mut state,
             &mut temp,

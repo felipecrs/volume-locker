@@ -201,25 +201,30 @@ fn append_preferences_section(
 ) -> anyhow::Result<()> {
     tray_menu.append(&MenuItem::new(t!("preferences"), false, None))?;
 
-    let settings_transfer = Submenu::new(t!("settings-transfer"), true);
-    for (label, checked, action) in [
+    let devices_seen_as_new = Submenu::new(t!("devices-seen-as-new"), true);
+    let keep_settings = persistent_state.keep_settings_when_seen_as_new;
+    // The name, icon and notification only apply while the settings are kept.
+    for (label, enabled, checked, action) in [
         (
-            t!("transfer-device-settings"),
-            persistent_state.transfer_device_settings,
-            AppAction::ToggleTransferDeviceSettings,
+            t!("keep-their-settings"),
+            true,
+            keep_settings,
+            AppAction::ToggleKeepSettingsWhenSeenAsNew,
         ),
         (
-            t!("transfer-device-name-and-icon"),
-            persistent_state.transfer_device_name_and_icon,
-            AppAction::ToggleTransferDeviceNameAndIcon,
+            t!("keep-their-name-and-icon"),
+            keep_settings,
+            persistent_state.keep_name_and_icon_when_seen_as_new,
+            AppAction::ToggleKeepNameAndIconWhenSeenAsNew,
         ),
         (
-            t!("notify-on-settings-transfer"),
-            persistent_state.notify_on_settings_transfer,
-            AppAction::ToggleNotifyOnSettingsTransfer,
+            t!("notify-when-seen-as-new"),
+            keep_settings,
+            persistent_state.notify_when_seen_as_new,
+            AppAction::ToggleNotifyWhenSeenAsNew,
         ),
     ] {
-        let item = CheckMenuItem::new(&label, true, checked, None);
+        let item = CheckMenuItem::new(&label, enabled, checked, None);
         map.insert(
             item.id().clone(),
             MenuItemInfo {
@@ -227,9 +232,9 @@ fn append_preferences_section(
                 action: MenuAction::App(action),
             },
         );
-        settings_transfer.append(&item)?;
+        devices_seen_as_new.append(&item)?;
     }
-    tray_menu.append(&settings_transfer)?;
+    tray_menu.append(&devices_seen_as_new)?;
 
     let skip_disconnected_wireless_headsets = CheckMenuItem::new(
         t!("skip-disconnected-wireless-headsets"),

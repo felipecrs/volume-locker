@@ -131,8 +131,7 @@ fn to_label_all_indicators() {
     assert_eq!(label, "Headset · 42% 🚫 · 🔒");
 }
 
-#[test]
-fn preferences_group_transfer_options_in_first_submenu() {
+fn preferences_menu(state: &PersistentState) -> Menu {
     let menu = Menu::new();
     let auto_launch = CheckMenuItem::new("Auto-launch on startup", true, false, None);
     let check_updates = CheckMenuItem::new("Check for updates on launch", true, false, None);
@@ -147,18 +146,16 @@ fn preferences_group_transfer_options_in_first_submenu() {
         input_devices_heading: &input_heading,
     };
 
-    append_preferences_section(
-        &menu,
-        false,
-        &PersistentState::default(),
-        &items,
-        &mut HashMap::new(),
-    )
-    .unwrap();
+    append_preferences_section(&menu, false, state, &items, &mut HashMap::new()).unwrap();
+    menu
+}
 
+#[test]
+fn preferences_group_seen_as_new_options_in_first_submenu() {
+    let menu = preferences_menu(&PersistentState::default());
     let top_level = menu.items();
     let submenu = top_level[1].as_submenu().unwrap();
-    assert_eq!(submenu.text(), "Settings transfer");
+    assert_eq!(submenu.text(), "Devices seen as new");
     let options: Vec<_> = submenu
         .items()
         .iter()
@@ -170,9 +167,9 @@ fn preferences_group_transfer_options_in_first_submenu() {
     assert_eq!(
         options,
         [
-            ("Automatically transfer device settings".to_string(), true),
-            ("Also transfer device name and icon".to_string(), true),
-            ("Notify on settings transfer".to_string(), false),
+            ("Keep their settings".to_string(), true),
+            ("Keep their name and icon".to_string(), true),
+            ("Notify when it happens".to_string(), false),
         ]
     );
     let rest: Vec<_> = top_level[2..5]
@@ -187,4 +184,23 @@ fn preferences_group_transfer_options_in_first_submenu() {
             "Check for updates on launch",
         ]
     );
+}
+
+#[test]
+fn seen_as_new_options_are_disabled_while_settings_are_not_kept() {
+    let enabled = |keep_settings| {
+        let state = PersistentState {
+            keep_settings_when_seen_as_new: keep_settings,
+            ..PersistentState::default()
+        };
+        let menu = preferences_menu(&state);
+        let submenu = menu.items()[1].as_submenu().unwrap().clone();
+        submenu
+            .items()
+            .iter()
+            .map(|item| item.as_check_menuitem().unwrap().is_enabled())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(enabled(true), [true, true, true]);
+    assert_eq!(enabled(false), [true, false, false]);
 }

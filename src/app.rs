@@ -1,6 +1,6 @@
 use crate::audio::{
     AudioBackend, AudioBackendImpl, AudioDevice, check_and_unmute_device, collect_device_info,
-    enforce_device_order, enforce_volume_lock, transfer_device_settings,
+    enforce_device_order, enforce_volume_lock, keep_settings_of_devices_seen_as_new,
 };
 use crate::config::{PersistentState, save_state};
 use crate::consts::{APP_NAME, APP_UID, CURRENT_VERSION};
@@ -107,8 +107,8 @@ impl AppState {
         }
     }
 
-    pub fn transfer_device_settings_if_needed(&mut self) {
-        let result = transfer_device_settings(
+    pub fn handle_devices_seen_as_new(&mut self) {
+        let result = keep_settings_of_devices_seen_as_new(
             &self.backend,
             &mut self.persistent_state,
             &mut self.temporary_defaults,
@@ -127,12 +127,12 @@ impl AppState {
             }
         }
 
-        if self.persistent_state.notify_on_settings_transfer {
-            for name in result.transferred_device_names {
+        if self.persistent_state.notify_when_seen_as_new {
+            for name in result.seen_as_new_device_names {
                 self.notification_throttler.send_if_not_throttled(
-                    &format!("transfer_{name}"),
-                    &t!("settings-transferred-title"),
-                    &t!("settings-transferred", device = name.as_str()),
+                    &format!("seen_as_new_{name}"),
+                    &t!("device-seen-as-new-title"),
+                    &t!("device-seen-as-new", device = name.as_str()),
                 );
             }
         }
@@ -266,7 +266,7 @@ impl AppState {
         let description = source.description(|id| self.get_device_display_name(id));
         log::info!("Audio event ({description}): updating devices and enforcing settings...");
 
-        self.transfer_device_settings_if_needed();
+        self.handle_devices_seen_as_new();
         let device_info = collect_device_info(&self.backend);
         let presence_devices: Vec<_> = if self.persistent_state.skip_disconnected_wireless_headsets
         {

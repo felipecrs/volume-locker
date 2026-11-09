@@ -8,7 +8,7 @@
 
 Tired of apps changing your microphone volume without your consent? Of Windows constantly switching to the wrong audio device? Or of losing your device names and icons every time you change USB ports?
 
-Volume Locker is a tray app that locks the volume of your audio devices and switches your audio and communication devices based on the device order you set. When you change USB ports, re-pair a Bluetooth device, or update a driver, it transfers your settings, along with the device's name and icon, to the device's new Windows entry. It is a portable, ~2MB binary written in Rust for Windows.
+Volume Locker is a tray app that locks the volume of your audio devices and switches your audio and communication devices based on the device order you set. When you change USB ports, re-pair a Bluetooth device, or update a driver, Windows may see the device as new, and Volume Locker keeps its settings, name, and icon. It is a portable, ~2MB binary written in Rust for Windows.
 
 ## Demo
 
@@ -67,11 +67,11 @@ Some wireless receivers stay connected while the headset is off or out of range.
 
 ### Keep your settings, names, and icons
 
-Windows sometimes treats your device as new when you change USB ports, re-pair it, or update a driver. You would normally lose its custom name and icon, along with anything tied to it.
+Windows sometimes sees your device as new when you change USB ports, re-pair it, or update a driver. You would normally lose its custom name and icon, along with anything tied to it.
 
-Volume Locker recognizes the device and transfers its volume lock, unmute lock, place in the device order, name, and icon.
+Volume Locker finds the same device and keeps its volume lock, unmute lock, place in the device order, name, and icon.
 
-See [Settings transfer](docs/settings-transfer.md) and [Transferring names and icons](docs/device-names-and-icons.md).
+See [Devices seen as new](docs/devices-seen-as-new.md) and [Keeping names and icons](docs/device-names-and-icons.md).
 
 ### Use your language
 
@@ -79,14 +79,14 @@ Volume Locker follows the Windows display language. To add yours, see [Localizat
 
 ### Preferences
 
-| Preference                                                 | Default | What it does                                                   |
-| ---------------------------------------------------------- | ------- | -------------------------------------------------------------- |
-| Settings transfer > Automatically transfer device settings | On      | Transfers settings when Windows treats a device as new         |
-| Settings transfer > Also transfer device name and icon     | On      | Transfers the device's Windows name and icon with its settings |
-| Settings transfer > Notify on settings transfer            | Off     | Shows a notification when settings transfer                    |
-| Skip disconnected wireless headsets                        | On      | Skips supported headsets that are off or out of range          |
-| Auto-launch on startup                                     | Off     | Starts Volume Locker when you sign in to Windows               |
-| Check for updates on launch                                | On      | Checks for a new release when the app starts                   |
+| Preference                                     | Default | What it does                                           |
+| ---------------------------------------------- | ------- | ------------------------------------------------------ |
+| Devices seen as new > Keep their settings      | On      | Keeps settings when Windows sees a device as new       |
+| Devices seen as new > Keep their name and icon | On      | Keeps the device's Windows name and icon too           |
+| Devices seen as new > Notify when it happens   | Off     | Shows a notification when Windows sees a device as new |
+| Skip disconnected wireless headsets            | On      | Skips supported headsets that are off or out of range  |
+| Auto-launch on startup                         | Off     | Starts Volume Locker when you sign in to Windows       |
+| Check for updates on launch                    | On      | Checks for a new release when the app starts           |
 
 ## Credits
 

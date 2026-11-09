@@ -43,10 +43,15 @@ struct PersistentStateFlat {
     switch_communication_device_output: bool,
     switch_communication_device_input: bool,
     check_updates_on_launch: bool,
-    transfer_device_settings: bool,
-    #[serde(alias = "notify_on_device_migration")]
-    notify_on_settings_transfer: bool,
-    transfer_device_name_and_icon: bool,
+    #[serde(alias = "transfer_device_settings")]
+    keep_settings_when_seen_as_new: bool,
+    #[serde(
+        alias = "notify_on_settings_transfer",
+        alias = "notify_on_device_migration"
+    )]
+    notify_when_seen_as_new: bool,
+    #[serde(alias = "transfer_device_name_and_icon")]
+    keep_name_and_icon_when_seen_as_new: bool,
     skip_disconnected_wireless_headsets: bool,
 }
 
@@ -102,9 +107,9 @@ impl From<PersistentStateFlat> for PersistentState {
                 communication_notify_on_switch: flat.notify_on_switch_input_communication,
             },
             check_updates_on_launch: flat.check_updates_on_launch,
-            transfer_device_settings: flat.transfer_device_settings,
-            notify_on_settings_transfer: flat.notify_on_settings_transfer,
-            transfer_device_name_and_icon: flat.transfer_device_name_and_icon,
+            keep_settings_when_seen_as_new: flat.keep_settings_when_seen_as_new,
+            notify_when_seen_as_new: flat.notify_when_seen_as_new,
+            keep_name_and_icon_when_seen_as_new: flat.keep_name_and_icon_when_seen_as_new,
             skip_disconnected_wireless_headsets: flat.skip_disconnected_wireless_headsets,
         }
     }
@@ -136,9 +141,9 @@ impl From<PersistentState> for PersistentStateFlat {
             switch_communication_device_output: switch_comm_out,
             switch_communication_device_input: switch_comm_in,
             check_updates_on_launch: state.check_updates_on_launch,
-            transfer_device_settings: state.transfer_device_settings,
-            notify_on_settings_transfer: state.notify_on_settings_transfer,
-            transfer_device_name_and_icon: state.transfer_device_name_and_icon,
+            keep_settings_when_seen_as_new: state.keep_settings_when_seen_as_new,
+            notify_when_seen_as_new: state.notify_when_seen_as_new,
+            keep_name_and_icon_when_seen_as_new: state.keep_name_and_icon_when_seen_as_new,
             skip_disconnected_wireless_headsets: state.skip_disconnected_wireless_headsets,
         }
     }
@@ -151,9 +156,9 @@ pub struct PersistentState {
     pub(crate) output: PerTypeSettings,
     pub(crate) input: PerTypeSettings,
     pub check_updates_on_launch: bool,
-    pub transfer_device_settings: bool,
-    pub notify_on_settings_transfer: bool,
-    pub transfer_device_name_and_icon: bool,
+    pub keep_settings_when_seen_as_new: bool,
+    pub notify_when_seen_as_new: bool,
+    pub keep_name_and_icon_when_seen_as_new: bool,
     pub skip_disconnected_wireless_headsets: bool,
 }
 
@@ -309,9 +314,9 @@ impl Default for PersistentState {
                 ..PerTypeSettings::default()
             },
             check_updates_on_launch: true,
-            transfer_device_settings: true,
-            notify_on_settings_transfer: false,
-            transfer_device_name_and_icon: true,
+            keep_settings_when_seen_as_new: true,
+            notify_when_seen_as_new: false,
+            keep_name_and_icon_when_seen_as_new: true,
             skip_disconnected_wireless_headsets: true,
         }
     }
@@ -387,9 +392,9 @@ mod tests {
         let state: PersistentState = serde_json::from_str(json).unwrap();
         assert!(state.output.device_order.is_empty());
         assert!(state.check_updates_on_launch);
-        assert!(state.transfer_device_settings);
-        assert!(!state.notify_on_settings_transfer);
-        assert!(state.transfer_device_name_and_icon);
+        assert!(state.keep_settings_when_seen_as_new);
+        assert!(!state.notify_when_seen_as_new);
+        assert!(state.keep_name_and_icon_when_seen_as_new);
         assert!(state.skip_disconnected_wireless_headsets);
     }
 
@@ -573,9 +578,9 @@ mod tests {
                 ..PerTypeSettings::default()
             },
             check_updates_on_launch: false,
-            transfer_device_settings: false,
-            notify_on_settings_transfer: true,
-            transfer_device_name_and_icon: false,
+            keep_settings_when_seen_as_new: false,
+            notify_when_seen_as_new: true,
+            keep_name_and_icon_when_seen_as_new: false,
             skip_disconnected_wireless_headsets: false,
             devices: HashMap::from([(
                 "dev_a".into(),
@@ -609,9 +614,9 @@ mod tests {
         assert!(loaded.output.notify_on_switch);
         assert!(loaded.input.communication_device_order.is_empty());
         assert!(!loaded.check_updates_on_launch);
-        assert!(!loaded.transfer_device_settings);
-        assert!(loaded.notify_on_settings_transfer);
-        assert!(!loaded.transfer_device_name_and_icon);
+        assert!(!loaded.keep_settings_when_seen_as_new);
+        assert!(loaded.notify_when_seen_as_new);
+        assert!(!loaded.keep_name_and_icon_when_seen_as_new);
 
         let dev = loaded.devices.get("dev_a").unwrap();
         assert!(dev.volume_lock.is_locked);
@@ -680,10 +685,27 @@ mod tests {
     }
 
     #[test]
-    fn notify_preference_loads_from_its_released_key() {
+    fn pre_seen_as_new_config_still_loads() {
+        // State files written before "Settings transfer" became "Devices seen as new".
+        let json = r#"{
+            "transfer_device_settings": false,
+            "notify_on_settings_transfer": true,
+            "transfer_device_name_and_icon": false
+        }"#;
+        let state: PersistentState = serde_json::from_str(json).unwrap();
+        assert!(!state.keep_settings_when_seen_as_new);
+        assert!(state.notify_when_seen_as_new);
+        assert!(!state.keep_name_and_icon_when_seen_as_new);
+
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(!json.contains("transfer"));
+        assert!(json.contains("\"keep_settings_when_seen_as_new\":false"));
+
         let state: PersistentState =
             serde_json::from_str(r#"{"notify_on_device_migration": true}"#).unwrap();
-        assert!(state.notify_on_settings_transfer);
+        assert!(state.notify_when_seen_as_new);
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(!json.contains("migration"));
     }
 
     #[test]

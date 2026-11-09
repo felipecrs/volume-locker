@@ -51,10 +51,10 @@ temporary-with-device = { $target }：{ $device }
 ## Preferences / 首选项
 
 preferences = 首选项
-settings-transfer = 设置迁移
-transfer-device-settings = 自动迁移设备设置
-transfer-device-name-and-icon = 同时迁移设备名称和图标
-notify-on-settings-transfer = 迁移时通知
+devices-seen-as-new = 被视为新设备
+keep-their-settings = 保留其设置
+keep-their-name-and-icon = 保留其名称和图标
+notify-when-seen-as-new = 发生时通知
 skip-disconnected-wireless-headsets = 跳过未连接的无线耳机
 auto-launch = 登录时自动启动
 check-updates-on-launch = 启动时检查更新
@@ -81,8 +81,8 @@ output-communication-switched-title = 默认通信输出设备已切换
 input-communication-switched-title = 默认通信输入设备已切换
 switched-by-order = 已按设备顺序切换到「{ $device }」。
 unknown-device = 未知设备
-settings-transferred-title = 设备设置已迁移
-settings-transferred = 「{ $device }」的设置已迁移到它的新连接。
+device-seen-as-new-title = 设备被视为新设备
+device-seen-as-new = 已保留「{ $device }」的设置。
 update-available-title = 有可用更新
 update-available = 新版本 { $version } 已发布，可在托盘菜单中安装。
 no-updates-title = 已是最新版本
