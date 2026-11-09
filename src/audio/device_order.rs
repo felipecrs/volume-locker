@@ -166,13 +166,13 @@ fn notify_switched(
         |d| d.name(),
     );
     let title = match (device_type, kind) {
-        (DeviceType::Output, OrderKind::Main) => t!("output-restored-title"),
-        (DeviceType::Input, OrderKind::Main) => t!("input-restored-title"),
+        (DeviceType::Output, OrderKind::Main) => t!("output-switched-title"),
+        (DeviceType::Input, OrderKind::Main) => t!("input-switched-title"),
         (DeviceType::Output, OrderKind::Communication) => {
-            t!("output-communication-restored-title")
+            t!("output-communication-switched-title")
         }
         (DeviceType::Input, OrderKind::Communication) => {
-            t!("input-communication-restored-title")
+            t!("input-communication-switched-title")
         }
     };
     let throttle_key = match kind {

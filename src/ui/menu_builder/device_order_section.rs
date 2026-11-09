@@ -194,8 +194,8 @@ fn build_device_order_submenu(
     let notify = persistent_state.notify_on_switch_of(device_type, kind);
     let notify_item = CheckMenuItem::new(t!("notify-on-switch"), true, notify, None);
     let notify_name = match kind {
-        OrderKind::Main => "Notify On Switch",
-        OrderKind::Communication => "Communication Notify On Switch",
+        OrderKind::Main => "Notify on switch",
+        OrderKind::Communication => "Communication notify on switch",
     };
     map.insert(
         notify_item.id().clone(),

@@ -448,7 +448,7 @@ pub fn transfer_device_settings(
                         .map(|(n, _, _)| n.clone())
                         .or_else(|| recovered_fp.as_ref().and_then(|f| f.clean_name.clone()))
                         .or_else(|| recovered_fp.as_ref().and_then(|f| f.device_desc.clone()))
-                        .unwrap_or_else(|| "Ordered Device".to_string());
+                        .unwrap_or_else(|| "Unknown Device".to_string());
 
                     missing_by_type.push(MissingDevice {
                         id: ordered_id.clone(),
