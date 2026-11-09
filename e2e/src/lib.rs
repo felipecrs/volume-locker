@@ -5,3 +5,4 @@ pub mod audio;
 pub mod fixture;
 pub mod tray;
 pub mod usbip;
+mod usbip_win2;

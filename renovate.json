@@ -10,8 +10,8 @@
     {
       "customType": "regex",
       "description": "Update usbip-win2, which the end-to-end tests install",
-      "managerFilePatterns": ["/^e2e/src/fixture\\.rs$/"],
-      "matchStrings": ["const USBIP_VERSION: &str = \"(?<currentValue>[^\"]+)\";"],
+      "managerFilePatterns": ["/^e2e/src/usbip_win2\\.rs$/"],
+      "matchStrings": ["const VERSION: &str = \"(?<currentValue>[^\"]+)\";"],
       "depNameTemplate": "vadimgrn/usbip-win2",
       "datasourceTemplate": "github-releases",
       "extractVersionTemplate": "^v\\.(?<version>.+)$",

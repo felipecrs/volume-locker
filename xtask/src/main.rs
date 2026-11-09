@@ -9,6 +9,9 @@ use std::time::{Duration, Instant};
 use std::{env, fs, thread};
 use xshell::{Cmd, Shell, cmd};
 
+#[path = "../../e2e/src/usbip_win2.rs"]
+mod usbip_win2;
+
 type Result<T = (), E = Box<dyn std::error::Error>> = std::result::Result<T, E>;
 
 const IMAGE: &str = "docker.io/dockurr/windows@sha256:16fd7c39a3e48bb946d29c59dc6015942e5b900a1fa5d7e5552053bfc48ee2ea";
@@ -88,6 +91,20 @@ fn e2e(test_args: &[String]) -> Result<i32> {
         })?;
         fs::remove_file(vm.file("provisioned"))?;
     }
+
+    // Each run starts clean, so the tests install usbip-win2 every time. Download it only once.
+    let installer = usbip_win2::installer_name();
+    let cached_installer = format!("{cache}/{installer}");
+    if !linux.host_path(&cached_installer).exists() {
+        let partial = format!("{cached_installer}.partial");
+        linux
+            .cmd("curl")
+            .args(["--fail", "--location", "--silent", "--show-error"])
+            .args(["--output", &partial, &usbip_win2::installer_url()])
+            .run()?;
+        linux.cmd("mv").args([&partial, &cached_installer]).run()?;
+    }
+    fs::copy(linux.host_path(&cached_installer), vm.file(&installer))?;
 
     fs::copy(&tests, vm.file("e2e.exe"))?;
     fs::copy(&app, vm.file("VolumeLocker.exe"))?;

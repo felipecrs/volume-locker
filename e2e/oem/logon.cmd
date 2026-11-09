@@ -15,8 +15,7 @@ if not exist %share%\e2e.exe (
 echo started>%share%\started
 rem Run local copies: Windows asks before running programs from a network folder.
 mkdir C:\e2e 2>nul
-copy /y %share%\e2e.exe C:\e2e\ >nul
-copy /y %share%\VolumeLocker.exe C:\e2e\ >nul
+copy /y %share%\*.exe C:\e2e\ >nul
 set CI=true
 set RUST_BACKTRACE=1
 set args=

@@ -2,6 +2,7 @@
 use crate::audio::{self, Endpoint};
 use crate::tray;
 use crate::usbip::{self, Device};
+use crate::usbip_win2;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -11,8 +12,6 @@ use std::time::{Duration, Instant};
 /// Set on CI runners, and by oem/logon.cmd in the VM.
 const GUARD_VARIABLE: &str = "CI";
 const USBIP: &str = r"C:\Program Files\USBip\usbip.exe";
-/// Renovate updates this (see renovate.json).
-const USBIP_VERSION: &str = "0.9.8.1";
 /// Who signs usbip-win2's installers and drivers. Checking the signer instead of a hash
 /// lets Renovate update the version alone.
 const USBIP_SIGNER: &str = "Cloudyne Systems (Scheibling Consulting AB)";
@@ -70,22 +69,24 @@ fn prepare_windows() {
         if Path::new(USBIP).exists() {
             return;
         }
-        let installer = std::env::temp_dir().join("USBip-x64.exe");
-        let installer_path = installer.to_str().expect("the temp path is UTF-8");
-        let curl_args = [
-            "--fail",
-            "--location",
-            "--silent",
-            "--show-error",
-            "--output",
-        ];
-        let url = format!(
-            "https://github.com/vadimgrn/usbip-win2/releases/download/v.{USBIP_VERSION}/USBip-{USBIP_VERSION}-x64.exe"
-        );
-        run(
-            "curl.exe",
-            &[&curl_args[..], &[installer_path, &url]].concat(),
-        );
+        // In the VM, xtask puts a cached installer next to the tests.
+        let next_to_tests = std::env::current_exe()
+            .expect("find the test executable")
+            .with_file_name(usbip_win2::installer_name());
+        let installer = if next_to_tests.exists() {
+            next_to_tests
+        } else {
+            std::env::temp_dir().join(usbip_win2::installer_name())
+        };
+        let installer_path = installer.to_str().expect("the installer path is UTF-8");
+        if !installer.exists() {
+            let curl_args = ["--fail", "--location", "--silent", "--show-error"];
+            let url = usbip_win2::installer_url();
+            run(
+                "curl.exe",
+                &[&curl_args[..], &["--output", installer_path, &url]].concat(),
+            );
+        }
         // Prints the signer's name only if the signature is valid.
         let script = format!(
             "$s = Get-AuthenticodeSignature -LiteralPath '{installer_path}'; \
