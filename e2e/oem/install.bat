@@ -1,7 +1,6 @@
 @echo off
-rem Runs once as SYSTEM at the end of Windows setup. A local copy avoids the security prompt
-rem Windows shows for installers on a network share.
-C:\OEM\USBip-x64.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+rem Runs once as SYSTEM at the end of Windows setup.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\OEM\setup.ps1
 schtasks /create /f /tn VolumeLockerE2E /sc onlogon /ru Docker /rl highest /it /tr "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\OEM\logon.ps1"
 rem Docker may already be logged on by now, in which case the logon trigger has passed.
 schtasks /run /tn VolumeLockerE2E
