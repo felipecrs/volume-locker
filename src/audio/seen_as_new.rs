@@ -892,9 +892,9 @@ mod tests {
 
         assert!(result.persistent_changed);
         assert!(!state.devices.contains_key("old_endpoint"));
-        let recognized = state.devices.get("new_endpoint").unwrap();
-        assert_eq!(recognized.name, "G544 (Logitech G533 Gaming Headset)");
-        let fingerprint = recognized.fingerprint.as_ref().unwrap();
+        let kept = state.devices.get("new_endpoint").unwrap();
+        assert_eq!(kept.name, "G544 (Logitech G533 Gaming Headset)");
+        let fingerprint = kept.fingerprint.as_ref().unwrap();
         assert_eq!(fingerprint.device_desc.as_deref(), Some("G544"));
         assert_eq!(
             fingerprint.clean_name.as_deref(),
@@ -1086,8 +1086,8 @@ mod tests {
 
         assert!(result.persistent_changed);
         assert!(!state.devices.contains_key("old_endpoint"));
-        let recognized = state.devices.get("new_endpoint").unwrap();
-        assert_eq!(recognized.name, "Headphones (USB Audio)");
+        let kept = state.devices.get("new_endpoint").unwrap();
+        assert_eq!(kept.name, "Headphones (USB Audio)");
         assert_eq!(
             backend.restored_properties.borrow().as_slice(),
             &[(
