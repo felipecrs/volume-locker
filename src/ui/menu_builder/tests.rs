@@ -187,7 +187,7 @@ fn preferences_group_seen_as_new_options_in_first_submenu() {
 }
 
 #[test]
-fn keep_name_and_icon_is_disabled_while_settings_are_not_kept() {
+fn seen_as_new_options_are_disabled_while_settings_are_not_kept() {
     let enabled = |keep_settings| {
         let state = PersistentState {
             keep_settings_when_seen_as_new: keep_settings,
@@ -202,5 +202,5 @@ fn keep_name_and_icon_is_disabled_while_settings_are_not_kept() {
             .collect::<Vec<_>>()
     };
     assert_eq!(enabled(true), [true, true, true]);
-    assert_eq!(enabled(false), [true, false, true]);
+    assert_eq!(enabled(false), [true, false, false]);
 }

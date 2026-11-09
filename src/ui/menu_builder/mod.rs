@@ -203,7 +203,7 @@ fn append_preferences_section(
 
     let devices_seen_as_new = Submenu::new(t!("devices-seen-as-new"), true);
     let keep_settings = persistent_state.keep_settings_when_seen_as_new;
-    // Keeping the name and icon only happens while the settings are kept.
+    // The name, icon and notification only apply while the settings are kept.
     for (label, enabled, checked, action) in [
         (
             t!("keep-their-settings"),
@@ -219,7 +219,7 @@ fn append_preferences_section(
         ),
         (
             t!("notify-when-seen-as-new"),
-            true,
+            keep_settings,
             persistent_state.notify_when_seen_as_new,
             AppAction::ToggleNotifyWhenSeenAsNew,
         ),

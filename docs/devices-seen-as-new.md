@@ -1,6 +1,6 @@
 # Devices seen as new
 
-When Windows gives an audio device a new endpoint ID, it sees the device as new. Volume Locker finds the same physical device and moves its volume lock, unmute lock, and place in the device order to the new ID. This is on by default. To turn it off, uncheck **Keep their settings** in the **Devices seen as new** submenu under **Preferences**. To get a notification when it happens, check **Notify when it happens**.
+When Windows gives an audio device a new endpoint ID, it sees the device as new. Volume Locker finds the same physical device and moves its volume lock, unmute lock, and place in the device order to the new ID. This is on by default. To turn it off, uncheck **Keep their settings** in the **Devices seen as new** submenu under **Preferences**. To get a notification when it happens, check **Notify when it happens**. **Keep their name and icon** and **Notify when it happens** need **Keep their settings** to be on, and are greyed out otherwise.
 
 To also keep the device's Windows name and icon, see [Keeping names and icons](./device-names-and-icons.md).
 

@@ -67,7 +67,7 @@ Some wireless receivers stay connected while the headset is off or out of range.
 
 ### Keep your settings, names, and icons
 
-Windows sometimes treats your device as new when you change USB ports, re-pair it, or update a driver. You would normally lose its custom name and icon, along with anything tied to it.
+Windows sometimes sees your device as new when you change USB ports, re-pair it, or update a driver. You would normally lose its custom name and icon, along with anything tied to it.
 
 Volume Locker recognizes the device and keeps its volume lock, unmute lock, place in the device order, name, and icon.
 
