@@ -84,16 +84,13 @@ fn prepare_windows() {
                 &[&curl_args[..], &["--output", installer_path, &url]].concat(),
             );
         }
-        // Prints the signer's name only if the signature is valid.
-        let script = format!(
-            "$s = Get-AuthenticodeSignature -LiteralPath '{installer_path}'; \
-             if ($s.Status -eq 'Valid') {{ $s.SignerCertificate.GetNameInfo('SimpleName', $false) }}"
-        );
-        let signer = run("powershell.exe", &["-NoProfile", "-Command", &script]);
+        let script =
+            format!("(Get-FileHash -Algorithm SHA256 -LiteralPath '{installer_path}').Hash");
+        let hash = run("powershell.exe", &["-NoProfile", "-Command", &script]);
         assert_eq!(
-            signer.trim(),
-            consts::USBIP_SIGNER,
-            "the usbip-win2 installer's signer"
+            hash.trim().to_lowercase(),
+            consts::USBIP_SHA256,
+            "the usbip-win2 installer's SHA-256"
         );
         run(
             &installer,
