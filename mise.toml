@@ -1,5 +1,5 @@
 [tools]
-rust = { version = "1.99.1", components = ["rustfmt", "clippy"], profile = "minimal", mr_boxington = true }
+rust = { version = "1.100.0", components = ["rustfmt", "clippy"], profile = "minimal", mr_boxington = true }
 mr-boxington = "v1.29.2"
 
 [tasks.fmt]
