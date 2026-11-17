@@ -6,15 +6,6 @@
     "enabled": true,
     "automerge": true
   },
-  "customDatasources": {
-    "usbip-win2": {
-      "description": "usbip-win2's releases, with the SHA-256 that GitHub records for each x64 installer",
-      "defaultRegistryUrlTemplate": "https://api.github.com/repos/vadimgrn/usbip-win2/releases",
-      "transformTemplates": [
-        "{ \"releases\": $[assets[$match(name, /^USBip-[0-9.]+-x64\\.exe$/)]].{ \"version\": $substringAfter(tag_name, \"v.\"), \"digest\": $substringAfter(assets[$match(name, /^USBip-[0-9.]+-x64\\.exe$/)].digest, \"sha256:\"), \"releaseTimestamp\": published_at, \"isStable\": $not(prerelease) } }"
-      ]
-    }
-  },
   "customManagers": [
     {
       "customType": "regex",
@@ -24,7 +15,8 @@
         "const USBIP_VERSION: &str = \"(?<currentValue>[^\"]+)\";\\s+pub const USBIP_SHA256: &str = \"(?<currentDigest>[0-9a-f]{64})\";"
       ],
       "depNameTemplate": "vadimgrn/usbip-win2",
-      "datasourceTemplate": "custom.usbip-win2",
+      "datasourceTemplate": "github-release-attachments",
+      "extractVersionTemplate": "^v\\.(?<version>.+)$",
       "versioningTemplate": "loose"
     },
     {
