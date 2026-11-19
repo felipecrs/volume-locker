@@ -38,7 +38,7 @@ serde_json = "1.0.154"
 simplelog = "0.12.2"
 smol = "2.0.2"
 
-tao = "0.37.2"
+tao = "0.37.3"
 tray-icon = "0.26.1"
 ureq = { version = "3.5.2", default-features = false, features = [
 	"native-tls",
