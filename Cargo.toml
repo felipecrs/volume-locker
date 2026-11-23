@@ -21,7 +21,7 @@ name = "VolumeLocker"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1.0.104"
+anyhow = "1.0.105"
 auto-launch = "0.6.0"
 dunce = "1.0.5"
 i18n-embed = { version = "0.16.0", features = ["fluent-system"] }
