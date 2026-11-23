@@ -4,16 +4,16 @@ mr-boxington = "v1.29.2"
 
 [tasks.fmt]
 description = "Check code formatting"
-run = "cargo fmt --check"
+run = "cargo fmt --all --check"
 
 [tasks."fmt:fix"]
 description = "Format code"
 alias = ["format"]
-run = "cargo fmt"
+run = "cargo fmt --all"
 
 [tasks.lint]
 description = "Run Clippy linter"
-run = "cargo clippy --locked --all-targets"
+run = "cargo clippy --locked --workspace --all-targets"
 
 [tasks.test]
 description = "Run tests"
@@ -26,3 +26,7 @@ depends = ["fmt", "lint", "test"]
 [tasks.build]
 description = "Build release binary"
 run = "cargo build --release --frozen"
+
+[tasks.e2e]
+description = "Run the end-to-end tests in a Windows VM. Arguments go to the tests."
+run = "cargo xtask e2e"

@@ -1,0 +1,48 @@
+# End-to-end tests
+
+The tests in `e2e/` run the real release build of the app in a Windows VM, with fake USB audio devices that Windows treats as real hardware. They check what the app does from the outside: default devices, volumes, mute state, its state file and its tray menu.
+
+They are a workspace member that isn't a default member, so a plain `cargo test` doesn't build or run them. They change the default audio devices and move the mouse, so they refuse to run unless `CI` is set, as it is on CI runners. The VM sets it too.
+
+## How it works
+
+- [dockur/windows](https://github.com/dockur/windows) runs Windows in a container, in a real console session. Audio endpoints aren't visible to desktop apps in Windows Sandbox, whose session works like a remote desktop.
+- [usbip-win2](https://github.com/vadimgrn/usbip-win2) attaches USB devices over TCP using signed drivers, so the VM doesn't need test mode. The tests install it themselves when it's missing, and start Windows Audio, which Windows Server turns off. Since every VM run starts clean, each one installs it.
+- `e2e/src/usbip.rs` is a USB/IP server inside the test process. It exports a speaker, a microphone, and a headset with both that also reports presence over HID. Tests decide what the headset reports.
+- `e2e/oem/install.bat` registers `logon.ps1` to run at every logon. It looks in a folder shared with the host. If the tests are there, it runs them and writes their output and exit code back. If not, it's building the image, so it powers off.
+- `xtask/` boots the VM with QEMU's `-snapshot`, so whatever a run writes to disk is discarded and every run starts clean.
+
+## Running them
+
+You need Docker running inside WSL.
+
+Run the tests. Each run boots a VM with 4 GB of RAM and takes a few minutes, and you can watch it at <http://localhost:8006>.
+
+```bash
+mise run e2e
+```
+
+The first run also builds the VM's Windows image, which takes 10 to 30 minutes and about 7 GB of disk in `~/.cache/volume-locker-e2e` in WSL. To rebuild it, delete that folder. It uses Windows 11 Enterprise LTSC. Every boot must pass dockur the same `VERSION`: if it changes, dockur moves the image to a `backups` folder and installs Windows again.
+
+The task runs `cargo xtask e2e`, which builds the app and the tests, then runs the tests in the VM. Arguments after `--` go to the tests, so this runs only the tray test:
+
+```bash
+mise run e2e -- tray
+```
+
+`e2e/oem/` is part of the image, so after changing it, delete the image to rebuild it.
+
+## Adding a test
+
+Add a `#[test]` to `e2e/tests/app.rs`. Start with `Machine::acquire()`, seed settings with `App::start()`, then use `wait_until()` rather than fixed sleeps. If a test fails, its output includes the app's log.
+
+Tests can change devices with `plug_in()`, `unplug()` and `report_headset_presence()`, and use the tray with `Menu::open()` after `app.promote_tray_icon()`, which pins the icon to the taskbar. Most tests check output and input in turn, with the speaker and the microphone as fallbacks for the headset.
+
+## Limitations
+
+- No test streams audio.
+- `Menu::click()` can only click items that fit on the screen.
+- The tests match the English menu text, and the VM's language is English.
+- The base image uses a Windows evaluation licence. If tests start failing because Windows shuts itself down, rebuild the image.
+- Docker in WSL only stays up while a `wsl.exe` process is open. The xtask keeps one open while it runs, but a container started by hand dies shortly after the command returns.
+- With `CI` set, `mise run e2e` runs the tests directly instead of in the VM. CI uses this on GitHub's Windows runner, which is a throwaway machine with a real desktop session. So CI covers Windows Server, while local runs cover Windows 11.

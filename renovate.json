@@ -5,5 +5,28 @@
   "lockFileMaintenance": {
     "enabled": true,
     "automerge": true
-  }
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update usbip-win2 and its installer's SHA-256, which the end-to-end tests install",
+      "managerFilePatterns": ["/^e2e/src/consts\\.rs$/"],
+      "matchStrings": [
+        "const USBIP_VERSION: &str = \"(?<currentValue>[^\"]+)\";\\s+pub const USBIP_SHA256: &str = \"(?<currentDigest>[0-9a-f]{64})\";"
+      ],
+      "depNameTemplate": "vadimgrn/usbip-win2",
+      "datasourceTemplate": "github-release-attachments",
+      "extractVersionTemplate": "^v\\.(?<version>.+)$",
+      "versioningTemplate": "loose"
+    },
+    {
+      "customType": "regex",
+      "description": "Update dockur/windows, which runs the end-to-end tests' VM",
+      "managerFilePatterns": ["/^e2e/src/consts\\.rs$/"],
+      "matchStrings": [
+        "const DOCKUR_IMAGE: &str = \"(?<depName>[^:\"]+):(?<currentValue>[^@\"]+)@(?<currentDigest>sha256:[0-9a-f]+)\";"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ]
 }
